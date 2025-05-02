@@ -1,0 +1,157 @@
+syntax = "proto3";
+
+package runner.v1;
+
+option java_multiple_files = true;
+option java_outer_classname = "RunnerProto";
+option java_package = "io.grpc.hydra.runner";
+
+service RunnerService {
+  rpc OpenTunnel(stream BuilderRequest) returns (stream RunnerRequest) {}
+  rpc BuildLog(stream LogChunk) returns (Empty) {}
+  rpc BuildResult(stream NarData) returns (Empty) {}
+  rpc CompleteBuildWithSuccess(BuildResultInfo) returns (Empty) {}
+  rpc CompleteBuildWithFailure(FailResultInfo) returns (Empty) {}
+  rpc StreamFile(StorePath) returns (stream NarData) {}
+}
+
+message Empty {}
+
+message BuilderRequest {
+  oneof message {
+    JoinMessage join = 1;
+    PingMessage ping = 2;
+  }
+}
+
+message JoinMessage {
+  string machine_id = 1;
+  repeated string systems = 2;
+  string hostname = 3;
+  uint32 cpu_count = 4;
+  float bogomips = 5;
+  float speed_factor = 6;
+  uint64 total_mem = 7;
+  repeated string features = 8;
+  bool cgroups = 9;
+}
+
+message Pressure {
+  float avg10 = 1;
+  float avg60 = 2;
+  float avg300 = 3;
+  uint64 total = 4;
+}
+
+message PingMessage {
+  string machine_id = 1;
+  float load1 = 2;
+  float load5 = 3;
+  float load15 = 4;
+  uint64 mem_usage = 5;
+  Pressure cpu_some = 6;
+  Pressure mem_some = 7;
+  Pressure mem_full = 8;
+  Pressure io_some = 9;
+  Pressure io_full = 10;
+}
+
+message RunnerRequest {
+  oneof message {
+    JoinResponse join = 1;
+    BuildMessage build = 2;
+    AbortMessage abort = 3;
+  }
+}
+
+message JoinResponse {
+  string machine_id = 1;
+}
+
+message BuildMessage {
+  string drv = 1;
+  repeated string requisites = 2;
+  uint64 max_log_size = 3;
+  int32 max_silent_time = 4;
+  int32 build_timeout = 5;
+  // bool is_deterministic = 6;
+  // bool enforce_determinism = 7;
+}
+
+message AbortMessage {
+  string drv = 1;
+}
+
+message LogChunk {
+  string drv = 1;
+  bytes data = 2;
+}
+
+message StorePath {
+  string path = 1;
+}
+
+message NarData {
+  bytes chunk = 1;
+}
+
+message OutputNameOnly {
+  string name = 1;
+}
+
+message OutputWithPath {
+  string name = 1;
+  string path = 2;
+  uint64 closure_size = 3;
+  uint64 nar_size = 4;
+  string nar_hash = 5;
+}
+
+message Output {
+  oneof output {
+    OutputNameOnly nameonly = 1;
+    OutputWithPath withpath = 2;
+  }
+}
+
+message BuildMetric {
+  string path = 1;
+  string name = 2;
+  optional string unit = 3;
+  double value = 4;
+}
+
+message BuildProduct {
+  string path = 1;
+  string default_path = 2;
+
+  string type = 3;
+  string subtype = 4;
+  string name = 5;
+
+  bool is_regular = 6;
+
+  optional string sha256hash = 7;
+  optional uint64 file_size = 8;
+}
+
+message NixSupport {
+  bool failed = 1;
+  optional string hydra_release_name = 2;
+  repeated BuildMetric metrics = 3;
+  repeated BuildProduct products = 4;
+}
+
+message BuildResultInfo {
+  string machine_id = 1;
+  string drv = 2;
+  uint64 import_time_ms = 3;
+  uint64 build_time_ms = 4;
+  NixSupport nix_support = 5;
+  repeated Output outputs = 6;
+}
+
+message FailResultInfo {
+  string machine_id = 1;
+  string drv = 2;
+}

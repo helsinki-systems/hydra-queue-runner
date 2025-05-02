@@ -1,0 +1,285 @@
+use std::{net::SocketAddr, sync::Arc};
+
+use crate::state::{Machine, State};
+use runner_v1::{
+    BuildResultInfo, BuilderRequest, FailResultInfo, JoinResponse, LogChunk, NarData,
+    RunnerRequest, StorePath, builder_request,
+    runner_service_server::{RunnerService, RunnerServiceServer},
+};
+use tokio::{io::AsyncWriteExt, sync::mpsc};
+
+type BuilderResult<T> = Result<tonic::Response<T>, tonic::Status>;
+type OpenTunnelResponseStream =
+    std::pin::Pin<Box<dyn futures::Stream<Item = Result<RunnerRequest, tonic::Status>> + Send>>;
+type StreamFileResponseStream =
+    std::pin::Pin<Box<dyn futures::Stream<Item = Result<NarData, tonic::Status>> + Send>>;
+
+pub mod runner_v1 {
+    // We need to allow pedantic here because of generated code
+    #![allow(clippy::pedantic)]
+
+    tonic::include_proto!("runner.v1");
+}
+
+fn match_for_io_error(err_status: &tonic::Status) -> Option<&std::io::Error> {
+    let mut err: &(dyn std::error::Error + 'static) = err_status;
+
+    loop {
+        if let Some(io_err) = err.downcast_ref::<std::io::Error>() {
+            return Some(io_err);
+        }
+
+        // h2::Error do not expose std::io::Error with `source()`
+        // https://github.com/hyperium/h2/pull/462
+        if let Some(h2_err) = err.downcast_ref::<h2::Error>() {
+            if let Some(io_err) = h2_err.get_io() {
+                return Some(io_err);
+            }
+        }
+
+        err = err.source()?;
+    }
+}
+
+#[tracing::instrument(skip(state, msg))]
+fn handle_message(state: &Arc<State>, msg: builder_request::Message) {
+    match msg {
+        // at this point in time, builder already joined, so this message can be ignored
+        builder_request::Message::Join(_) => (),
+        builder_request::Message::Ping(msg) => {
+            log::debug!("new ping: {msg:?}");
+            let Ok(machine_id) = uuid::Uuid::parse_str(&msg.machine_id) else {
+                return;
+            };
+            if let Some(m) = state.machines.get_machine_by_id(machine_id) {
+                m.stats.store_ping(&msg);
+            }
+        }
+        #[allow(unreachable_patterns)]
+        _ => log::warn!("unhandled message: {msg:?}"),
+    }
+}
+
+pub struct Server {
+    state: Arc<State>,
+}
+
+impl Server {
+    pub async fn run(addr: SocketAddr, state: Arc<State>) -> anyhow::Result<()> {
+        tonic::transport::Server::builder()
+            .trace_fn(|_| tracing::info_span!("grpc_server"))
+            .add_service(
+                RunnerServiceServer::new(Self { state })
+                    .send_compressed(tonic::codec::CompressionEncoding::Zstd)
+                    .accept_compressed(tonic::codec::CompressionEncoding::Zstd),
+            )
+            .serve(addr)
+            .await?;
+
+        Ok(())
+    }
+}
+
+#[tonic::async_trait]
+impl RunnerService for Server {
+    type OpenTunnelStream = OpenTunnelResponseStream;
+    type StreamFileStream = StreamFileResponseStream;
+
+    #[tracing::instrument(skip(self, req), err)]
+    async fn open_tunnel(
+        &self,
+        req: tonic::Request<tonic::Streaming<BuilderRequest>>,
+    ) -> BuilderResult<Self::OpenTunnelStream> {
+        use tokio_stream::{StreamExt as _, wrappers::ReceiverStream};
+
+        let mut stream = req.into_inner();
+        let (input_tx, mut input_rx) = mpsc::channel::<runner_v1::runner_request::Message>(128);
+        let machine = match stream.next().await {
+            Some(Ok(m)) => match m.message {
+                Some(runner_v1::builder_request::Message::Join(v)) => {
+                    Machine::new(v, input_tx).ok()
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some(machine) = machine else {
+            return Err(tonic::Status::invalid_argument("No Ping message was sent"));
+        };
+
+        let state = self.state.clone();
+        let machine_id = state.insert_machine(machine.clone()).await;
+        log::info!("Registered new machine: machine_id={machine_id} machine={machine}",);
+
+        let (output_tx, output_rx) = mpsc::channel(128);
+        if output_tx
+            .send(Ok(RunnerRequest {
+                message: Some(runner_v1::runner_request::Message::Join(JoinResponse {
+                    machine_id: machine_id.to_string(),
+                })),
+            }))
+            .await
+            .is_err()
+        {
+            return Err(tonic::Status::internal("Failed to send join Response."));
+        }
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    msg = input_rx.recv() => {
+                        if let Some(msg) = msg {
+                            if output_tx.send(Ok(RunnerRequest { message: Some(msg) })).await.is_err() {
+                                state.remove_machine(machine_id).await;
+                                break
+                            }
+                        } else {
+                            state.remove_machine(machine_id).await;
+                            break
+                        }
+                    },
+                    msg = stream.next() => match msg.map(|v| v.map(|v| v.message)) {
+                        Some(Ok(Some(msg))) => handle_message(&state, msg),
+                        Some(Ok(None)) => (), // empty meesage can be ignored
+                        Some(Err(err)) => {
+                            if let Some(io_err) = match_for_io_error(&err) {
+                                if io_err.kind() == std::io::ErrorKind::BrokenPipe {
+                                    log::error!("client disconnected: broken pipe");
+                                    state.remove_machine(machine_id).await;
+                                    break;
+                                }
+                            }
+
+                            match output_tx.send(Err(err)).await {
+                                Ok(()) => (),
+                                Err(_err) => {
+                                    state.remove_machine(machine_id).await;
+                                    break
+                                }
+                            }
+                        },
+                        None => {
+                            state.remove_machine(machine_id).await;
+                            break
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(tonic::Response::new(
+            Box::pin(ReceiverStream::new(output_rx)) as Self::OpenTunnelStream,
+        ))
+    }
+
+    #[tracing::instrument(skip(self, req), err)]
+    async fn build_log(
+        &self,
+        req: tonic::Request<tonic::Streaming<LogChunk>>,
+    ) -> BuilderResult<runner_v1::Empty> {
+        use tokio_stream::StreamExt as _;
+
+        let mut stream = req.into_inner();
+        let state = self.state.clone();
+
+        let mut out_file: Option<tokio::fs::File> = None;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+
+            if let Some(ref mut file) = out_file {
+                file.write_all(&chunk.data).await?;
+            } else {
+                let mut file = state.new_log_file(&chunk.drv).await.unwrap();
+                file.write_all(&chunk.data).await?;
+                out_file = Some(file);
+            }
+        }
+
+        Ok(tonic::Response::new(runner_v1::Empty {}))
+    }
+
+    #[tracing::instrument(skip(self, req), err)]
+    async fn build_result(
+        &self,
+        req: tonic::Request<tonic::Streaming<NarData>>,
+    ) -> BuilderResult<runner_v1::Empty> {
+        use tokio_stream::StreamExt as _;
+
+        let mut stream = req.into_inner();
+
+        if let Some(Ok(first_item)) = stream.next().await {
+            let new_stream = tokio_stream::once(first_item.chunk.into())
+                .chain(stream.map_while(|s| s.map(|m| m.chunk.into()).ok()));
+            nix_utils::import_nar(new_stream)
+                .await
+                .map_err(|_| tonic::Status::internal("Failed to import nar"))?;
+        }
+
+        Ok(tonic::Response::new(runner_v1::Empty {}))
+    }
+
+    #[tracing::instrument(skip(self, req), err)]
+    async fn complete_build_with_success(
+        &self,
+        req: tonic::Request<BuildResultInfo>,
+    ) -> BuilderResult<runner_v1::Empty> {
+        let state = self.state.clone();
+
+        let req = req.into_inner();
+        let drv = req.drv.clone();
+        let machine_id = uuid::Uuid::parse_str(&req.machine_id);
+
+        let build_output = crate::state::BuildOutput::from_result_info(req);
+        if let Err(e) = state
+            .mark_step_done(machine_id.ok(), &drv, build_output)
+            .await
+        {
+            log::error!("Failed to mark step with drv={drv} as done: {e}");
+        }
+
+        Ok(tonic::Response::new(runner_v1::Empty {}))
+    }
+
+    #[tracing::instrument(skip(self, req), err)]
+    async fn complete_build_with_failure(
+        &self,
+        req: tonic::Request<FailResultInfo>,
+    ) -> BuilderResult<runner_v1::Empty> {
+        let state = self.state.clone();
+
+        let req = req.into_inner();
+        let drv = req.drv;
+        let machine_id = uuid::Uuid::parse_str(&req.machine_id);
+
+        if let Err(e) = state.fail_step(machine_id.ok(), &drv).await {
+            log::error!("Failed to fail step with drv={drv}: {e}");
+        }
+
+        Ok(tonic::Response::new(runner_v1::Empty {}))
+    }
+
+    #[tracing::instrument(skip(self, req), err)]
+    async fn stream_file(
+        &self,
+        req: tonic::Request<StorePath>,
+    ) -> BuilderResult<Self::StreamFileStream> {
+        use tokio_stream::StreamExt as _;
+
+        let path = req.into_inner().path;
+        let (_, mut bytes_stream) = nix_utils::export_nar(&path)
+            .await
+            .map_err(|_| tonic::Status::internal("failed to export path"))?;
+
+        let output = async_stream::try_stream! {
+            while let Some(chunk) = bytes_stream.next().await {
+                let chunk = chunk?;
+                yield NarData {
+                    chunk: chunk.into()
+                }
+            }
+        };
+        Ok(tonic::Response::new(
+            Box::pin(output) as Self::StreamFileStream
+        ))
+    }
+}

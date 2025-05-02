@@ -1,0 +1,43 @@
+[package]
+name = "builder"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0"
+
+[dependencies]
+log = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3.18", features = [
+  "registry",
+  "env-filter",
+] }
+tracing-log = "0.2.0"
+
+sd-notify = "0.4.5"
+
+anyhow = "1.0.98"
+clap = { version = "4", features = ["derive"] }
+uuid = { version = "1.16", features = ["v4"] }
+ahash = "0.8.11"
+parking_lot = "0.12.4"
+
+tokio = { version = "1.34", features = [
+  "rt-multi-thread",
+  "time",
+  "fs",
+  "macros",
+  "net",
+] }
+tokio-stream = "0.1"
+futures = "0.3"
+prost = "0.13"
+tonic = { version = "0.13", features = ["zstd", "tls-ring"] }
+async-stream = "0.3"
+
+gethostname = "1"
+procfs = "0.17"
+
+nix-utils = { path = "../crates/nix-utils" }
+
+[build-dependencies]
+tonic-build = { version = "0.13", features = ["prost"] }
