@@ -1,6 +1,5 @@
 use ahash::AHashMap;
 use tokio::io::{AsyncBufReadExt as _, BufReader};
-use tokio_stream::StreamExt;
 use tokio_stream::wrappers::LinesStream;
 
 fn deserialize_input_drvs<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
@@ -177,6 +176,8 @@ pub async fn realise_drv(
     ),
     crate::Error,
 > {
+    use tokio_stream::StreamExt;
+
     let drv = if drv.starts_with("/nix/store/") {
         drv
     } else {
@@ -215,14 +216,39 @@ pub async fn realise_drv(
 }
 
 #[tracing::instrument(skip(outputs))]
-pub async fn query_missing_outputs(outputs: &[Output]) -> Vec<Output> {
+pub fn query_missing_outputs(outputs: &[Output]) -> Vec<Output> {
     let mut missing = vec![];
     for o in outputs {
         if let Some(path) = &o.path {
-            if !super::check_if_storepath_exists(path).await {
+            if !super::check_if_storepath_exists(path) {
                 missing.push(o.clone());
             }
         }
     }
     missing
+}
+
+#[tracing::instrument(skip(outputs, remote_store_url))]
+pub async fn query_missing_remote_outputs(
+    outputs: Vec<Output>,
+    remote_store_url: &str,
+) -> Vec<Output> {
+    use futures::stream::StreamExt as _;
+
+    tokio_stream::iter(outputs)
+        .map(|o| async move {
+            let Some(path) = &o.path else {
+                return None;
+            };
+            let remote_store = crate::RemoteStore::new(remote_store_url);
+            if !remote_store.check_if_storepath_exists(path).await {
+                Some(o)
+            } else {
+                None
+            }
+        })
+        .buffered(50)
+        .filter_map(|o| async { o })
+        .collect()
+        .await
 }

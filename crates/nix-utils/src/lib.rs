@@ -2,6 +2,7 @@ mod config;
 mod drv;
 mod nar;
 mod pathinfo;
+mod remote;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -38,29 +39,21 @@ where
 pub use config::{NixConfig, get_nix_config};
 pub use drv::{
     BuildOptions, Derivation, Output as DerivationOutput, query_drv, query_drvs,
-    query_missing_outputs, realise_drv, topo_sort_drvs,
+    query_missing_outputs, query_missing_remote_outputs, realise_drv, topo_sort_drvs,
 };
-pub use nar::{copy_path, export_nar, import_nar};
+pub use nar::{export_nar, import_nar};
 pub use pathinfo::{PathInfo, query_path_info, query_path_infos};
+pub use remote::RemoteStore;
 
 #[tracing::instrument(skip(path))]
-pub async fn check_if_storepath_exists(path: &str) -> bool {
+pub fn check_if_storepath_exists(path: &str) -> bool {
     let path = if path.starts_with("/nix/store/") {
         path
     } else {
         &format!("/nix/store/{path}")
     };
 
-    if std::env::var("NIX_REMOTE").unwrap_or_default() != "" {
-        tokio::process::Command::new("nix-store")
-            .args(["--check-validity", path])
-            .output()
-            .await
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    } else {
-        std::path::Path::new(path).exists()
-    }
+    std::path::Path::new(path).exists()
 }
 
 pub fn validate_statuscode(status: std::process::ExitStatus) -> Result<(), Error> {

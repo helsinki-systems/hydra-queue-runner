@@ -58,7 +58,6 @@ use_substitute = false
 
 TODO(conni2461): add list what currently works and what still needs to be done
 - [ ] handle open todos in code
-- [ ] do outputs already exist in remote store s3 (currently we only check local store)
 - [ ] upload nix logs?
 - [ ] extract hydra build products?
 - [ ] handle unsupported steps

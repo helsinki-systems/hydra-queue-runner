@@ -407,8 +407,20 @@ impl State {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
+    pub fn start_queue_monitor_loop(self: Arc<Self>) {
+        tokio::task::spawn({
+            let state = self.clone();
+            async move {
+                if let Err(e) = state.queue_monitor_loop().await {
+                    log::error!("Failed to spawn queue monitor loop. e={e}");
+                }
+            }
+        });
+    }
+
     #[tracing::instrument(skip(self), err)]
-    pub async fn start_queue_monitor_loop(&self) -> anyhow::Result<()> {
+    async fn queue_monitor_loop(&self) -> anyhow::Result<()> {
         let mut listener = self
             .db
             .listener(vec![
@@ -470,32 +482,36 @@ impl State {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn start_dispatch_loop(&self) {
-        loop {
-            let before_sleep = Instant::now();
-            self.notify_dispatch.notified().await;
+    pub fn start_dispatch_loop(self: Arc<Self>) {
+        tokio::task::spawn({
+            async move {
+                loop {
+                    let before_sleep = Instant::now();
+                    self.notify_dispatch.notified().await;
 
-            #[allow(clippy::cast_possible_truncation)]
-            self.metrics
-                .dispatcher_time_spent_waiting
-                .inc_by(before_sleep.elapsed().as_micros() as u64);
+                    #[allow(clippy::cast_possible_truncation)]
+                    self.metrics
+                        .dispatcher_time_spent_waiting
+                        .inc_by(before_sleep.elapsed().as_micros() as u64);
 
-            self.metrics.nr_dispatcher_wakeups.add(1);
-            let before_work = Instant::now();
-            self.do_dispatch_once().await;
+                    self.metrics.nr_dispatcher_wakeups.add(1);
+                    let before_work = Instant::now();
+                    self.do_dispatch_once().await;
 
-            let elapsed = before_work.elapsed();
+                    let elapsed = before_work.elapsed();
 
-            #[allow(clippy::cast_possible_truncation)]
-            self.metrics
-                .dispatcher_time_spent_running
-                .inc_by(elapsed.as_micros() as u64);
+                    #[allow(clippy::cast_possible_truncation)]
+                    self.metrics
+                        .dispatcher_time_spent_running
+                        .inc_by(elapsed.as_micros() as u64);
 
-            #[allow(clippy::cast_possible_truncation)]
-            self.metrics
-                .dispatch_time_ms
-                .add(elapsed.as_millis() as i64);
-        }
+                    #[allow(clippy::cast_possible_truncation)]
+                    self.metrics
+                        .dispatch_time_ms
+                        .add(elapsed.as_millis() as i64);
+                }
+            }
+        });
     }
 
     #[tracing::instrument(skip(self))]
@@ -641,10 +657,11 @@ impl State {
             tokio::spawn(async move {
                 use futures::stream::StreamExt as _;
 
+                let remote_store = nix_utils::RemoteStore::new(&url);
                 let mut stream =
                     futures::StreamExt::map(tokio_stream::iter(outputs), |(_, path)| {
-                        // TODO: do we need to copy logs?
-                        nix_utils::copy_path(path, &url)
+                        // TODO: copy logs, currently not possible with cli interface
+                        remote_store.copy_path(path)
                     })
                     .buffer_unordered(10);
                 while let Some(v) = tokio_stream::StreamExt::next(&mut stream).await {
@@ -1057,7 +1074,7 @@ impl State {
         *nr_added += 1;
         new_builds_by_id.remove(&build.id);
 
-        if !nix_utils::check_if_storepath_exists(&build.drv_path).await {
+        if !nix_utils::check_if_storepath_exists(&build.drv_path) {
             log::error!("aborting GC'ed build {}", build.id);
             if !build.finished_in_db.load(Ordering::SeqCst) {
                 match self.db.get().await {
@@ -1229,7 +1246,15 @@ impl State {
             return CreateStepResult::None;
         };
 
-        let missing_outputs = nix_utils::query_missing_outputs(&drv.outputs).await;
+        let (use_substitute, remote_store_url) = {
+            let config = self.config.read().await;
+            (config.use_substitute, config.get_remote_store_addr())
+        };
+        let missing_outputs = if let Some(remote_store_url) = remote_store_url.as_deref() {
+            nix_utils::query_missing_remote_outputs(drv.outputs.clone(), remote_store_url).await
+        } else {
+            nix_utils::query_missing_outputs(&drv.outputs)
+        };
         step.set_drv(drv);
 
         if self.check_cached_failure(step.clone()).await {
@@ -1238,40 +1263,34 @@ impl State {
 
         log::debug!("missing outputs: {missing_outputs:?}");
         let mut valid = missing_outputs.is_empty();
-        if !missing_outputs.is_empty() {
-            let (use_substitute, remote_store_url) = {
-                let config = self.config.read().await;
-                (config.use_substitute, config.get_remote_store_addr())
-            };
-            if use_substitute {
-                use futures::stream::StreamExt as _;
+        if !missing_outputs.is_empty() && use_substitute {
+            use futures::stream::StreamExt as _;
 
-                let mut substituted = 0;
-                let missing_outputs_len = missing_outputs.len();
-                let build_opts = nix_utils::BuildOptions::substitute_only();
+            let mut substituted = 0;
+            let missing_outputs_len = missing_outputs.len();
+            let build_opts = nix_utils::BuildOptions::substitute_only();
 
-                let mut stream =
-                    futures::StreamExt::map(tokio_stream::iter(missing_outputs), |o| {
-                        crate::utils::substitute_output(
-                            self.db.clone(),
-                            o,
-                            build.id,
-                            drv_path,
-                            &build_opts,
-                            remote_store_url.as_deref(),
-                        )
-                    })
-                    .buffer_unordered(10);
-                while let Some(v) = tokio_stream::StreamExt::next(&mut stream).await {
-                    match v {
-                        Ok(()) => substituted += 1,
-                        Err(e) => {
-                            log::error!("Failed to substitute path: {e}");
-                        }
+            let remote_store = remote_store_url.as_deref().map(nix_utils::RemoteStore::new);
+            let mut stream = futures::StreamExt::map(tokio_stream::iter(missing_outputs), |o| {
+                crate::utils::substitute_output(
+                    self.db.clone(),
+                    o,
+                    build.id,
+                    drv_path,
+                    &build_opts,
+                    remote_store.as_ref(),
+                )
+            })
+            .buffer_unordered(10);
+            while let Some(v) = tokio_stream::StreamExt::next(&mut stream).await {
+                match v {
+                    Ok(()) => substituted += 1,
+                    Err(e) => {
+                        log::error!("Failed to substitute path: {e}");
                     }
                 }
-                valid = substituted == missing_outputs_len;
             }
+            valid = substituted == missing_outputs_len;
         }
 
         if valid {
@@ -1284,6 +1303,7 @@ impl State {
             return CreateStepResult::None;
         };
 
+        // TODO: paralise
         for i in &input_drvs {
             match Box::pin(self.create_step(
                 // conn,

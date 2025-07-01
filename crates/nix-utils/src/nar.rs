@@ -76,13 +76,3 @@ where
     crate::validate_statuscode(child.wait().await?)?;
     Ok(())
 }
-
-pub async fn copy_path(path: String, remote_addr: &str) -> Result<(), crate::Error> {
-    let mut child = tokio::process::Command::new("nix")
-        .args(["copy", "--to", remote_addr, &path])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()?;
-    crate::validate_statuscode(child.wait().await?)?;
-    Ok(())
-}

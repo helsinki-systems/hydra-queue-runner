@@ -15,15 +15,8 @@ fn start_task_loops(state: std::sync::Arc<State>) {
     log::info!("QueueRunner starting task loops");
 
     spawn_config_reloader(state.clone(), state.config.clone(), &state.args.config_path);
-    tokio::task::spawn({
-        let state = state.clone();
-        async move {
-            if let Err(e) = state.start_queue_monitor_loop().await {
-                log::error!("Failed to spawn queue monitor loop. e={e}");
-            }
-        }
-    });
-    tokio::task::spawn(async move { state.start_dispatch_loop().await });
+    state.clone().start_queue_monitor_loop();
+    state.start_dispatch_loop();
 }
 
 fn spawn_config_reloader(

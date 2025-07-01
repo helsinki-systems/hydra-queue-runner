@@ -66,13 +66,14 @@ pub async fn finish_build_step(
     Ok(())
 }
 
+#[tracing::instrument(skip(db, o, build_id, build_opts, remote_store), err)]
 pub async fn substitute_output(
     db: crate::db::Database,
     o: nix_utils::DerivationOutput,
     build_id: BuildID,
     drv_path: &str,
     build_opts: &nix_utils::BuildOptions,
-    remote_store_url: Option<&str>,
+    remote_store: Option<&nix_utils::RemoteStore<'_>>,
 ) -> anyhow::Result<()> {
     let Some(path) = &o.path else {
         return Ok(());
@@ -80,8 +81,8 @@ pub async fn substitute_output(
 
     let starttime = i32::try_from(chrono::Utc::now().timestamp())?; // TODO
     nix_utils::realise_drv(path, build_opts).await?;
-    if let Some(remote_store_url) = remote_store_url {
-        nix_utils::copy_path(path.to_owned(), remote_store_url).await?;
+    if let Some(remote_store) = remote_store {
+        remote_store.copy_path(path.to_owned()).await?;
     }
     let stoptime = i32::try_from(chrono::Utc::now().timestamp())?; // TODO
 

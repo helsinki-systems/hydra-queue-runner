@@ -207,7 +207,7 @@ async fn import_path(
 ) -> anyhow::Result<()> {
     use tokio_stream::StreamExt as _;
 
-    if !nix_utils::check_if_storepath_exists(&path).await {
+    if !nix_utils::check_if_storepath_exists(&path) {
         log::debug!("Importing {path}");
         let input_stream = client
             .stream_file(crate::runner_v1::StorePath { path })
