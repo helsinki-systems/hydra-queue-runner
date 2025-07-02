@@ -1,4 +1,6 @@
 use ahash::AHashMap;
+use cached::proc_macro::cached;
+use cached::{Cached, UnboundCache};
 
 #[derive(Debug, serde::Deserialize)]
 struct InnerPathInfo {
@@ -12,7 +14,7 @@ struct InnerPathInfo {
     closure_size: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PathInfo {
     pub path: String,
     pub ca: Option<String>,
@@ -35,25 +37,13 @@ impl PathInfo {
     }
 }
 
-#[tracing::instrument(skip(paths), err)]
-pub async fn query_path_infos(paths: &[&str]) -> Result<AHashMap<String, PathInfo>, crate::Error> {
-    let cmd = &tokio::process::Command::new("nix")
-        .args(["path-info", "--json", "--size", "--closure-size"])
-        .args(paths)
-        .output()
-        .await?;
-    if cmd.status.success() {
-        let infos = serde_json::from_slice::<AHashMap<String, InnerPathInfo>>(&cmd.stdout)?;
-        Ok(infos
-            .into_iter()
-            .map(|(p, i)| (p.clone(), PathInfo::new(p, i)))
-            .collect())
-    } else {
-        Ok(AHashMap::new())
-    }
-}
-
-#[tracing::instrument(skip(path), err)]
+// TODO: evaluate if we need to limit memory here
+#[cached(
+    ty = "UnboundCache<String, Option<PathInfo>>",
+    create = "{ UnboundCache::with_capacity(50) }",
+    result = true,
+    convert = r#"{ format!("{}", path) }"#
+)]
 pub async fn query_path_info(path: &str) -> Result<Option<PathInfo>, crate::Error> {
     let path = if path.starts_with("/nix/store/") {
         path
@@ -61,5 +51,31 @@ pub async fn query_path_info(path: &str) -> Result<Option<PathInfo>, crate::Erro
         &format!("/nix/store/{path}")
     };
 
-    Ok(query_path_infos(&[path]).await?.remove(path))
+    let cmd = &tokio::process::Command::new("nix")
+        .args(["path-info", "--json", "--size", "--closure-size", path])
+        .output()
+        .await?;
+    if cmd.status.success() {
+        let mut infos = serde_json::from_slice::<AHashMap<String, InnerPathInfo>>(&cmd.stdout)?;
+        Ok(infos
+            .remove(path)
+            .map(|i| PathInfo::new(path.to_string(), i)))
+    } else {
+        Ok(None)
+    }
+}
+
+pub async fn clear_query_path_cache() {
+    let mut cache = QUERY_PATH_INFO.lock().await;
+    cache.cache_clear();
+}
+
+pub async fn query_path_infos(paths: &[&str]) -> Result<AHashMap<String, PathInfo>, crate::Error> {
+    let mut res = AHashMap::new();
+    for p in paths {
+        if let Some(info) = query_path_info(p).await? {
+            res.insert(p.to_string(), info);
+        }
+    }
+    Ok(res)
 }

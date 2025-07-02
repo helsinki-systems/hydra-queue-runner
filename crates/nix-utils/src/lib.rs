@@ -42,7 +42,7 @@ pub use drv::{
     query_missing_outputs, query_missing_remote_outputs, realise_drv, topo_sort_drvs,
 };
 pub use nar::{export_nar, import_nar};
-pub use pathinfo::{PathInfo, query_path_info, query_path_infos};
+pub use pathinfo::{PathInfo, clear_query_path_cache, query_path_info, query_path_infos};
 pub use remote::RemoteStore;
 
 #[tracing::instrument(skip(path))]

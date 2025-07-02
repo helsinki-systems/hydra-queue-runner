@@ -37,7 +37,8 @@ where
 #[derive(Debug, serde::Deserialize)]
 pub struct Derivation {
     // Missing `args`, `builder`, `inputSrcs`,
-    pub env: AHashMap<String, String>,
+    // we dont need env right now, so we dont need to extract it and keep it in memory
+    // pub env: AHashMap<String, String>,
     #[serde(rename = "inputDrvs", deserialize_with = "deserialize_input_drvs")]
     pub input_drvs: Vec<String>,
     #[serde(deserialize_with = "deserialize_outputs")]

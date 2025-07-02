@@ -435,6 +435,7 @@ impl State {
 
         loop {
             let before_work = Instant::now();
+            nix_utils::clear_query_path_cache().await;
             if let Err(e) = self.get_queued_builds().await {
                 log::error!("get_queue_builds failed inside queue monitor loop: {e}");
                 continue;
