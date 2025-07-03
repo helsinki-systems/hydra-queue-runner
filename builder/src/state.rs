@@ -2,8 +2,6 @@ use std::{sync::Arc, time::Instant};
 
 use ahash::AHashMap;
 use futures::TryFutureExt;
-use nix_utils::{Derivation, query_path_infos};
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tonic::Request;
 
 pub struct BuildInfo {
@@ -272,7 +270,7 @@ async fn upload_nars(
 async fn new_build_result_info(
     machine_id: uuid::Uuid,
     drv: &str,
-    drv_info: Derivation,
+    drv_info: nix_utils::Derivation,
     import_elapsed: std::time::Duration,
     build_elapsed: std::time::Duration,
 ) -> anyhow::Result<crate::runner_v1::BuildResultInfo> {
@@ -281,58 +279,9 @@ async fn new_build_result_info(
         .iter()
         .filter_map(|o| o.path.as_deref())
         .collect::<Vec<_>>();
-    let pathinfos = query_path_infos(outputs).await?;
+    let pathinfos = nix_utils::query_path_infos(outputs).await?;
 
-    let mut metrics = Vec::new();
-    let mut failed = false;
-    let mut hydra_release_name = None;
-
-    for output in outputs {
-        let file_path = std::path::Path::new(&output).join("nix-support/hydra-metrics");
-
-        if let Ok(file) = tokio::fs::File::open(&file_path).await {
-            let reader = BufReader::new(file);
-            let mut lines = reader.lines();
-
-            while let Some(line) = lines.next_line().await? {
-                let fields: Vec<String> = line.split_whitespace().map(ToOwned::to_owned).collect();
-                if fields.len() < 2 {
-                    continue;
-                }
-
-                metrics.push(crate::runner_v1::BuildMetric {
-                    path: (*output).to_owned(),
-                    name: fields[0].clone(),
-                    value: fields[1].parse::<f64>().unwrap_or(0.0),
-                    unit: if fields.len() >= 3 {
-                        Some(fields[2].clone())
-                    } else {
-                        None
-                    },
-                });
-            }
-        }
-    }
-
-    for output in outputs {
-        let file_path = std::path::Path::new(&output).join("nix-support/failed");
-        if tokio::fs::try_exists(file_path).await.unwrap_or_default() {
-            failed = true;
-            break;
-        }
-    }
-
-    for output in outputs {
-        let file_path = std::path::Path::new(&output).join("nix-support/hydra-release-name");
-        if let Ok(v) = tokio::fs::read_to_string(file_path).await {
-            let v = v.trim();
-            if !v.is_empty() {
-                hydra_release_name = Some(v.to_owned());
-                break;
-            }
-        }
-    }
-
+    let nix_support = nix_utils::parse_nix_support_from_outputs(outputs).await?;
     Ok(crate::runner_v1::BuildResultInfo {
         machine_id: machine_id.to_string(),
         drv: drv.to_owned(),
@@ -367,10 +316,32 @@ async fn new_build_result_info(
             })
             .collect(),
         nix_support: Some(crate::runner_v1::NixSupport {
-            metrics,
-            failed,
-            hydra_release_name,
-            products: vec![],
+            metrics: nix_support
+                .metrics
+                .into_iter()
+                .map(|m| crate::runner_v1::BuildMetric {
+                    path: m.path,
+                    name: m.name,
+                    unit: m.unit,
+                    value: m.value,
+                })
+                .collect(),
+            failed: nix_support.failed,
+            hydra_release_name: nix_support.hydra_release_name,
+            products: nix_support
+                .products
+                .into_iter()
+                .map(|p| crate::runner_v1::BuildProduct {
+                    path: p.path,
+                    default_path: p.default_path,
+                    r#type: p.r#type,
+                    subtype: p.subtype,
+                    name: p.name,
+                    is_regular: p.is_regular,
+                    sha256hash: p.sha256hash,
+                    file_size: p.file_size,
+                })
+                .collect(),
         }),
     })
 }

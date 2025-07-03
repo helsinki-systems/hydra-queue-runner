@@ -1,6 +1,7 @@
 mod config;
 mod drv;
 mod nar;
+mod nix_support;
 mod pathinfo;
 mod remote;
 
@@ -42,6 +43,7 @@ pub use drv::{
     query_missing_outputs, query_missing_remote_outputs, realise_drv, topo_sort_drvs,
 };
 pub use nar::{export_nar, import_nar};
+pub use nix_support::{parse_nix_support_from_outputs, NixSupport, BuildMetric, BuildProduct};
 pub use pathinfo::{PathInfo, clear_query_path_cache, query_path_info, query_path_infos};
 pub use remote::RemoteStore;
 

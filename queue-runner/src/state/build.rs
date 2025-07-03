@@ -313,8 +313,39 @@ pub struct BuildProduct {
     pub file_size: Option<u64>,
 }
 
+impl From<crate::db::models::BuildProduct> for BuildProduct {
+    fn from(v: crate::db::models::BuildProduct) -> Self {
+        Self {
+            path: v.path.unwrap_or_default(),
+            default_path: v.defaultpath.unwrap_or_default(),
+            r#type: v.r#type,
+            subtype: v.subtype,
+            name: v.name,
+            is_regular: v.filesize.is_some(),
+            sha256hash: v.sha256hash,
+            #[allow(clippy::cast_sign_loss)]
+            file_size: v.filesize.map(|v| v as u64),
+        }
+    }
+}
+
 impl From<crate::server::grpc::runner_v1::BuildProduct> for BuildProduct {
     fn from(v: crate::server::grpc::runner_v1::BuildProduct) -> Self {
+        Self {
+            path: v.path,
+            default_path: v.default_path,
+            r#type: v.r#type,
+            subtype: v.subtype,
+            name: v.name,
+            is_regular: v.is_regular,
+            sha256hash: v.sha256hash,
+            file_size: v.file_size,
+        }
+    }
+}
+
+impl From<nix_utils::BuildProduct> for BuildProduct {
+    fn from(v: nix_utils::BuildProduct) -> Self {
         Self {
             path: v.path,
             default_path: v.default_path,
@@ -347,14 +378,36 @@ pub struct BuildOutput {
     pub metrics: AHashMap<String, BuildMetric>,
 }
 
-impl BuildOutput {
-    #[tracing::instrument(skip(info))]
-    pub fn from_result_info(info: crate::server::grpc::runner_v1::BuildResultInfo) -> Self {
+impl TryFrom<crate::db::models::BuildOutput> for BuildOutput {
+    type Error = anyhow::Error;
+
+    fn try_from(v: crate::db::models::BuildOutput) -> anyhow::Result<Self> {
+        let build_status = BuildStatus::from_i32(
+            v.buildstatus
+                .ok_or(anyhow::anyhow!("buildstatus missing"))?,
+        )
+        .ok_or(anyhow::anyhow!("buildstatus did not map"))?;
+        Ok(Self {
+            failed: build_status != BuildStatus::Success,
+            release_name: v.releasename,
+            #[allow(clippy::cast_sign_loss)]
+            closure_size: v.closuresize.unwrap_or_default() as u64,
+            #[allow(clippy::cast_sign_loss)]
+            size: v.size.unwrap_or_default() as u64,
+            products: vec![],
+            outputs: AHashMap::new(),
+            metrics: AHashMap::new(),
+        })
+    }
+}
+
+impl From<crate::server::grpc::runner_v1::BuildResultInfo> for BuildOutput {
+    fn from(v: crate::server::grpc::runner_v1::BuildResultInfo) -> Self {
         let mut outputs = AHashMap::new();
         let mut closure_size = 0;
         let mut nar_size = 0;
 
-        for o in info.outputs {
+        for o in v.outputs {
             match o.output {
                 Some(crate::server::grpc::runner_v1::output::Output::Nameonly(_)) => {
                     // We dont care about outputs that dont have a path,
@@ -367,8 +420,7 @@ impl BuildOutput {
                 None => (),
             }
         }
-        let (failed, release_name, products, metrics) = if let Some(nix_support) = info.nix_support
-        {
+        let (failed, release_name, products, metrics) = if let Some(nix_support) = v.nix_support {
             (
                 nix_support.failed,
                 nix_support.hydra_release_name,
@@ -400,5 +452,54 @@ impl BuildOutput {
                 })
                 .collect(),
         }
+    }
+}
+
+impl BuildOutput {
+    #[tracing::instrument(skip(outputs))]
+    pub async fn new(outputs: Vec<nix_utils::DerivationOutput>) -> anyhow::Result<Self> {
+        let flat_outputs = outputs
+            .iter()
+            .filter_map(|o| o.path.as_deref())
+            .collect::<Vec<_>>();
+        let pathinfos = nix_utils::query_path_infos(&flat_outputs).await?;
+        let nix_support = nix_utils::parse_nix_support_from_outputs(&flat_outputs).await?;
+
+        let mut outputs_map = AHashMap::new();
+        let mut closure_size = 0;
+        let mut nar_size = 0;
+
+        for o in outputs {
+            if let Some(path) = o.path {
+                if let Some(info) = pathinfos.get(&path) {
+                    outputs_map.insert(o.name, path);
+                    closure_size += info.closure_size;
+                    nar_size += info.nar_size;
+                }
+            }
+        }
+
+        Ok(Self {
+            failed: nix_support.failed,
+            release_name: nix_support.hydra_release_name,
+            closure_size,
+            size: nar_size,
+            products: nix_support.products.into_iter().map(Into::into).collect(),
+            outputs: outputs_map,
+            metrics: nix_support
+                .metrics
+                .into_iter()
+                .map(|v| {
+                    (
+                        v.path,
+                        BuildMetric {
+                            name: v.name,
+                            unit: v.unit,
+                            value: v.value,
+                        },
+                    )
+                })
+                .collect(),
+        })
     }
 }

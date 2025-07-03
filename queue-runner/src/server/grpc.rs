@@ -252,7 +252,7 @@ impl RunnerService for Server {
         let drv = req.drv.clone();
         let machine_id = uuid::Uuid::parse_str(&req.machine_id);
 
-        let build_output = crate::state::BuildOutput::from_result_info(req);
+        let build_output = crate::state::BuildOutput::from(req);
         if let Err(e) = state
             .mark_step_done(machine_id.ok(), &drv, build_output)
             .await

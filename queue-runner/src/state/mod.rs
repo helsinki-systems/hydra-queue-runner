@@ -6,7 +6,9 @@ mod machine;
 mod metrics;
 mod queue;
 
-pub use build::{Build, BuildID, BuildOutput, RemoteBuild, Step, StorePath};
+pub use build::{
+    Build, BuildID, BuildMetric, BuildOutput, BuildProduct, RemoteBuild, Step, StorePath,
+};
 pub use jobset::{Jobset, JobsetID, SCHEDULING_WINDOW};
 pub use machine::{Machine, Pressure, Stats as MachineStats};
 pub use queue::{BuildQueueStats, StepInfo};
@@ -1174,24 +1176,9 @@ impl State {
         } else {
             // If we didn't get a step, it means the step's outputs are
             // all valid. So we mark this as a finished, cached build.
-            // TODO
-
-            // BuildOutput res = getBuildOutputCached(conn, destStore, build->drvPath);
-            //
-            // for (auto & i : destStore->queryDerivationOutputMap(build->drvPath, &*localStore))
-            //     addRoot(i.second);
-            //
-            // {
-            // auto mc = startDbUpdate();
-            // pqxx::work txn(conn);
-            // time_t now = time(0);
-            // if (!buildOneDone && build->id == buildOne) buildOneDone = true;
-            // printMsg(lvlInfo, "marking build %1% as succeeded (cached)", build->id);
-            // markSucceededBuild(txn, build, res, true, now, now);
-            // notifyBuildFinished(txn, build->id, {});
-            // txn.commit();
-            // }
-            build.finished_in_db.store(true, Ordering::SeqCst);
+            if let Err(e) = self.handle_cached_build(build).await {
+                log::error!("failed to handle cached build: {e}");
+            }
         }
     }
 
@@ -1412,5 +1399,66 @@ impl State {
         }
 
         Ok(())
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    async fn handle_cached_build(&self, build: Arc<Build>) -> anyhow::Result<()> {
+        let res = self.get_build_output_cached(&build.drv_path).await?;
+        // TODO: add root
+        // for (auto & i : destStore->queryDerivationOutputMap(build->drvPath, &*localStore))
+        //     addRoot(i.second);
+
+        {
+            let mut db = self.db.get().await?;
+            let mut tx = db.begin_transaction().await?;
+
+            log::info!("marking build {} as succeeded (cached)", build.id);
+            let now = chrono::Utc::now().timestamp();
+            tx.mark_succeeded_build(
+                build.clone(),
+                &res,
+                true,
+                i32::try_from(now)?, // TODO
+                i32::try_from(now)?, // TODO
+            )
+            .await?;
+            self.metrics.nr_builds_done.add(1);
+
+            tx.notify_build_finished(build.id, &[]).await?;
+            tx.commit().await?;
+        }
+        build.finished_in_db.store(true, Ordering::SeqCst);
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    async fn get_build_output_cached(&self, drv_path: &StorePath) -> anyhow::Result<BuildOutput> {
+        let drv = nix_utils::query_drv(drv_path)
+            .await?
+            .ok_or(anyhow::anyhow!("Derivation not found"))?;
+
+        {
+            let mut db = self.db.get().await?;
+            for o in &drv.outputs {
+                let Some(out_path) = &o.path else {
+                    continue;
+                };
+                let Some(db_build_output) = db.get_build_output_for_path(out_path).await? else {
+                    continue;
+                };
+                let build_id = db_build_output.id;
+                let Ok(mut res): anyhow::Result<BuildOutput> = db_build_output.try_into() else {
+                    continue;
+                };
+
+                res.products = db.get_build_products_for_build_id(build_id).await?;
+                res.metrics = db.get_build_metrics_for_build_id(build_id).await?;
+
+                return Ok(res);
+            }
+        }
+
+        BuildOutput::new(drv.outputs).await
     }
 }

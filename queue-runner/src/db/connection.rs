@@ -211,6 +211,70 @@ impl Connection {
         .await?;
         Ok(())
     }
+
+    pub async fn get_build_output_for_path(
+        &mut self,
+        out_path: &str,
+    ) -> sqlx::Result<Option<super::models::BuildOutput>> {
+        sqlx::query_as!(
+            super::models::BuildOutput,
+            r#"
+            SELECT
+              id, buildStatus, releaseName, closureSize, size
+            FROM builds b
+            JOIN buildoutputs o on b.id = o.build
+            WHERE finished = 1 and (buildStatus = 0 or buildStatus = 6) and path = $1;"#,
+            out_path,
+        )
+        .fetch_optional(&mut *self.conn)
+        .await
+    }
+
+    pub async fn get_build_products_for_build_id(
+        &mut self,
+        build_id: i32,
+    ) -> sqlx::Result<Vec<crate::state::BuildProduct>> {
+        Ok(sqlx::query_as!(
+            super::models::BuildProduct,
+            r#"
+            SELECT
+              type,
+              subtype,
+              fileSize,
+              sha256hash,
+              path,
+              name,
+              defaultPath
+            FROM buildproducts
+            WHERE build = $1 ORDER BY productnr;"#,
+            build_id
+        )
+        .fetch_all(&mut *self.conn)
+        .await?
+        .into_iter()
+        .map(Into::into)
+        .collect())
+    }
+
+    pub async fn get_build_metrics_for_build_id(
+        &mut self,
+        build_id: i32,
+    ) -> sqlx::Result<ahash::AHashMap<String, crate::state::BuildMetric>> {
+        Ok(sqlx::query_as!(
+            crate::state::BuildMetric,
+            r#"
+            SELECT
+              name, unit, value
+            FROM buildmetrics
+            WHERE build = $1;"#,
+            build_id
+        )
+        .fetch_all(&mut *self.conn)
+        .await?
+        .into_iter()
+        .map(|v| (v.name.clone(), v))
+        .collect())
+    }
 }
 
 impl Transaction<'_> {

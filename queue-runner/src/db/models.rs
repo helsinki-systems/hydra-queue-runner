@@ -18,6 +18,27 @@ pub enum BuildStatus {
     Busy = 100, // not stored
 }
 
+impl BuildStatus {
+    pub fn from_i32(v: i32) -> Option<Self> {
+        match v {
+            0 => Some(Self::Success),
+            1 => Some(Self::Failed),
+            2 => Some(Self::DepFailed),
+            3 => Some(Self::Aborted),
+            4 => Some(Self::Cancelled),
+            6 => Some(Self::FailedWithOutput),
+            7 => Some(Self::TimedOut),
+            8 => Some(Self::CachedFailure),
+            9 => Some(Self::Unsupported),
+            10 => Some(Self::LogLimitExceeded),
+            11 => Some(Self::NarSizeLimitExceeded),
+            12 => Some(Self::NotDeterministic),
+            100 => Some(Self::Busy),
+            _ => None,
+        }
+    }
+}
+
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepStatus {
@@ -139,4 +160,22 @@ pub struct InsertBuildMetric {
     pub jobset: String,
     pub job: String,
     pub timestamp: i32,
+}
+
+pub struct BuildOutput {
+    pub id: i32,
+    pub buildstatus: Option<i32>,
+    pub releasename: Option<String>,
+    pub closuresize: Option<i64>,
+    pub size: Option<i64>,
+}
+
+pub struct BuildProduct {
+    pub r#type: String,
+    pub subtype: String,
+    pub filesize: Option<i64>,
+    pub sha256hash: Option<String>,
+    pub path: Option<String>,
+    pub name: String,
+    pub defaultpath: Option<String>,
 }
