@@ -17,11 +17,61 @@ pub struct Args {
     /// Config path
     #[clap(short, long, default_value = "config.toml")]
     pub config_path: String,
+
+    /// Path to Server cert
+    #[clap(long)]
+    pub server_cert_path: Option<std::path::PathBuf>,
+
+    /// Path to Server key
+    #[clap(long)]
+    pub server_key_path: Option<std::path::PathBuf>,
+
+    /// Path to Client ca cert
+    #[clap(long)]
+    pub client_ca_cert_path: Option<std::path::PathBuf>,
 }
 
 impl Args {
     pub fn new() -> Self {
         Self::parse()
+    }
+
+    pub fn mtls_enabled(&self) -> bool {
+        self.server_cert_path.is_some()
+            && self.server_key_path.is_some()
+            && self.client_ca_cert_path.is_some()
+    }
+
+    pub fn mtls_configured_correctly(&self) -> bool {
+        self.mtls_enabled()
+            || (self.server_cert_path.is_none()
+                && self.server_key_path.is_none()
+                && self.client_ca_cert_path.is_none())
+    }
+
+    pub async fn get_mtls(
+        &self,
+    ) -> anyhow::Result<(tonic::transport::Certificate, tonic::transport::Identity)> {
+        let server_cert_path = self
+            .server_cert_path
+            .as_deref()
+            .ok_or(anyhow::anyhow!("server_cert_path not provided"))?;
+        let server_key_path = self
+            .server_key_path
+            .as_deref()
+            .ok_or(anyhow::anyhow!("server_key_path not provided"))?;
+
+        let client_ca_cert_path = self
+            .client_ca_cert_path
+            .as_deref()
+            .ok_or(anyhow::anyhow!("client_ca_cert_path not provided"))?;
+        let client_ca_cert = tokio::fs::read_to_string(client_ca_cert_path).await?;
+        let client_ca_cert = tonic::transport::Certificate::from_pem(client_ca_cert);
+
+        let server_cert = tokio::fs::read_to_string(server_cert_path).await?;
+        let server_key = tokio::fs::read_to_string(server_key_path).await?;
+        let server_identity = tonic::transport::Identity::from_pem(server_cert, server_key);
+        Ok((client_ca_cert, server_identity))
     }
 }
 

@@ -58,11 +58,12 @@ use_substitute = false
 
 TODO(conni2461): add list what currently works and what still needs to be done
 - [ ] handle open todos in code
-- [ ] upload nix logs?
+- [ ] upload nix logs? - not possible without using ffi
 - [ ] extract hydra build products?
 - [ ] handle unsupported steps
 - [ ] more tests
 - [ ] document inner workings
 - [ ] maybe drop runnable vec and move into Queues
 - [ ] github nix ci
+- [ ] migrate hydra to 64bit timestamps
 - [ ] ....

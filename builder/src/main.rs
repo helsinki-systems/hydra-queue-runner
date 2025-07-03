@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use anyhow::Context;
+use anyhow::Context as _;
 use runner_v1::{
     BuilderRequest, builder_request, runner_request, runner_service_client::RunnerServiceClient,
 };
@@ -111,7 +111,7 @@ async fn main() -> anyhow::Result<()> {
 
     if !args.mtls_configured_correctly() {
         log::error!(
-            "mtls configured inproperly, please pass all options: server_root_ca_cert_path, client_cert and client_key!"
+            "mtls configured inproperly, please pass all options: server_root_ca_cert_path, client_cert_path and client_key_path!"
         );
         return Err(anyhow::anyhow!("Configuration issue"));
     }

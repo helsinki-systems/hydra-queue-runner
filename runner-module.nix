@@ -33,6 +33,29 @@ in
         default = 8080;
       };
 
+      mtls = lib.mkOption {
+        description = "mtls options";
+        default = null;
+        type = lib.types.nullOr (
+          lib.types.submodule {
+            options = {
+              serverCertPath = lib.mkOption {
+                description = "Server certificate path";
+                type = lib.types.path;
+              };
+              serverKeyPath = lib.mkOption {
+                description = "Server key path";
+                type = lib.types.path;
+              };
+              clientCaCertPath = lib.mkOption {
+                description = "Client ca certificate path";
+                type = lib.types.path;
+              };
+            };
+          }
+        );
+      };
+
       package = lib.mkOption {
         type = lib.types.path;
         default = pkgs.callPackage ./. { };
@@ -70,15 +93,25 @@ in
       environment.HOME = "/run/queue-runner";
 
       serviceConfig = {
-        ExecStart = lib.escapeShellArgs [
-          "${cfg.package}/bin/queue-runner"
-          "--rest-bind"
-          "[::1]:${toString cfg.restPort}"
-          "--grpc-bind"
-          "[::1]:${toString cfg.grpcPort}"
-          "--config-path"
-          configFile
-        ];
+        ExecStart = lib.escapeShellArgs (
+          [
+            "${cfg.package}/bin/queue-runner"
+            "--rest-bind"
+            "[::1]:${toString cfg.restPort}"
+            "--grpc-bind"
+            "[::1]:${toString cfg.grpcPort}"
+            "--config-path"
+            configFile
+          ]
+          ++ lib.optionals (cfg.mtls != null) [
+            "--server-cert-path"
+            cfg.mtls.serverCertPath
+            "--server-key-path"
+            cfg.mtls.serverKeyPath
+            "--client-ca-cert-path"
+            cfg.mtls.clientCaCertPath
+          ]
+        );
 
         User = "hydra-queue-runner";
         Group = "hydra";

@@ -72,6 +72,12 @@ async fn main() -> anyhow::Result<()> {
     init_tracing()?;
 
     let state = State::new().await?;
+    if !state.args.mtls_configured_correctly() {
+        log::error!(
+            "mtls configured inproperly, please pass all options: server_cert_path, server_key_path and client_ca_cert_path!"
+        );
+        return Err(anyhow::anyhow!("Configuration issue"));
+    }
 
     start_task_loops(state.clone());
     log::info!(

@@ -46,7 +46,7 @@ byte-unit = "5.1.6"
 
 tokio-stream = "0.1"
 prost = "0.13"
-tonic = { version = "0.13", features = ["zstd"] }
+tonic = { version = "0.13", features = ["zstd", "tls-ring"] }
 async-stream = "0.3"
 h2 = "0.4"
 

@@ -1,12 +1,14 @@
 use std::{net::SocketAddr, sync::Arc};
 
+use anyhow::Context as _;
+use tokio::{io::AsyncWriteExt, sync::mpsc};
+
 use crate::state::{Machine, State};
 use runner_v1::{
     BuildResultInfo, BuilderRequest, FailResultInfo, JoinResponse, LogChunk, NarData,
     RunnerRequest, StorePath, builder_request,
     runner_service_server::{RunnerService, RunnerServiceServer},
 };
-use tokio::{io::AsyncWriteExt, sync::mpsc};
 
 type BuilderResult<T> = Result<tonic::Response<T>, tonic::Status>;
 type OpenTunnelResponseStream =
@@ -66,15 +68,36 @@ pub struct Server {
 
 impl Server {
     pub async fn run(addr: SocketAddr, state: Arc<State>) -> anyhow::Result<()> {
-        tonic::transport::Server::builder()
-            .trace_fn(|_| tracing::info_span!("grpc_server"))
-            .add_service(
-                RunnerServiceServer::new(Self { state })
-                    .send_compressed(tonic::codec::CompressionEncoding::Zstd)
-                    .accept_compressed(tonic::codec::CompressionEncoding::Zstd),
-            )
-            .serve(addr)
-            .await?;
+        let service = RunnerServiceServer::new(Self {
+            state: state.clone(),
+        })
+        .send_compressed(tonic::codec::CompressionEncoding::Zstd)
+        .accept_compressed(tonic::codec::CompressionEncoding::Zstd);
+
+        if state.args.mtls_enabled() {
+            let (client_ca_cert, server_identity) = state
+                .args
+                .get_mtls()
+                .await
+                .context("Failed to get_mtls Certificate and Identity")?;
+
+            let tls = tonic::transport::ServerTlsConfig::new()
+                .identity(server_identity)
+                .client_ca_root(client_ca_cert);
+
+            tonic::transport::Server::builder()
+                .tls_config(tls)?
+                .trace_fn(|_| tracing::info_span!("grpc_server"))
+                .add_service(service)
+                .serve(addr)
+                .await?;
+        } else {
+            tonic::transport::Server::builder()
+                .trace_fn(|_| tracing::info_span!("grpc_server"))
+                .add_service(service)
+                .serve(addr)
+                .await?;
+        }
 
         Ok(())
     }
