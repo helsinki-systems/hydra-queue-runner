@@ -17,6 +17,7 @@ impl BuildInfo {
 pub struct Config {
     pub ping_interval: u64,
     pub speed_factor: f32,
+    pub gcroots: std::path::PathBuf,
 }
 
 pub struct State {
@@ -29,12 +30,21 @@ pub struct State {
 
 impl State {
     pub fn new(ping_interval: u64, speed_factor: f32) -> Arc<Self> {
+        let logname = std::env::var("LOGNAME").expect("LOGNAME not set");
+
+        let nix_state_dir = std::env::var("NIX_STATE_DIR").unwrap_or("/nix/var/nix/".to_owned());
+        let gcroots = std::path::PathBuf::from(nix_state_dir)
+            .join("gcroots/per-user")
+            .join(logname)
+            .join("hydra-roots");
+
         Arc::new(Self {
             id: uuid::Uuid::new_v4(),
             active_builds: parking_lot::RwLock::new(AHashMap::new()),
             config: Config {
                 ping_interval,
                 speed_factor,
+                gcroots,
             },
         })
     }
@@ -147,8 +157,15 @@ impl State {
         let drv = m.drv.clone();
 
         let before_import = Instant::now();
-        import_requisites(&mut client, m.requisites).await?;
+        let gcroot_prefix = uuid::Uuid::new_v4().to_string();
+        let gcroot = self.get_gcroot(&gcroot_prefix);
+
+        import_requisites(&mut client, &gcroot, m.requisites).await?;
         let import_elapsed = before_import.elapsed();
+
+        let drv_info = nix_utils::query_drv(&drv)
+            .await?
+            .ok_or(anyhow::anyhow!("drv info not found"))?;
 
         let before_build = Instant::now();
         let (mut child, mut log_output) = nix_utils::realise_drv(
@@ -171,28 +188,38 @@ impl State {
             }
         };
         client.build_log(Request::new(log_stream)).await?;
+        let output_paths = drv_info
+            .outputs
+            .iter()
+            .filter_map(|o| o.path.clone())
+            .collect::<Vec<_>>();
         nix_utils::validate_statuscode(child.wait().await?)?;
+        for o in &output_paths {
+            nix_utils::add_root(&gcroot, o);
+        }
 
         let build_elapsed = before_build.elapsed();
         log::info!("Finished building {drv}");
 
-        if let Some(drv_info) = nix_utils::query_drv(&drv).await? {
-            upload_nars(
-                client.clone(),
-                drv_info
-                    .outputs
-                    .iter()
-                    .filter_map(|o| o.path.clone())
-                    .collect::<Vec<_>>(),
-            )
-            .await?;
+        upload_nars(client.clone(), output_paths).await?;
+        let build_results =
+            new_build_result_info(machine_id, &drv, drv_info, import_elapsed, build_elapsed)
+                .await?;
+        client.complete_build_with_success(build_results).await?;
 
-            let build_results =
-                new_build_result_info(machine_id, &drv, drv_info, import_elapsed, build_elapsed)
-                    .await?;
-            client.complete_build_with_success(build_results).await?;
-        }
+        self.remove_root_prefix(&gcroot_prefix);
         Ok(())
+    }
+
+    fn get_gcroot(&self, prefix: &str) -> std::path::PathBuf {
+        self.config.gcroots.join(prefix)
+    }
+
+    fn remove_root_prefix(&self, prefix: &str) {
+        let p = self.config.gcroots.join(prefix);
+        if p.exists() {
+            let _ = std::fs::remove_dir_all(p);
+        }
     }
 }
 
@@ -201,6 +228,7 @@ async fn import_path(
     mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
         tonic::transport::Channel,
     >,
+    gcroot: &std::path::PathBuf,
     path: String,
 ) -> anyhow::Result<()> {
     use tokio_stream::StreamExt as _;
@@ -208,11 +236,12 @@ async fn import_path(
     if !nix_utils::check_if_storepath_exists(&path) {
         log::debug!("Importing {path}");
         let input_stream = client
-            .stream_file(crate::runner_v1::StorePath { path })
+            .stream_file(crate::runner_v1::StorePath { path: path.clone() })
             .await?
             .into_inner();
         nix_utils::import_nar(input_stream.map_while(|s| s.map(|m| m.chunk.into()).ok())).await?;
     }
+    nix_utils::add_root(gcroot, &path);
     Ok(())
 }
 
@@ -221,12 +250,13 @@ async fn import_requisites(
     client: &mut crate::runner_v1::runner_service_client::RunnerServiceClient<
         tonic::transport::Channel,
     >,
+    gcroot: &std::path::PathBuf,
     requisites: Vec<String>,
 ) -> anyhow::Result<()> {
     use futures::stream::StreamExt as _;
 
     let mut stream = futures::StreamExt::map(tokio_stream::iter(requisites), |p| {
-        import_path(client.clone(), p)
+        import_path(client.clone(), gcroot, p)
     })
     .buffer_unordered(50);
 

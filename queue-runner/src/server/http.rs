@@ -158,7 +158,7 @@ mod handler {
         ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
             let queue_stats = io::QueueRunnerStats::new(state.clone()).await;
             let sort_fn = {
-                let config = state.config.read().await;
+                let config = state.config.read();
                 config.machine_sort_fn
             };
             let machines = state

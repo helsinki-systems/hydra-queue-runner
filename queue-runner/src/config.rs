@@ -1,7 +1,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use clap::Parser;
-use tokio::sync::RwLock;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -100,22 +99,24 @@ pub enum MachineSortFn {
 #[serde(deny_unknown_fields)]
 struct AppConfig {
     #[serde(default = "default_log_dir")]
-    pub hydra_log_dir: std::path::PathBuf,
+    hydra_log_dir: std::path::PathBuf,
 
     #[serde(default = "default_pg_socket_url")]
-    pub db_url: secrecy::SecretString,
+    db_url: secrecy::SecretString,
 
     #[serde(default = "default_max_db_connections")]
-    pub max_db_connections: u32,
+    max_db_connections: u32,
 
     #[serde(default)]
-    pub machine_sort_fn: MachineSortFn,
+    machine_sort_fn: MachineSortFn,
 
-    pub remote_store_addr: Option<String>,
-    pub signing_key_path: Option<std::path::PathBuf>,
+    remote_store_addr: Option<String>,
+    signing_key_path: Option<std::path::PathBuf>,
 
     #[serde(default)]
-    pub use_substitute: bool,
+    use_substitute: bool,
+
+    roots_dir: Option<std::path::PathBuf>,
 }
 
 /// Prepared configuration of the application
@@ -128,6 +129,7 @@ pub struct PreparedApp {
     remote_store_addr: Option<String>,
     signing_key_path: Option<std::path::PathBuf>,
     pub use_substitute: bool,
+    pub roots_dir: std::path::PathBuf,
 }
 
 impl TryFrom<AppConfig> for PreparedApp {
@@ -153,6 +155,17 @@ impl TryFrom<AppConfig> for PreparedApp {
             }
         });
 
+        let logname = std::env::var("LOGNAME").expect("LOGNAME not set");
+        let nix_state_dir = std::env::var("NIX_STATE_DIR").unwrap_or("/nix/var/nix/".to_owned());
+        let roots_dir = if let Some(roots_dir) = val.roots_dir {
+            roots_dir
+        } else {
+            std::path::PathBuf::from(nix_state_dir)
+                .join("gcroots/per-user")
+                .join(logname)
+                .join("hydra-roots")
+        };
+
         Ok(Self {
             hydra_log_dir: val.hydra_log_dir,
             db_url: val.db_url,
@@ -161,6 +174,7 @@ impl TryFrom<AppConfig> for PreparedApp {
             remote_store_addr,
             signing_key_path,
             use_substitute: val.use_substitute,
+            roots_dir,
         })
     }
 }
@@ -181,8 +195,8 @@ fn load_config(filepath: &str) -> anyhow::Result<PreparedApp> {
 }
 
 impl PreparedApp {
-    pub fn init(filepath: &str) -> anyhow::Result<Arc<RwLock<Self>>> {
-        Ok(Arc::new(RwLock::new(load_config(filepath)?)))
+    pub fn init(filepath: &str) -> anyhow::Result<Arc<parking_lot::RwLock<Self>>> {
+        Ok(Arc::new(parking_lot::RwLock::new(load_config(filepath)?)))
     }
 
     pub fn get_remote_store_addr(&self) -> Option<String> {
@@ -198,10 +212,10 @@ impl PreparedApp {
     }
 }
 
-pub async fn reload(
-    current_config: Arc<RwLock<PreparedApp>>,
+pub fn reload(
+    current_config: &Arc<parking_lot::RwLock<PreparedApp>>,
     filepath: &str,
-    state: Arc<crate::state::State>,
+    state: &Arc<crate::state::State>,
 ) {
     let new_config = match load_config(filepath) {
         Ok(c) => c,
@@ -219,7 +233,7 @@ pub async fn reload(
         }
     };
 
-    if let Err(e) = state.reload_config_callback(&new_config).await {
+    if let Err(e) = state.reload_config_callback(&new_config) {
         log::error!("Config reload failed with {e}");
         let _notify = sd_notify::notify(
             false,
@@ -232,7 +246,7 @@ pub async fn reload(
     }
 
     {
-        let mut current_config_unwrapped = current_config.write().await;
+        let mut current_config_unwrapped = current_config.write();
         *current_config_unwrapped = new_config;
     }
 

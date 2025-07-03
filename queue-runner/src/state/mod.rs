@@ -34,7 +34,7 @@ enum CreateStepResult {
 }
 
 pub struct State {
-    pub config: Arc<tokio::sync::RwLock<PreparedApp>>,
+    pub config: Arc<parking_lot::RwLock<PreparedApp>>,
     pub args: Args,
     pub db: crate::db::Database,
 
@@ -66,11 +66,16 @@ impl State {
         let args = Args::new();
         let config = PreparedApp::init(&args.config_path)?;
         let (log_dir, db) = {
-            let config = config.read().await;
-            let log_dir = config.hydra_log_dir.clone();
-            let db =
-                crate::db::Database::new(config.db_url.expose_secret(), config.max_db_connections)
-                    .await?;
+            let (log_dir, db_url, max_db_connections) = {
+                let config = config.read();
+                (
+                    config.hydra_log_dir.clone(),
+                    config.db_url.clone(),
+                    config.max_db_connections,
+                )
+            };
+
+            let db = crate::db::Database::new(db_url.expose_secret(), max_db_connections).await?;
             (log_dir, db)
         };
 
@@ -92,17 +97,20 @@ impl State {
         }))
     }
 
-    pub async fn reload_config_callback(&self, new_config: &PreparedApp) -> anyhow::Result<()> {
+    pub fn reload_config_callback(&self, new_config: &PreparedApp) -> anyhow::Result<()> {
         // IF this gets more complex we need a way to trap the state and revert.
         // right now it doesnt matter because only reconfigure_pool can fail and this is the first
         // thing we do.
 
-        let curr_config = self.config.read().await;
-        if curr_config.db_url.expose_secret() != new_config.db_url.expose_secret() {
+        let (curr_db_url, curr_machine_sort_fn) = {
+            let config = self.config.read();
+            (config.db_url.clone(), config.machine_sort_fn)
+        };
+        if curr_db_url.expose_secret() != new_config.db_url.expose_secret() {
             self.db
                 .reconfigure_pool(new_config.db_url.expose_secret())?;
         }
-        if curr_config.machine_sort_fn != new_config.machine_sort_fn {
+        if curr_machine_sort_fn != new_config.machine_sort_fn {
             self.machines.sort(new_config.machine_sort_fn);
         }
         Ok(())
@@ -127,7 +135,7 @@ impl State {
     #[tracing::instrument(skip(self, machine))]
     pub async fn insert_machine(&self, machine: Machine) -> uuid::Uuid {
         let sort_fn = {
-            let config = self.config.read().await;
+            let config = self.config.read();
             config.machine_sort_fn
         };
         let machine_id = self.machines.insert_machine(machine, sort_fn);
@@ -651,8 +659,15 @@ impl State {
             .await?;
             tx.commit().await?;
         }
+
+        // TODO: can retry: builder.cc:260
+
+        for (_, path) in &output.outputs {
+            self.add_root(path);
+        }
+
         let remote_store_url = {
-            let config = self.config.read().await;
+            let config = self.config.read();
             config.get_remote_store_addr()
         };
         if let Some(url) = remote_store_url {
@@ -1249,7 +1264,7 @@ impl State {
         };
 
         let (use_substitute, remote_store_url) = {
-            let config = self.config.read().await;
+            let config = self.config.read();
             (config.use_substitute, config.get_remote_store_addr())
         };
         let missing_outputs = if let Some(remote_store_url) = remote_store_url.as_deref() {
@@ -1404,9 +1419,10 @@ impl State {
     #[tracing::instrument(skip(self), err)]
     async fn handle_cached_build(&self, build: Arc<Build>) -> anyhow::Result<()> {
         let res = self.get_build_output_cached(&build.drv_path).await?;
-        // TODO: add root
-        // for (auto & i : destStore->queryDerivationOutputMap(build->drvPath, &*localStore))
-        //     addRoot(i.second);
+
+        for (_, path) in &res.outputs {
+            self.add_root(path);
+        }
 
         {
             let mut db = self.db.get().await?;
@@ -1460,5 +1476,10 @@ impl State {
         }
 
         BuildOutput::new(drv.outputs).await
+    }
+
+    fn add_root(&self, drv_path: &StorePath) {
+        let config = self.config.read();
+        nix_utils::add_root(&config.roots_dir, drv_path);
     }
 }

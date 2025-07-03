@@ -43,7 +43,7 @@ pub use drv::{
     query_missing_outputs, query_missing_remote_outputs, realise_drv, topo_sort_drvs,
 };
 pub use nar::{export_nar, import_nar};
-pub use nix_support::{parse_nix_support_from_outputs, NixSupport, BuildMetric, BuildProduct};
+pub use nix_support::{BuildMetric, BuildProduct, NixSupport, parse_nix_support_from_outputs};
 pub use pathinfo::{PathInfo, clear_query_path_cache, query_path_info, query_path_infos};
 pub use remote::RemoteStore;
 
@@ -63,5 +63,20 @@ pub fn validate_statuscode(status: std::process::ExitStatus) -> Result<(), Error
         Ok(())
     } else {
         Err(Error::Exit(status))
+    }
+}
+
+pub fn add_root(root_dir: &std::path::Path, store_path: &str) {
+    let store_path = if store_path.starts_with("/nix/store/") {
+        store_path
+    } else {
+        &format!("/nix/store/{store_path}")
+    };
+    let store_path_no_prefix = store_path.strip_prefix("/nix/store/").unwrap_or(store_path);
+
+    let path = root_dir.join(store_path_no_prefix);
+
+    if !path.exists() {
+        let _ = std::os::unix::fs::symlink(store_path, path);
     }
 }

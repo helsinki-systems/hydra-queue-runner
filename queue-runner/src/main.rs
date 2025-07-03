@@ -21,7 +21,7 @@ fn start_task_loops(state: std::sync::Arc<State>) {
 
 fn spawn_config_reloader(
     state: std::sync::Arc<State>,
-    current_config: std::sync::Arc<tokio::sync::RwLock<config::PreparedApp>>,
+    current_config: std::sync::Arc<parking_lot::RwLock<config::PreparedApp>>,
     filepath: &str,
 ) {
     let filepath = filepath.to_owned();
@@ -33,8 +33,7 @@ fn spawn_config_reloader(
                 .await
                 .unwrap();
             log::info!("Reloading...");
-            let current_config = current_config.clone();
-            config::reload(current_config.clone(), &filepath, state.clone()).await;
+            config::reload(&current_config, &filepath, &state);
         }
     });
 }
