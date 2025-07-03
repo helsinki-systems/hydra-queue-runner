@@ -311,7 +311,7 @@ async fn new_build_result_info(
         .collect::<Vec<_>>();
     let pathinfos = nix_utils::query_path_infos(outputs).await?;
 
-    let nix_support = nix_utils::parse_nix_support_from_outputs(outputs).await?;
+    let nix_support = nix_utils::parse_nix_support_from_outputs(&drv_info.outputs).await?;
     Ok(crate::runner_v1::BuildResultInfo {
         machine_id: machine_id.to_string(),
         drv: drv.to_owned(),

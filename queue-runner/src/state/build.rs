@@ -463,7 +463,7 @@ impl BuildOutput {
             .filter_map(|o| o.path.as_deref())
             .collect::<Vec<_>>();
         let pathinfos = nix_utils::query_path_infos(&flat_outputs).await?;
-        let nix_support = nix_utils::parse_nix_support_from_outputs(&flat_outputs).await?;
+        let nix_support = nix_utils::parse_nix_support_from_outputs(&outputs).await?;
 
         let mut outputs_map = AHashMap::new();
         let mut closure_size = 0;
