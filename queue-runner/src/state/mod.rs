@@ -191,7 +191,7 @@ impl State {
         job.result.start_time = chrono::Utc::now().timestamp();
         if self.check_cached_failure(step.clone()).await {
             job.result.step_status = BuildStatus::CachedFailure;
-            // TODO: fail step in database
+            self.inner_fail_job(drv, None, job, step.clone()).await?;
             return Ok(false);
         }
 
@@ -808,6 +808,19 @@ impl State {
             return Ok(());
         };
 
+        self.inner_fail_job(drv_path, Some(machine), job, step)
+            .await
+    }
+
+    #[allow(clippy::too_many_lines)]
+    #[tracing::instrument(skip(self), err)]
+    async fn inner_fail_job(
+        &self,
+        drv_path: &StorePath,
+        machine: Option<Arc<Machine>>,
+        job: machine::Job,
+        step: Arc<Step>,
+    ) -> anyhow::Result<()> {
         // TODO: builder:415
         let mut dependent_ids = Vec::new();
         loop {
@@ -838,7 +851,10 @@ impl State {
                         None,
                         b.id,
                         step.clone(),
-                        machine.hostname.clone(),
+                        machine
+                            .as_deref()
+                            .map(|m| m.hostname.clone())
+                            .unwrap_or_default(),
                         job.result.step_status,
                         job.result.error_msg.clone(),
                         if job.build_id == b.id {
@@ -1020,8 +1036,6 @@ impl State {
                 }
             }
         }
-
-        log::warn!("TODO: propagated_from: {propagated_from}");
 
         tx.create_build_step(
             None,
