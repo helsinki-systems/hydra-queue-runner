@@ -43,14 +43,14 @@ where
     tokio::spawn(async move {
         while let Some(chunk) = input_stream.next().await {
             if let Err(e) = stdin.write_all(&chunk).await {
-                log::error!("Error writing to child stdin: {}", e);
+                log::error!("Error writing to child stdin: {e}");
                 break;
             }
         }
 
         // Close stdin to signal EOF
         if let Err(e) = stdin.shutdown().await {
-            log::error!("Failed to shutdown stdin: {}", e);
+            log::error!("Failed to shutdown stdin: {e}");
         }
     });
 
@@ -65,7 +65,7 @@ where
         let mut stream = StreamExt::merge(stdout, stderr);
 
         while let Some(Ok(line)) = stream.next().await {
-            log::debug!("[nix-store --import] {}", line);
+            log::debug!("[nix-store --import] {line}");
         }
     });
 
