@@ -23,7 +23,7 @@ pub struct Config {
 pub struct State {
     id: uuid::Uuid,
 
-    active_builds: parking_lot::RwLock<AHashMap<String, Arc<BuildInfo>>>,
+    active_builds: parking_lot::RwLock<AHashMap<nix_utils::StorePath, Arc<BuildInfo>>>,
 
     pub config: Config,
 }
@@ -97,12 +97,13 @@ impl State {
         >,
         m: crate::runner_v1::BuildMessage,
     ) {
-        let drv = m.drv.clone();
+        let drv = nix_utils::StorePath::new(&m.drv);
+        log::info!("Building {drv}");
 
         let task_handle = tokio::spawn({
             let self_ = self.clone();
+            let drv = drv.clone();
             async move {
-                let drv = m.drv.clone();
                 match self_.process_build(client.clone(), m).await {
                     Ok(()) => {
                         let mut active = self_.active_builds.write();
@@ -113,7 +114,7 @@ impl State {
                         if let Err(e) = client
                             .complete_build_with_failure(crate::runner_v1::FailResultInfo {
                                 machine_id: self_.id.to_string(),
-                                drv,
+                                drv: drv.base_name().to_owned(),
                             })
                             .await
                         {
@@ -135,10 +136,11 @@ impl State {
         }
     }
 
-    #[tracing::instrument(skip(self, drv))]
-    pub fn abort_build(&self, drv: &str) {
+    #[tracing::instrument(skip(self, m))]
+    pub fn abort_build(&self, m: &crate::runner_v1::AbortMessage) {
+        let drv = nix_utils::StorePath::new(&m.drv);
         let mut active = self.active_builds.write();
-        if let Some(b) = active.remove(drv) {
+        if let Some(b) = active.remove(&drv) {
             b.abort();
         }
     }
@@ -154,13 +156,20 @@ impl State {
         use tokio_stream::StreamExt as _;
 
         let machine_id = self.id;
-        let drv = m.drv.clone();
+        let drv = nix_utils::StorePath::new(&m.drv);
 
         let before_import = Instant::now();
         let gcroot_prefix = uuid::Uuid::new_v4().to_string();
         let gcroot = self.get_gcroot(&gcroot_prefix);
 
-        import_requisites(&mut client, &gcroot, m.requisites).await?;
+        import_requisites(
+            &mut client,
+            &gcroot,
+            m.requisites
+                .into_iter()
+                .map(|s| nix_utils::StorePath::new(&s)),
+        )
+        .await?;
         let import_elapsed = before_import.elapsed();
 
         let drv_info = nix_utils::query_drv(&drv)
@@ -169,15 +178,16 @@ impl State {
 
         let before_build = Instant::now();
         let (mut child, mut log_output) = nix_utils::realise_drv(
-            &m.drv,
+            &drv,
             &nix_utils::BuildOptions::complete(m.max_log_size, m.max_silent_time, m.build_timeout),
         )
         .await?;
+        let drv2 = drv.clone();
         let log_stream = async_stream::stream! {
             while let Some(chunk) = log_output.next().await {
                 match chunk {
                     Ok(chunk) => yield crate::runner_v1::LogChunk {
-                        drv: m.drv.clone(),
+                        drv: drv2.base_name().to_owned(),
                         data: format!("{chunk}\n").into(),
                     },
                     Err(e) => {
@@ -229,14 +239,16 @@ async fn import_path(
         tonic::transport::Channel,
     >,
     gcroot: &std::path::PathBuf,
-    path: String,
+    path: nix_utils::StorePath,
 ) -> anyhow::Result<()> {
     use tokio_stream::StreamExt as _;
 
     if !nix_utils::check_if_storepath_exists(&path) {
         log::debug!("Importing {path}");
         let input_stream = client
-            .stream_file(crate::runner_v1::StorePath { path: path.clone() })
+            .stream_file(crate::runner_v1::StorePath {
+                path: path.base_name().to_owned(),
+            })
             .await?
             .into_inner();
         nix_utils::import_nar(input_stream.map_while(|s| s.map(|m| m.chunk.into()).ok())).await?;
@@ -246,12 +258,12 @@ async fn import_path(
 }
 
 #[tracing::instrument(skip(client, requisites), err)]
-async fn import_requisites(
+async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     client: &mut crate::runner_v1::runner_service_client::RunnerServiceClient<
         tonic::transport::Channel,
     >,
     gcroot: &std::path::PathBuf,
-    requisites: Vec<String>,
+    requisites: T,
 ) -> anyhow::Result<()> {
     use futures::stream::StreamExt as _;
 
@@ -269,7 +281,7 @@ async fn import_requisites(
 #[tracing::instrument(skip(client, nars), err)]
 async fn upload_nars(
     client: crate::runner_v1::runner_service_client::RunnerServiceClient<tonic::transport::Channel>,
-    nars: Vec<String>,
+    nars: Vec<nix_utils::StorePath>,
 ) -> anyhow::Result<()> {
     use futures::stream::StreamExt as _;
 
@@ -299,7 +311,7 @@ async fn upload_nars(
 #[tracing::instrument(skip(drv_info), err)]
 async fn new_build_result_info(
     machine_id: uuid::Uuid,
-    drv: &str,
+    drv: &nix_utils::StorePath,
     drv_info: nix_utils::Derivation,
     import_elapsed: std::time::Duration,
     build_elapsed: std::time::Duration,
@@ -307,14 +319,14 @@ async fn new_build_result_info(
     let outputs = &drv_info
         .outputs
         .iter()
-        .filter_map(|o| o.path.as_deref())
+        .filter_map(|o| o.path.as_ref())
         .collect::<Vec<_>>();
     let pathinfos = nix_utils::query_path_infos(outputs).await?;
 
     let nix_support = nix_utils::parse_nix_support_from_outputs(&drv_info.outputs).await?;
     Ok(crate::runner_v1::BuildResultInfo {
         machine_id: machine_id.to_string(),
-        drv: drv.to_owned(),
+        drv: drv.base_name().to_owned(),
         import_time_ms: u64::try_from(import_elapsed.as_millis())?,
         build_time_ms: u64::try_from(build_elapsed.as_millis())?,
         outputs: drv_info
@@ -327,7 +339,7 @@ async fn new_build_result_info(
                             crate::runner_v1::output::Output::Withpath(
                                 crate::runner_v1::OutputWithPath {
                                     name: o.name,
-                                    path: p,
+                                    path: p.base_name().to_owned(),
                                     closure_size: info.closure_size,
                                     nar_size: info.nar_size,
                                     nar_hash: info.nar_hash.clone(),

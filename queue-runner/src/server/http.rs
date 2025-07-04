@@ -280,7 +280,9 @@ mod handler {
             let whole_body = req.collect().await?.aggregate();
             let data: io::BuildPayload = serde_json::from_reader(whole_body.reader())?;
 
-            state.queue_one_build(data.jobset_id, &data.drv).await?;
+            state
+                .queue_one_build(data.jobset_id, &nix_utils::StorePath::new(&data.drv))
+                .await?;
             construct_json_ok_response(&io::Empty {})
         }
     }

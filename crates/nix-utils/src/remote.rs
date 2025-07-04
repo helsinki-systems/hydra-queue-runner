@@ -1,5 +1,7 @@
 use ahash::AHashMap;
 
+use crate::StorePath;
+
 #[derive(Clone)]
 pub struct RemoteStore<'a> {
     remote_addr: &'a str,
@@ -11,15 +13,9 @@ impl<'a> RemoteStore<'a> {
     }
 
     #[tracing::instrument(skip(self, path), err)]
-    pub async fn copy_path(&self, path: String) -> Result<(), crate::Error> {
-        let path = if path.starts_with("/nix/store/") {
-            &path
-        } else {
-            &format!("/nix/store/{path}")
-        };
-
+    pub async fn copy_path(&self, path: StorePath) -> Result<(), crate::Error> {
         let mut child = tokio::process::Command::new("nix")
-            .args(["copy", "--to", self.remote_addr, path])
+            .args(["copy", "--to", self.remote_addr, &path.get_full_path()])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()?;
@@ -28,15 +24,16 @@ impl<'a> RemoteStore<'a> {
     }
 
     #[tracing::instrument(skip(self, path))]
-    pub async fn check_if_storepath_exists(&self, path: &str) -> bool {
-        let path = if path.starts_with("/nix/store/") {
-            path
-        } else {
-            &format!("/nix/store/{path}")
-        };
-
+    pub async fn check_if_storepath_exists(&self, path: &StorePath) -> bool {
+        let full_path = path.get_full_path();
         let Ok(cmd) = tokio::process::Command::new("nix")
-            .args(["path-info", "--json", "--store", self.remote_addr, path])
+            .args([
+                "path-info",
+                "--json",
+                "--store",
+                self.remote_addr,
+                &full_path,
+            ])
             .output()
             .await
         else {
@@ -49,7 +46,10 @@ impl<'a> RemoteStore<'a> {
                 return false;
             };
 
-            infos.get(path).map(|v| v.is_some()).unwrap_or_default()
+            infos
+                .get(&full_path)
+                .map(|v| v.is_some())
+                .unwrap_or_default()
         } else {
             false
         }

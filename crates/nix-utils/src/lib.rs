@@ -47,15 +47,62 @@ pub use nix_support::{BuildMetric, BuildProduct, NixSupport, parse_nix_support_f
 pub use pathinfo::{PathInfo, clear_query_path_cache, query_path_info, query_path_infos};
 pub use remote::RemoteStore;
 
-#[tracing::instrument(skip(path))]
-pub fn check_if_storepath_exists(path: &str) -> bool {
-    let path = if path.starts_with("/nix/store/") {
-        path
-    } else {
-        &format!("/nix/store/{path}")
-    };
+pub const HASH_LEN: usize = 32;
 
-    std::path::Path::new(path).exists()
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct StorePath {
+    base_name: String,
+}
+
+impl StorePath {
+    pub fn new(p: &str) -> Self {
+        if let Some(postfix) = p.strip_prefix("/nix/store/") {
+            debug_assert!(postfix.len() > HASH_LEN + 1);
+            Self {
+                base_name: postfix.to_string(),
+            }
+        } else {
+            debug_assert!(p.len() > HASH_LEN + 1);
+            Self {
+                base_name: p.to_string(),
+            }
+        }
+    }
+
+    pub fn base_name(&self) -> &str {
+        &self.base_name
+    }
+
+    pub fn name(&self) -> &str {
+        &self.base_name[HASH_LEN + 1..]
+    }
+
+    pub fn hash_part(&self) -> &str {
+        &self.base_name[..HASH_LEN]
+    }
+
+    pub fn get_full_path(&self) -> String {
+        format!("/nix/store/{}", self.base_name)
+    }
+}
+impl serde::Serialize for StorePath {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.base_name())
+    }
+}
+
+impl std::fmt::Display for StorePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        writeln!(f, "{}", self.base_name)
+    }
+}
+
+#[tracing::instrument(skip(path))]
+pub fn check_if_storepath_exists(path: &StorePath) -> bool {
+    std::path::Path::new(&path.get_full_path()).exists()
 }
 
 pub fn validate_statuscode(status: std::process::ExitStatus) -> Result<(), Error> {
@@ -66,17 +113,9 @@ pub fn validate_statuscode(status: std::process::ExitStatus) -> Result<(), Error
     }
 }
 
-pub fn add_root(root_dir: &std::path::Path, store_path: &str) {
-    let store_path = if store_path.starts_with("/nix/store/") {
-        store_path
-    } else {
-        &format!("/nix/store/{store_path}")
-    };
-    let store_path_no_prefix = store_path.strip_prefix("/nix/store/").unwrap_or(store_path);
-
-    let path = root_dir.join(store_path_no_prefix);
-
+pub fn add_root(root_dir: &std::path::Path, store_path: &StorePath) {
+    let path = root_dir.join(store_path.base_name());
     if !path.exists() {
-        let _ = std::os::unix::fs::symlink(store_path, path);
+        let _ = std::os::unix::fs::symlink(store_path.get_full_path(), path);
     }
 }

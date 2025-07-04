@@ -84,7 +84,7 @@ impl From<std::sync::Arc<crate::state::MachineStats>> for MachineStats {
 
 #[derive(Debug, serde::Serialize)]
 pub struct Machine {
-    systems: Vec<String>,
+    systems: Vec<crate::state::System>,
     hostname: String,
     cpu_count: u32,
     bogomips: f32,
@@ -94,7 +94,7 @@ pub struct Machine {
     features: Vec<String>,
     cgroups: bool,
     stats: MachineStats,
-    jobs: Vec<String>,
+    jobs: Vec<nix_utils::StorePath>,
 }
 
 impl Machine {
@@ -144,7 +144,7 @@ pub struct QueueRunnerStats {
     jobset_count: usize,
     step_count: usize,
     runnable_count: usize,
-    queue_stats: HashMap<String, BuildQueueStats>,
+    queue_stats: HashMap<crate::state::System, BuildQueueStats>,
 
     queue_checks_started: u64,
     queue_build_loads: u64,
@@ -299,7 +299,7 @@ impl JobsetsResponse {
 #[derive(Debug, serde::Serialize)]
 pub struct Build {
     id: crate::state::BuildID,
-    drv_path: crate::state::StorePath,
+    drv_path: nix_utils::StorePath,
     jobset_id: crate::state::JobsetID,
     name: String,
     timestamp: chrono::DateTime<chrono::Utc>,
@@ -342,7 +342,7 @@ impl BuildsResponse {
 
 #[derive(Debug, serde::Serialize)]
 pub struct Step {
-    drv_path: crate::state::StorePath,
+    drv_path: nix_utils::StorePath,
     finished: bool,
 
     created: bool,
@@ -390,7 +390,7 @@ impl StepsResponse {
 
 #[derive(Debug, serde::Serialize)]
 pub struct StepInfo {
-    drv_path: crate::state::StorePath,
+    drv_path: nix_utils::StorePath,
     already_scheduled: bool,
     runnable_since: chrono::DateTime<chrono::Utc>,
 

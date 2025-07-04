@@ -2,6 +2,8 @@ use ahash::AHashMap;
 use cached::proc_macro::cached;
 use cached::{Cached, UnboundCache};
 
+use crate::StorePath;
+
 #[derive(Debug, serde::Deserialize)]
 struct InnerPathInfo {
     ca: Option<String>,
@@ -16,7 +18,7 @@ struct InnerPathInfo {
 
 #[derive(Debug, Clone)]
 pub struct PathInfo {
-    pub path: String,
+    pub path: StorePath,
     pub ca: Option<String>,
     pub deriver: Option<String>,
     pub nar_hash: String,
@@ -25,7 +27,7 @@ pub struct PathInfo {
 }
 
 impl PathInfo {
-    fn new(p: String, inner: InnerPathInfo) -> Self {
+    fn new(p: StorePath, inner: InnerPathInfo) -> Self {
         Self {
             path: p,
             ca: inner.ca,
@@ -44,22 +46,23 @@ impl PathInfo {
     result = true,
     convert = r#"{ format!("{}", path) }"#
 )]
-pub async fn query_path_info(path: &str) -> Result<Option<PathInfo>, crate::Error> {
-    let path = if path.starts_with("/nix/store/") {
-        path
-    } else {
-        &format!("/nix/store/{path}")
-    };
-
+pub async fn query_path_info(path: &StorePath) -> Result<Option<PathInfo>, crate::Error> {
+    let full_path = path.get_full_path();
     let cmd = &tokio::process::Command::new("nix")
-        .args(["path-info", "--json", "--size", "--closure-size", path])
+        .args([
+            "path-info",
+            "--json",
+            "--size",
+            "--closure-size",
+            &full_path,
+        ])
         .output()
         .await?;
     if cmd.status.success() {
         let mut infos = serde_json::from_slice::<AHashMap<String, InnerPathInfo>>(&cmd.stdout)?;
         Ok(infos
-            .remove(path)
-            .map(|i| PathInfo::new(path.to_string(), i)))
+            .remove(&full_path)
+            .map(|i| PathInfo::new(path.to_owned(), i)))
     } else {
         Ok(None)
     }
@@ -70,11 +73,13 @@ pub async fn clear_query_path_cache() {
     cache.cache_clear();
 }
 
-pub async fn query_path_infos(paths: &[&str]) -> Result<AHashMap<String, PathInfo>, crate::Error> {
+pub async fn query_path_infos(
+    paths: &[&StorePath],
+) -> Result<AHashMap<StorePath, PathInfo>, crate::Error> {
     let mut res = AHashMap::new();
     for p in paths {
         if let Some(info) = query_path_info(p).await? {
-            res.insert(p.to_string(), info);
+            res.insert((*p).to_owned(), info);
         }
     }
     Ok(res)

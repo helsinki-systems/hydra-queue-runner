@@ -2,6 +2,8 @@ use ahash::AHashMap;
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tokio_stream::wrappers::LinesStream;
 
+use crate::StorePath;
+
 fn deserialize_input_drvs<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -15,10 +17,10 @@ pub struct OutputPath {
     path: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Output {
     pub name: String,
-    pub path: Option<String>,
+    pub path: Option<StorePath>,
 }
 
 fn deserialize_outputs<'de, D>(deserializer: D) -> Result<Vec<Output>, D::Error>
@@ -29,7 +31,7 @@ where
     Ok(x.into_iter()
         .map(|(k, v)| Output {
             name: k,
-            path: v.path,
+            path: v.path.map(|v| StorePath::new(&v)),
         })
         .collect())
 }
@@ -48,10 +50,10 @@ pub struct Derivation {
 }
 
 #[tracing::instrument(skip(drvs), err)]
-pub async fn query_drvs(drvs: &[&str]) -> Result<Vec<Derivation>, crate::Error> {
+pub async fn query_drvs(drvs: &[&StorePath]) -> Result<Vec<Derivation>, crate::Error> {
     let cmd = &tokio::process::Command::new("nix")
         .args(["derivation", "show"])
-        .args(drvs)
+        .args(drvs.iter().map(|v| v.get_full_path()))
         .output()
         .await?;
     if cmd.status.success() {
@@ -63,30 +65,16 @@ pub async fn query_drvs(drvs: &[&str]) -> Result<Vec<Derivation>, crate::Error> 
 }
 
 #[tracing::instrument(skip(drv), err)]
-pub async fn query_drv(drv: &str) -> Result<Option<Derivation>, crate::Error> {
-    // should only return 1 drv, so we can pop first
-    let drv = if drv.starts_with("/nix/store/") {
-        drv
-    } else {
-        &format!("/nix/store/{drv}")
-    };
-
+pub async fn query_drv(drv: &StorePath) -> Result<Option<Derivation>, crate::Error> {
     Ok(query_drvs(&[drv]).await?.into_iter().next())
 }
 
 #[tracing::instrument(skip(drv), err)]
-pub async fn topo_sort_drvs(drv: &str) -> Result<Vec<String>, crate::Error> {
+pub async fn topo_sort_drvs(drv: &StorePath) -> Result<Vec<String>, crate::Error> {
     use std::io::BufRead as _;
 
-    // should only return 1 drv, so we can pop first
-    let drv = if drv.starts_with("/nix/store/") {
-        drv
-    } else {
-        &format!("/nix/store/{drv}")
-    };
-
     let cmd = &tokio::process::Command::new("nix-store")
-        .args(["-qR", drv])
+        .args(["-qR", &drv.get_full_path()])
         .output()
         .await?;
     if cmd.status.success() {
@@ -165,7 +153,7 @@ impl BuildOptions {
 #[allow(clippy::type_complexity)]
 #[tracing::instrument(skip(drv, opts), err)]
 pub async fn realise_drv(
-    drv: &str,
+    drv: &StorePath,
     opts: &BuildOptions,
 ) -> Result<
     (
@@ -178,12 +166,6 @@ pub async fn realise_drv(
     crate::Error,
 > {
     use tokio_stream::StreamExt;
-
-    let drv = if drv.starts_with("/nix/store/") {
-        drv
-    } else {
-        &format!("/nix/store/{drv}")
-    };
 
     let mut child = tokio::process::Command::new("nix-store")
         .args([
@@ -201,7 +183,7 @@ pub async fn realise_drv(
             "--option",
             "substitute",
             format_bool(opts.substitute),
-            drv,
+            &drv.get_full_path(),
         ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

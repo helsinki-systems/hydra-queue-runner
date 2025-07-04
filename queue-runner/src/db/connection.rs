@@ -733,7 +733,7 @@ impl Transaction<'_> {
                     build_id,
                     step_nr,
                     r#type: crate::db::models::BuildType::Build,
-                    drv_path: step.get_drv_path(),
+                    drv_path: &step.get_drv_path().get_full_path(),
                     status,
                     busy: status == crate::db::models::BuildStatus::Busy,
                     start_time,
@@ -758,7 +758,7 @@ impl Transaction<'_> {
                 build_id,
                 step_nr,
                 name: o.name,
-                path: o.path,
+                path: o.path.map(|s| s.get_full_path()),
             })
             .await?;
         }
@@ -810,7 +810,7 @@ impl Transaction<'_> {
             build_id,
             step_nr,
             name: output.name,
-            path: output.path,
+            path: output.path.map(|s| s.get_full_path()),
         })
         .await?;
 

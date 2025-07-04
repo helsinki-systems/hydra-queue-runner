@@ -3,6 +3,7 @@ use std::sync::{Arc, atomic::Ordering};
 use ahash::AHashMap;
 use tokio::sync::mpsc;
 
+use super::System;
 use super::build::{BuildID, RemoteBuild};
 use crate::{
     config::MachineSortFn,
@@ -171,7 +172,7 @@ impl Stats {
 struct MachinesInner {
     by_uuid: AHashMap<uuid::Uuid, Arc<Machine>>,
     // by_system is always sorted, as we insert sorted based on cpu score
-    by_system: AHashMap<String, Vec<Arc<Machine>>>,
+    by_system: AHashMap<System, Vec<Arc<Machine>>>,
 }
 
 impl MachinesInner {
@@ -278,14 +279,14 @@ impl Machines {
 
 #[derive(Debug, Clone)]
 pub struct Job {
-    pub path: String,
+    pub path: nix_utils::StorePath,
     pub build_id: BuildID,
     pub step_nr: i32,
     pub result: RemoteBuild,
 }
 
 impl Job {
-    pub fn new(build_id: BuildID, path: String) -> Self {
+    pub fn new(build_id: BuildID, path: nix_utils::StorePath) -> Self {
         Self {
             path,
             build_id,
@@ -298,7 +299,7 @@ impl Job {
 #[derive(Debug, Clone)]
 pub struct Machine {
     pub id: uuid::Uuid,
-    pub systems: Vec<String>,
+    pub systems: Vec<System>,
     pub hostname: String,
     pub cpu_count: u32,
     pub bogomips: f32,
@@ -360,7 +361,7 @@ impl Machine {
             .msg_queue
             .send(runner_request::Message::Build(BuildMessage {
                 requisites: nix_utils::topo_sort_drvs(&drv).await.unwrap_or_default(),
-                drv: drv.clone(),
+                drv: drv.base_name().to_owned(),
                 max_log_size: opts.get_max_log_size(),
                 max_silent_time: opts.get_max_silent_time(),
                 build_timeout: opts.get_build_timeout(),
@@ -375,12 +376,11 @@ impl Machine {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn abort_build<S: Into<String> + std::fmt::Debug>(&self, drv: S) {
-        let drv: String = drv.into();
+    pub async fn abort_build(&self, drv: &nix_utils::StorePath) {
         if let Err(e) = self
             .msg_queue
             .send(runner_request::Message::Abort(AbortMessage {
-                drv: drv.clone(),
+                drv: drv.base_name().to_owned(),
             }))
             .await
         {
@@ -388,7 +388,7 @@ impl Machine {
             return;
         }
 
-        self.remove_job(&drv);
+        self.remove_job(drv);
     }
 
     #[tracing::instrument(skip(self, sort_fn))]
@@ -420,10 +420,10 @@ impl Machine {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn remove_job(&self, drv: &str) -> Option<Job> {
+    pub fn remove_job(&self, drv: &nix_utils::StorePath) -> Option<Job> {
         let mut jobs = self.jobs.write();
-        let job = jobs.iter().find(|j| j.path == drv).cloned();
-        jobs.retain(|j| j.path != drv);
+        let job = jobs.iter().find(|j| &j.path == drv).cloned();
+        jobs.retain(|j| &j.path != drv);
         self.stats.store_current_jobs(jobs.len() as u64);
         job
     }

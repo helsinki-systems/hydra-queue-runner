@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-use nix_utils::query_drv;
-
 use crate::{
     db::Transaction,
     state::{BuildID, RemoteBuild},
@@ -53,11 +51,16 @@ pub async fn finish_build_step(
         let drv_path = tx.get_drv_path_from_build_step(build_id, step_nr).await?;
         if let Some(drv_path) = drv_path {
             // If we've finished building, all the paths should be known
-            if let Some(drv) = query_drv(&drv_path).await? {
+            if let Some(drv) = nix_utils::query_drv(&nix_utils::StorePath::new(&drv_path)).await? {
                 for o in drv.outputs {
                     if let Some(path) = o.path {
-                        tx.update_build_step_output(build_id, step_nr, &o.name, &path)
-                            .await?;
+                        tx.update_build_step_output(
+                            build_id,
+                            step_nr,
+                            &o.name,
+                            &path.get_full_path(),
+                        )
+                        .await?;
                     }
                 }
             }
@@ -71,7 +74,7 @@ pub async fn substitute_output(
     db: crate::db::Database,
     o: nix_utils::DerivationOutput,
     build_id: BuildID,
-    drv_path: &str,
+    drv_path: &nix_utils::StorePath,
     build_opts: &nix_utils::BuildOptions,
     remote_store: Option<&nix_utils::RemoteStore<'_>>,
 ) -> anyhow::Result<()> {
@@ -88,7 +91,7 @@ pub async fn substitute_output(
 
     let mut db = db.get().await?;
     let mut tx = db.begin_transaction().await?;
-    tx.create_substitution_step(starttime, stoptime, build_id, drv_path, o)
+    tx.create_substitution_step(starttime, stoptime, build_id, &drv_path.get_full_path(), o)
         .await?;
     tx.commit().await?;
 

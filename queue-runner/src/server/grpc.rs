@@ -212,7 +212,10 @@ impl RunnerService for Server {
             if let Some(ref mut file) = out_file {
                 file.write_all(&chunk.data).await?;
             } else {
-                let mut file = state.new_log_file(&chunk.drv).await.unwrap();
+                let mut file = state
+                    .new_log_file(&nix_utils::StorePath::new(&chunk.drv))
+                    .await
+                    .unwrap();
                 file.write_all(&chunk.data).await?;
                 out_file = Some(file);
             }
@@ -254,7 +257,11 @@ impl RunnerService for Server {
 
         let build_output = crate::state::BuildOutput::from(req);
         if let Err(e) = state
-            .mark_step_done(machine_id.ok(), &drv, build_output)
+            .mark_step_done(
+                machine_id.ok(),
+                &nix_utils::StorePath::new(&drv),
+                build_output,
+            )
             .await
         {
             log::error!("Failed to mark step with drv={drv} as done: {e}");
@@ -274,7 +281,10 @@ impl RunnerService for Server {
         let drv = req.drv;
         let machine_id = uuid::Uuid::parse_str(&req.machine_id);
 
-        if let Err(e) = state.fail_step(machine_id.ok(), &drv).await {
+        if let Err(e) = state
+            .fail_step(machine_id.ok(), &nix_utils::StorePath::new(&drv))
+            .await
+        {
             log::error!("Failed to fail step with drv={drv}: {e}");
         }
 
@@ -288,7 +298,7 @@ impl RunnerService for Server {
     ) -> BuilderResult<Self::StreamFileStream> {
         use tokio_stream::StreamExt as _;
 
-        let path = req.into_inner().path;
+        let path = nix_utils::StorePath::new(&req.into_inner().path);
         let (_, mut bytes_stream) = nix_utils::export_nar(&path)
             .await
             .map_err(|_| tonic::Status::internal("failed to export path"))?;

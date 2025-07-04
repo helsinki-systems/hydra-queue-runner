@@ -65,5 +65,5 @@ TODO(conni2461): add list what currently works and what still needs to be done
 - [ ] maybe drop runnable vec and move into Queues
 - [ ] github nix ci
 - [ ] migrate hydra to 64bit timestamps
-- [ ] storepath abstraction
+- [ ] status pages fixes
 - [ ] ....

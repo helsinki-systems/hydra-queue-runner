@@ -4,6 +4,7 @@ use std::sync::{Arc, atomic::AtomicBool};
 
 use ahash::{AHashMap, AHashSet};
 
+use super::System;
 use super::build::{BuildID, Step, StepState};
 
 type Counter = std::sync::atomic::AtomicU64;
@@ -161,9 +162,10 @@ impl BuildQueue {
 pub struct Queues {
     // flat list of all step infos in queues, owning those steps inner queue dont own them
     jobs: AHashSet<Arc<StepInfo>>,
-    inner: AHashMap<String, Arc<BuildQueue>>,
+    inner: AHashMap<System, Arc<BuildQueue>>,
     #[allow(clippy::type_complexity)]
-    scheduled: parking_lot::RwLock<AHashMap<String, (Arc<StepInfo>, Arc<BuildQueue>)>>,
+    scheduled:
+        parking_lot::RwLock<AHashMap<nix_utils::StorePath, (Arc<StepInfo>, Arc<BuildQueue>)>>,
 }
 
 impl Queues {
@@ -199,7 +201,7 @@ impl Queues {
         queue.insert_new_jobs(submit_jobs, now);
     }
 
-    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, String, Arc<BuildQueue>> {
+    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, System, Arc<BuildQueue>> {
         self.inner.iter()
     }
 
@@ -214,7 +216,7 @@ impl Queues {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn remove_job_from_scheduled(&self, drv: &str) {
+    pub fn remove_job_from_scheduled(&self, drv: &nix_utils::StorePath) {
         let mut scheduled = self.scheduled.write();
 
         let Some((step_info, queue)) = scheduled.remove(drv) else {
@@ -226,7 +228,7 @@ impl Queues {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn mark_job_done(&mut self, drv: &str) {
+    pub fn mark_job_done(&mut self, drv: &nix_utils::StorePath) {
         let Some((stepinfo, queue)) = ({
             let mut scheduled = self.scheduled.write();
             scheduled.remove(drv)
@@ -239,7 +241,7 @@ impl Queues {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn get_stats_per_queue(&self) -> AHashMap<String, BuildQueueStats> {
+    pub fn get_stats_per_queue(&self) -> AHashMap<System, BuildQueueStats> {
         self.inner
             .iter()
             .map(|(k, v)| (k.clone(), v.get_stats()))

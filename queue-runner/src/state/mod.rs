@@ -6,9 +6,7 @@ mod machine;
 mod metrics;
 mod queue;
 
-pub use build::{
-    Build, BuildID, BuildMetric, BuildOutput, BuildProduct, RemoteBuild, Step, StorePath,
-};
+pub use build::{Build, BuildID, BuildMetric, BuildOutput, BuildProduct, RemoteBuild, Step};
 pub use jobset::{Jobset, JobsetID, SCHEDULING_WINDOW};
 pub use machine::{Machine, Pressure, Stats as MachineStats};
 pub use queue::{BuildQueueStats, StepInfo};
@@ -26,6 +24,8 @@ use crate::config::{Args, PreparedApp};
 use crate::db::models::BuildStatus;
 use crate::utils::finish_build_step;
 use machine::Machines;
+
+pub type System = String;
 
 enum CreateStepResult {
     None,
@@ -51,7 +51,7 @@ pub struct State {
     pub builds: parking_lot::RwLock<AHashMap<BuildID, Arc<Build>>>,
     // Projectname, Jobsetname
     pub jobsets: parking_lot::RwLock<AHashMap<(String, String), Arc<Jobset>>>,
-    pub steps: parking_lot::RwLock<AHashMap<StorePath, Weak<Step>>>,
+    pub steps: parking_lot::RwLock<AHashMap<nix_utils::StorePath, Weak<Step>>>,
     pub runnable: parking_lot::RwLock<Vec<Weak<Step>>>,
     pub queues: tokio::sync::RwLock<queue::Queues>,
 
@@ -158,7 +158,7 @@ impl State {
     async fn realise_drv_on_valid_machine(
         &self,
         step: Arc<Step>,
-        system: &str,
+        system: &System,
     ) -> anyhow::Result<bool> {
         let drv = step.get_drv_path();
         let Some(machine) = self.machines.get_machine_for_system(system) else {
@@ -251,14 +251,12 @@ impl State {
     }
 
     #[tracing::instrument(skip(self, drv), err)]
-    async fn construct_log_file_path(&self, drv: &str) -> anyhow::Result<std::path::PathBuf> {
+    async fn construct_log_file_path(
+        &self,
+        drv: &nix_utils::StorePath,
+    ) -> anyhow::Result<std::path::PathBuf> {
         let mut log_file = self.log_dir.clone();
-        let drv_filename = std::path::Path::new(drv)
-            .file_name()
-            .ok_or(anyhow::anyhow!("Not a valid drv"))?
-            .to_str()
-            .ok_or(anyhow::anyhow!("Not a valid utf-8 str."))?;
-        let (dir, file) = drv_filename.split_at(2);
+        let (dir, file) = drv.base_name().split_at(2);
         log_file.push(format!("{dir}/"));
         let _ = tokio::fs::create_dir_all(&log_file).await; // create dir
         log_file.push(file);
@@ -266,7 +264,10 @@ impl State {
     }
 
     #[tracing::instrument(skip(self, drv), err)]
-    pub async fn new_log_file(&self, drv: &str) -> anyhow::Result<tokio::fs::File> {
+    pub async fn new_log_file(
+        &self,
+        drv: &nix_utils::StorePath,
+    ) -> anyhow::Result<tokio::fs::File> {
         let log_file = self.construct_log_file_path(drv).await?;
         log::debug!("opening {log_file:?}");
 
@@ -285,9 +286,9 @@ impl State {
         &self,
         new_ids: Vec<BuildID>,
         mut new_builds_by_id: AHashMap<BuildID, Arc<Build>>,
-        new_builds_by_path: MultiMap<StorePath, BuildID, ahash::RandomState>,
+        new_builds_by_path: MultiMap<nix_utils::StorePath, BuildID, ahash::RandomState>,
     ) {
-        let mut finished_drvs = AHashSet::<StorePath>::new();
+        let mut finished_drvs = AHashSet::<nix_utils::StorePath>::new();
 
         let starttime = chrono::Utc::now();
         let mut new_runnable_addition = false;
@@ -373,13 +374,13 @@ impl State {
     pub async fn queue_one_build(
         &self,
         jobset_id: i32,
-        drv_path: &StorePath,
+        drv_path: &nix_utils::StorePath,
     ) -> anyhow::Result<()> {
         let mut db = self.db.get().await?;
         let drv = nix_utils::query_drv(drv_path)
             .await?
             .ok_or(anyhow::anyhow!("drv not found"))?;
-        db.insert_debug_build(jobset_id, drv_path, &drv.system)
+        db.insert_debug_build(jobset_id, &drv_path.get_full_path(), &drv.system)
             .await?;
 
         let mut tx = db.begin_transaction().await?;
@@ -394,7 +395,8 @@ impl State {
 
         let mut new_ids = Vec::<BuildID>::new();
         let mut new_builds_by_id = AHashMap::<BuildID, Arc<Build>>::new();
-        let mut new_builds_by_path = MultiMap::<StorePath, BuildID, ahash::RandomState>::default();
+        let mut new_builds_by_path =
+            MultiMap::<nix_utils::StorePath, BuildID, ahash::RandomState>::default();
 
         {
             let mut conn = self.db.get().await?;
@@ -546,7 +548,7 @@ impl State {
         }
 
         let now = chrono::Utc::now();
-        let mut new_queues = MultiMap::<String, StepInfo, ahash::RandomState>::default();
+        let mut new_queues = MultiMap::<System, StepInfo, ahash::RandomState>::default();
         for r in new_runnable {
             let Some(system) = r.get_system() else {
                 continue;
@@ -602,7 +604,7 @@ impl State {
     pub async fn mark_step_done(
         &self,
         machine_id: Option<uuid::Uuid>,
-        drv_path: &StorePath,
+        drv_path: &nix_utils::StorePath,
         output: BuildOutput,
     ) -> anyhow::Result<()> {
         let step = {
@@ -663,7 +665,7 @@ impl State {
         // TODO: can retry: builder.cc:260
 
         for (_, path) in &output.outputs {
-            self.add_root(path);
+            self.add_root(&nix_utils::StorePath::new(path));
         }
 
         let remote_store_url = {
@@ -679,6 +681,7 @@ impl State {
                 let mut stream =
                     futures::StreamExt::map(tokio_stream::iter(outputs), |(_, path)| {
                         // TODO: copy logs, currently not possible with cli interface
+                        let path = nix_utils::StorePath::new(&path);
                         remote_store.copy_path(path)
                     })
                     .buffer_unordered(10);
@@ -784,7 +787,7 @@ impl State {
     pub async fn fail_step(
         &self,
         machine_id: Option<uuid::Uuid>,
-        drv_path: &StorePath,
+        drv_path: &nix_utils::StorePath,
     ) -> anyhow::Result<()> {
         let step = {
             let steps = self.steps.write();
@@ -833,7 +836,7 @@ impl State {
     #[tracing::instrument(skip(self), err)]
     async fn inner_fail_job(
         &self,
-        drv_path: &StorePath,
+        drv_path: &nix_utils::StorePath,
         machine: Option<Arc<Machine>>,
         job: machine::Job,
         step: Arc<Step>,
@@ -911,7 +914,7 @@ impl State {
                 if job.result.step_status == BuildStatus::CachedFailure && job.result.can_cache {
                     for o in step.get_outputs().unwrap_or_default() {
                         let Some(p) = o.path else { continue };
-                        tx.insert_failed_paths(&p).await?;
+                        tx.insert_failed_paths(&p.get_full_path()).await?;
                     }
                 }
 
@@ -1031,7 +1034,7 @@ impl State {
         // Find the previous build step record, first by derivation path, then by output
         // path.
         let mut propagated_from = tx
-            .get_last_build_step_id(step.get_drv_path())
+            .get_last_build_step_id(&step.get_drv_path().get_full_path())
             .await?
             .unwrap_or_default();
 
@@ -1042,10 +1045,14 @@ impl State {
             let outputs = step.get_outputs().unwrap_or_default();
             for o in outputs {
                 let res = if let Some(path) = &o.path {
-                    tx.get_last_build_step_id_for_output_path(path).await
-                } else {
-                    tx.get_last_build_step_id_for_output_with_drv(step.get_drv_path(), &o.name)
+                    tx.get_last_build_step_id_for_output_path(&path.get_full_path())
                         .await
+                } else {
+                    tx.get_last_build_step_id_for_output_with_drv(
+                        &step.get_drv_path().get_full_path(),
+                        &o.name,
+                    )
+                    .await
                 };
                 if let Ok(Some(res)) = res {
                     propagated_from = res;
@@ -1097,8 +1104,8 @@ impl State {
         build: Arc<Build>,
         nr_added: &mut i64,
         new_builds_by_id: &mut AHashMap<BuildID, Arc<Build>>,
-        new_builds_by_path: &MultiMap<StorePath, BuildID, ahash::RandomState>,
-        finished_drvs: &mut AHashSet<StorePath>,
+        new_builds_by_path: &MultiMap<nix_utils::StorePath, BuildID, ahash::RandomState>,
+        finished_drvs: &mut AHashSet<nix_utils::StorePath>,
         new_runnable: &mut AHashSet<Arc<Step>>,
     ) {
         self.metrics.queue_build_loads.inc();
@@ -1212,10 +1219,10 @@ impl State {
     async fn create_step(
         &self,
         build: Arc<Build>,
-        drv_path: &StorePath,
+        drv_path: &nix_utils::StorePath,
         referring_build: Option<Arc<Build>>,
         referring_step: Option<Arc<Step>>,
-        finished_drvs: &mut AHashSet<StorePath>,
+        finished_drvs: &mut AHashSet<nix_utils::StorePath>,
         new_steps: &mut AHashSet<Arc<Step>>,
         new_runnable: &mut AHashSet<Arc<Step>>,
     ) -> CreateStepResult {
@@ -1325,7 +1332,7 @@ impl State {
             match Box::pin(self.create_step(
                 // conn,
                 build.clone(),
-                i,
+                &nix_utils::StorePath::new(i),
                 None,
                 Some(step.clone()),
                 finished_drvs,
@@ -1368,7 +1375,11 @@ impl State {
         };
         for o in &drv_outputs {
             if let Some(path) = &o.path {
-                if conn.check_if_path_failed(path).await.unwrap_or_default() {
+                if conn
+                    .check_if_path_failed(&path.get_full_path())
+                    .await
+                    .unwrap_or_default()
+                {
                     return true;
                 }
             }
@@ -1421,7 +1432,7 @@ impl State {
         let res = self.get_build_output_cached(&build.drv_path).await?;
 
         for (_, path) in &res.outputs {
-            self.add_root(path);
+            self.add_root(&nix_utils::StorePath::new(path));
         }
 
         {
@@ -1449,7 +1460,10 @@ impl State {
     }
 
     #[tracing::instrument(skip(self), err)]
-    async fn get_build_output_cached(&self, drv_path: &StorePath) -> anyhow::Result<BuildOutput> {
+    async fn get_build_output_cached(
+        &self,
+        drv_path: &nix_utils::StorePath,
+    ) -> anyhow::Result<BuildOutput> {
         let drv = nix_utils::query_drv(drv_path)
             .await?
             .ok_or(anyhow::anyhow!("Derivation not found"))?;
@@ -1460,7 +1474,10 @@ impl State {
                 let Some(out_path) = &o.path else {
                     continue;
                 };
-                let Some(db_build_output) = db.get_build_output_for_path(out_path).await? else {
+                let Some(db_build_output) = db
+                    .get_build_output_for_path(&out_path.get_full_path())
+                    .await?
+                else {
                     continue;
                 };
                 let build_id = db_build_output.id;
@@ -1478,7 +1495,7 @@ impl State {
         BuildOutput::new(drv.outputs).await
     }
 
-    fn add_root(&self, drv_path: &StorePath) {
+    fn add_root(&self, drv_path: &nix_utils::StorePath) {
         let config = self.config.read();
         nix_utils::add_root(&config.roots_dir, drv_path);
     }

@@ -3,6 +3,8 @@ use std::os::unix::fs::MetadataExt as _;
 use sha2::{Digest as _, Sha256};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, BufReader};
 
+use crate::StorePath;
+
 pub struct BuildProduct {
     pub path: String,
     pub default_path: String,
@@ -31,15 +33,6 @@ pub struct NixSupport {
     pub products: Vec<BuildProduct>,
 }
 
-fn get_name_from_path(v: &str) -> String {
-    let w = v.strip_prefix("/nix/store/").unwrap_or(v);
-    if w.len() > 32 + 1 {
-        w[32 + 1..].into()
-    } else {
-        String::new()
-    }
-}
-
 pub async fn parse_nix_support_from_outputs(
     derivation_outputs: &[crate::DerivationOutput],
 ) -> std::io::Result<NixSupport> {
@@ -49,10 +42,11 @@ pub async fn parse_nix_support_from_outputs(
 
     let outputs = derivation_outputs
         .iter()
-        .filter_map(|o| o.path.as_deref())
+        .filter_map(|o| o.path.as_ref())
         .collect::<Vec<_>>();
     for output in &outputs {
-        let file_path = std::path::Path::new(&output).join("nix-support/hydra-metrics");
+        let output_full_path = output.get_full_path();
+        let file_path = std::path::Path::new(&output_full_path).join("nix-support/hydra-metrics");
         let Ok(file) = tokio::fs::File::open(&file_path).await else {
             continue;
         };
@@ -67,7 +61,7 @@ pub async fn parse_nix_support_from_outputs(
             }
 
             metrics.push(BuildMetric {
-                path: (*output).to_owned(),
+                path: output_full_path.clone(),
                 name: fields[0].clone(),
                 value: fields[1].parse::<f64>().unwrap_or(0.0),
                 unit: if fields.len() >= 3 {
@@ -80,7 +74,7 @@ pub async fn parse_nix_support_from_outputs(
     }
 
     for output in &outputs {
-        let file_path = std::path::Path::new(&output).join("nix-support/failed");
+        let file_path = std::path::Path::new(&output.get_full_path()).join("nix-support/failed");
         if tokio::fs::try_exists(file_path).await.unwrap_or_default() {
             failed = true;
             break;
@@ -88,7 +82,8 @@ pub async fn parse_nix_support_from_outputs(
     }
 
     for output in &outputs {
-        let file_path = std::path::Path::new(&output).join("nix-support/hydra-release-name");
+        let file_path =
+            std::path::Path::new(&output.get_full_path()).join("nix-support/hydra-release-name");
         if let Ok(v) = tokio::fs::read_to_string(file_path).await {
             let v = v.trim();
             if !v.is_empty() {
@@ -102,7 +97,9 @@ pub async fn parse_nix_support_from_outputs(
     let mut explicit_products = false;
     let mut products = Vec::new();
     for output in &outputs {
-        let file_path = std::path::Path::new(&output).join("nix-support/hydra-build-products");
+        let output_full_path = output.get_full_path();
+        let file_path =
+            std::path::Path::new(&output_full_path).join("nix-support/hydra-build-products");
         let Ok(file) = tokio::fs::File::open(&file_path).await else {
             continue;
         };
@@ -126,26 +123,24 @@ pub async fn parse_nix_support_from_outputs(
             if path.is_empty() || !path.starts_with('/') {
                 continue;
             }
+            let path = StorePath::new(&path);
+            let path_full_path = path.get_full_path();
             if !crate::check_if_storepath_exists(&path) {
                 continue;
             }
-            let Ok(metadata) = tokio::fs::metadata(&path).await else {
+            let Ok(metadata) = tokio::fs::metadata(&path_full_path).await else {
                 continue;
             };
             let is_regular = metadata.is_file();
 
-            let name = if &path == output {
+            let name = if &path == *output {
                 String::new()
             } else {
-                std::path::Path::new(&path)
-                    .file_name()
-                    .and_then(|v| v.to_str())
-                    .map(ToOwned::to_owned)
-                    .unwrap_or_default()
+                path.base_name().to_string()
             };
 
             let sha256hash = if is_regular {
-                let mut file = tokio::fs::File::open(&path).await?;
+                let mut file = tokio::fs::File::open(&path_full_path).await?;
                 let mut sha256 = Sha256::new();
 
                 let mut buffer = Vec::new();
@@ -160,7 +155,7 @@ pub async fn parse_nix_support_from_outputs(
             products.push(BuildProduct {
                 r#type: captures[1].to_string(),
                 subtype: captures[2].to_string(),
-                path,
+                path: path_full_path,
                 default_path: captures
                     .get(5)
                     .map(|m| m.as_str().to_string())
@@ -182,7 +177,8 @@ pub async fn parse_nix_support_from_outputs(
             let Some(path) = &o.path else {
                 continue;
             };
-            let Ok(metadata) = tokio::fs::metadata(path).await else {
+            let full_path = path.get_full_path();
+            let Ok(metadata) = tokio::fs::metadata(&full_path).await else {
                 continue;
             };
             if metadata.is_dir() {
@@ -193,8 +189,8 @@ pub async fn parse_nix_support_from_outputs(
                     } else {
                         o.name.clone()
                     },
-                    path: path.clone(),
-                    name: get_name_from_path(path),
+                    path: full_path,
+                    name: path.name().to_string(),
                     default_path: String::new(),
                     is_regular: false,
                     file_size: None,

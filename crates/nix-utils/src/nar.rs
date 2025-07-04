@@ -1,9 +1,11 @@
 use tokio::io::AsyncWriteExt as _;
 use tokio_stream::StreamExt as _;
 
+use crate::StorePath;
+
 #[tracing::instrument(skip(path), err)]
 pub async fn export_nar(
-    path: &str,
+    path: &StorePath,
 ) -> Result<
     (
         tokio::process::Child,
@@ -11,14 +13,8 @@ pub async fn export_nar(
     ),
     crate::Error,
 > {
-    let path = if path.starts_with("/nix/store/") {
-        path
-    } else {
-        &format!("/nix/store/{path}")
-    };
-
     let mut child = tokio::process::Command::new("nix-store")
-        .args(["--export", path])
+        .args(["--export", &path.get_full_path()])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()?;

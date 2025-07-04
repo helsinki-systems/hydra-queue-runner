@@ -16,13 +16,12 @@ use crate::db::models::BuildStatus;
 
 pub type BuildID = i32;
 pub type AtomicBuildID = AtomicI32;
-pub type StorePath = String;
 
 #[derive(Debug)]
 pub struct Build {
     pub id: BuildID,
-    pub drv_path: StorePath,
-    pub outputs: HashMap<String, StorePath>,
+    pub drv_path: nix_utils::StorePath,
+    pub outputs: HashMap<String, nix_utils::StorePath>,
     pub jobset_id: JobsetID,
     pub name: String,
     pub timestamp: chrono::DateTime<chrono::Utc>,
@@ -54,7 +53,7 @@ impl std::hash::Hash for Build {
 }
 
 impl Build {
-    pub fn new_debug(drv_path: &StorePath) -> Arc<Self> {
+    pub fn new_debug(drv_path: &nix_utils::StorePath) -> Arc<Self> {
         Arc::new(Self {
             id: BuildID::MAX,
             drv_path: drv_path.to_owned(),
@@ -76,7 +75,7 @@ impl Build {
     pub fn new(v: crate::db::models::Build, jobset: Arc<Jobset>) -> anyhow::Result<Arc<Self>> {
         Ok(Arc::new(Self {
             id: v.id,
-            drv_path: v.drvpath,
+            drv_path: nix_utils::StorePath::new(&v.drvpath),
             outputs: HashMap::new(),
             jobset_id: v.jobset_id,
             name: v.job,
@@ -163,7 +162,7 @@ impl StepState {
 
 #[derive(Debug)]
 pub struct Step {
-    drv_path: StorePath,
+    drv_path: nix_utils::StorePath,
     drv: arc_swap::ArcSwapOption<nix_utils::Derivation>,
 
     finished: AtomicBool,
@@ -188,7 +187,7 @@ impl std::hash::Hash for Step {
 }
 
 impl Step {
-    pub fn new(drv_path: StorePath) -> Arc<Self> {
+    pub fn new(drv_path: nix_utils::StorePath) -> Arc<Self> {
         Arc::new(Self {
             drv_path,
             drv: arc_swap::ArcSwapOption::from(None),
@@ -201,7 +200,7 @@ impl Step {
         })
     }
 
-    pub fn get_drv_path(&self) -> &StorePath {
+    pub fn get_drv_path(&self) -> &nix_utils::StorePath {
         &self.drv_path
     }
 
@@ -460,7 +459,7 @@ impl BuildOutput {
     pub async fn new(outputs: Vec<nix_utils::DerivationOutput>) -> anyhow::Result<Self> {
         let flat_outputs = outputs
             .iter()
-            .filter_map(|o| o.path.as_deref())
+            .filter_map(|o| o.path.as_ref())
             .collect::<Vec<_>>();
         let pathinfos = nix_utils::query_path_infos(&flat_outputs).await?;
         let nix_support = nix_utils::parse_nix_support_from_outputs(&outputs).await?;
@@ -472,7 +471,7 @@ impl BuildOutput {
         for o in outputs {
             if let Some(path) = o.path {
                 if let Some(info) = pathinfos.get(&path) {
-                    outputs_map.insert(o.name, path);
+                    outputs_map.insert(o.name, path.get_full_path());
                     closure_size += info.closure_size;
                     nar_size += info.nar_size;
                 }

@@ -34,12 +34,10 @@ async fn handle_request(
     match request {
         runner_request::Message::Build(m) => {
             let client = client.clone();
-            log::info!("Building {}", m.drv);
-
             state.schedule_build(client, m);
         }
         runner_request::Message::Abort(m) => {
-            state.abort_build(&m.drv);
+            state.abort_build(&m);
         }
         runner_request::Message::Join(_) => (),
     }
