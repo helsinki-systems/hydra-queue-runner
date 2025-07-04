@@ -139,7 +139,37 @@ impl From<crate::state::BuildQueueStats> for BuildQueueStats {
 }
 
 #[derive(Debug, serde::Serialize)]
+pub struct Process {
+    pid: i32,
+    vsize_bytes: u64,
+    rss_bytes: u64,
+    shared_bytes: u64,
+}
+
+impl Process {
+    fn new() -> Option<Self> {
+        let me = procfs::process::Process::myself().ok()?;
+        let page_size = procfs::page_size();
+        let statm = me.statm().ok()?;
+        let vsize = statm.size * page_size;
+        let rss = statm.resident * page_size;
+        let shared = statm.shared * page_size;
+        Some(Self {
+            pid: me.pid,
+            vsize_bytes: vsize,
+            rss_bytes: rss,
+            shared_bytes: shared,
+        })
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
 pub struct QueueRunnerStats {
+    status: &'static str,
+    time: chrono::DateTime<chrono::Utc>,
+    uptime: chrono::Duration,
+    proc: Option<Process>,
+
     build_count: usize,
     jobset_count: usize,
     step_count: usize,
@@ -198,7 +228,12 @@ impl QueueRunnerStats {
 
         state.metrics.refresh_dynamic_metrics(&state).await;
 
+        let time = chrono::Utc::now();
         Self {
+            status: "up",
+            time,
+            uptime: time - state.started_at,
+            proc: Process::new(),
             build_count,
             jobset_count,
             step_count,
@@ -246,14 +281,12 @@ impl QueueRunnerStats {
 pub struct DumpResponse {
     queue_runner: QueueRunnerStats,
     machines: Vec<Machine>,
-    machine_count: usize,
 }
 
 impl DumpResponse {
     pub fn new(queue_runner: QueueRunnerStats, machines: Vec<Machine>) -> Self {
         Self {
             queue_runner,
-            machine_count: machines.len(),
             machines,
         }
     }

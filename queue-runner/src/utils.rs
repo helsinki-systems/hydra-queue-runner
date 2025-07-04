@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::{
     db::Transaction,
     state::{BuildID, RemoteBuild},

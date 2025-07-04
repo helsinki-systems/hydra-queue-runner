@@ -2115,6 +2115,7 @@ dependencies = [
  "multimap",
  "nix-utils",
  "parking_lot",
+ "procfs",
  "prometheus",
  "prost",
  "sd-notify",

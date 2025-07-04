@@ -7,6 +7,7 @@ use state::State;
 
 mod config;
 mod db;
+mod io;
 mod server;
 mod state;
 mod utils;
@@ -16,7 +17,8 @@ fn start_task_loops(state: std::sync::Arc<State>) {
 
     spawn_config_reloader(state.clone(), state.config.clone(), &state.args.config_path);
     state.clone().start_queue_monitor_loop();
-    state.start_dispatch_loop();
+    state.clone().start_dispatch_loop();
+    state.start_dump_status_loop();
 }
 
 fn spawn_config_reloader(

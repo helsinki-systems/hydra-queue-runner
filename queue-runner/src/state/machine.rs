@@ -376,6 +376,7 @@ impl Machine {
     }
 
     #[tracing::instrument(skip(self))]
+    #[allow(dead_code)]
     pub async fn abort_build(&self, drv: &nix_utils::StorePath) {
         if let Err(e) = self
             .msg_queue

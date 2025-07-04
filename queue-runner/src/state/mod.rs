@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 mod build;
 mod jobset;
 mod machine;
@@ -422,9 +420,8 @@ impl State {
     #[tracing::instrument(skip(self))]
     pub fn start_queue_monitor_loop(self: Arc<Self>) {
         tokio::task::spawn({
-            let state = self.clone();
             async move {
-                if let Err(e) = state.queue_monitor_loop().await {
+                if let Err(e) = self.queue_monitor_loop().await {
                     log::error!("Failed to spawn queue monitor loop. e={e}");
                 }
             }
@@ -522,6 +519,74 @@ impl State {
                     self.metrics
                         .dispatch_time_ms
                         .add(elapsed.as_millis() as i64);
+                }
+            }
+        });
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    async fn dump_status_loop(self: Arc<State>) -> anyhow::Result<()> {
+        let mut listener = self.db.listener(vec!["dump_status"]).await?;
+
+        let state = self.clone();
+        loop {
+            let _ = match listener.try_next().await {
+                Ok(Some(v)) => v,
+                Ok(None) => continue,
+                Err(e) => {
+                    log::warn!("PgListener failed with e={e}");
+                    continue;
+                }
+            };
+
+            let state = state.clone();
+            let queue_stats = crate::io::QueueRunnerStats::new(state.clone()).await;
+            let sort_fn = {
+                let config = state.config.read();
+                config.machine_sort_fn
+            };
+            let machines = state
+                .machines
+                .get_all_machines()
+                .into_iter()
+                .map(|m| crate::io::Machine::from_state(&m, sort_fn))
+                .collect();
+            let dump_status = crate::io::DumpResponse::new(queue_stats, machines);
+            {
+                let Ok(mut db) = self.db.get().await else {
+                    continue;
+                };
+                let Ok(mut tx) = db.begin_transaction().await else {
+                    continue;
+                };
+                let dump_status = match serde_json::to_value(dump_status) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::error!("Failed to update status in database: {e}");
+                        continue;
+                    }
+                };
+                if let Err(e) = tx.upsert_status(&dump_status).await {
+                    log::error!("Failed to update status in database: {e}");
+                    continue;
+                }
+                if let Err(e) = tx.notify_status_dumped().await {
+                    log::error!("Failed to update status in database: {e}");
+                    continue;
+                }
+                if let Err(e) = tx.commit().await {
+                    log::error!("Failed to update status in database: {e}");
+                }
+            }
+        }
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn start_dump_status_loop(self: Arc<Self>) {
+        tokio::task::spawn({
+            async move {
+                if let Err(e) = self.dump_status_loop().await {
+                    log::error!("Failed to spawn queue monitor loop. e={e}");
                 }
             }
         });

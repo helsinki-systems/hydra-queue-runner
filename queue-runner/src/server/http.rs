@@ -25,6 +25,9 @@ pub enum Error {
     #[error("anyhow error: `{0}`")]
     Anyhow(#[from] anyhow::Error),
 
+    #[error("sqlx error: `{0}`")]
+    Sqlx(#[from] sqlx::Error),
+
     #[error("Not found")]
     NotFound,
 
@@ -42,13 +45,14 @@ impl Error {
             | Self::Hyper(_)
             | Self::Io(_)
             | Self::Anyhow(_)
+            | Self::Sqlx(_)
             | Self::Fatal => hyper::StatusCode::INTERNAL_SERVER_ERROR,
             Self::NotFound => hyper::StatusCode::NOT_FOUND,
         }
     }
 
-    pub fn get_body(&self) -> super::io::Error {
-        super::io::Error {
+    pub fn get_body(&self) -> crate::io::Error {
+        crate::io::Error {
             error: self.to_string(),
         }
     }
@@ -128,6 +132,7 @@ async fn router(
             (&hyper::Method::GET, "/status/steps") => handler::status::steps(req, state),
             (&hyper::Method::GET, "/status/runnable") => handler::status::runnable(req, state),
             (&hyper::Method::GET, "/status/queues") => handler::status::queues(req, state).await,
+            (&hyper::Method::POST, "/dump_status") => handler::dump_status::post(req, state).await,
             (&hyper::Method::PUT, "/build") => handler::build::put(req, state).await,
             (&hyper::Method::GET, "/metrics") => handler::metrics::get(req, state).await,
             _ => Err(Error::NotFound),
@@ -148,7 +153,7 @@ mod handler {
         use http_body_util::combinators::BoxBody;
 
         use super::super::{Error, construct_json_ok_response};
-        use crate::{server::io, state::State};
+        use crate::{io, state::State};
 
         #[allow(clippy::no_effect_underscore_binding)]
         #[tracing::instrument(skip(_req, state), err)]
@@ -165,7 +170,7 @@ mod handler {
                 .machines
                 .get_all_machines()
                 .into_iter()
-                .map(|m| crate::server::io::Machine::from_state(&m, sort_fn))
+                .map(|m| crate::io::Machine::from_state(&m, sort_fn))
                 .collect();
             construct_json_ok_response(&io::DumpResponse::new(queue_stats, machines))
         }
@@ -265,12 +270,33 @@ mod handler {
         }
     }
 
+    pub mod dump_status {
+        use bytes::Bytes;
+        use http_body_util::combinators::BoxBody;
+
+        use super::super::{Error, construct_json_ok_response};
+        use crate::{io, state::State};
+
+        #[allow(clippy::no_effect_underscore_binding)]
+        #[tracing::instrument(skip(_req, state), err)]
+        pub async fn post(
+            _req: hyper::Request<hyper::body::Incoming>,
+            state: std::sync::Arc<State>,
+        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+            let mut db = state.db.get().await?;
+            let mut tx = db.begin_transaction().await?;
+            tx.notify_dump_status().await?;
+            tx.commit().await?;
+            construct_json_ok_response(&io::Empty {})
+        }
+    }
+
     pub mod build {
         use bytes::{Buf as _, Bytes};
         use http_body_util::{BodyExt, combinators::BoxBody};
 
         use super::super::{Error, construct_json_ok_response};
-        use crate::{server::io, state::State};
+        use crate::{io, state::State};
 
         #[tracing::instrument(skip(req, state), err)]
         pub async fn put(
