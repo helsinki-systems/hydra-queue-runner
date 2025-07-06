@@ -18,6 +18,22 @@ pub struct Jobset {
     steps: parking_lot::RwLock<BTreeMap<i64, i64>>,
 }
 
+impl PartialEq for Jobset {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && self.project_name == other.project_name && self.name == other.name
+    }
+}
+
+impl Eq for Jobset {}
+
+impl std::hash::Hash for Jobset {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.project_name.hash(state);
+        self.name.hash(state);
+    }
+}
+
 impl Jobset {
     pub fn new<S: Into<String>>(id: JobsetID, project_name: S, name: S) -> Self {
         Self {

@@ -106,7 +106,56 @@ impl Build {
     }
 
     #[allow(clippy::unused_self)]
-    pub fn propagate_priorities(&self) {}
+    pub fn propagate_priorities(&self) {
+        let mut queued = AHashSet::new();
+        let mut todo = std::collections::VecDeque::new();
+        {
+            let toplevel = self.toplevel.read();
+            if let Some(toplevel) = toplevel.as_ref() {
+                todo.push_back(toplevel.clone());
+            }
+        }
+
+        while let Some(step) = todo.pop_front() {
+            step.atomic_state.highest_global_priority.store(
+                std::cmp::max(
+                    step.atomic_state
+                        .highest_global_priority
+                        .load(Ordering::SeqCst),
+                    self.global_priority.load(Ordering::SeqCst),
+                ),
+                Ordering::SeqCst,
+            );
+            step.atomic_state.highest_local_priority.store(
+                std::cmp::max(
+                    step.atomic_state
+                        .highest_local_priority
+                        .load(Ordering::SeqCst),
+                    self.local_priority,
+                ),
+                Ordering::SeqCst,
+            );
+            step.atomic_state.lowest_build_id.store(
+                std::cmp::min(
+                    step.atomic_state.lowest_build_id.load(Ordering::SeqCst),
+                    self.id,
+                ),
+                Ordering::SeqCst,
+            );
+            {
+                let mut state = step.state.write();
+                state.jobsets.insert(self.jobset.clone());
+            }
+
+            let state = step.state.read();
+            for dep in &state.deps {
+                if !queued.contains(dep) {
+                    queued.insert(dep.clone());
+                    todo.push_back(dep.clone());
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -136,7 +185,7 @@ pub struct StepState {
     pub deps: HashSet<Arc<Step>>, // The build steps on which this step depends.
     pub rdeps: Vec<Weak<Step>>,   // The build steps that depend on this step.
     pub builds: Vec<Weak<Build>>, // Builds that have this step as the top-level derivation.
-    pub jobsets: Vec<Arc<Jobset>>, // Jobsets to which this step belongs. Used for determining scheduling priority.
+    pub jobsets: AHashSet<Arc<Jobset>>, // Jobsets to which this step belongs. Used for determining scheduling priority.
     pub after: chrono::DateTime<chrono::Utc>, // Point in time after which the step can be retried.
 
     pub runnable_since: chrono::DateTime<chrono::Utc>, // The time at which this step became runnable.
@@ -152,7 +201,7 @@ impl StepState {
             deps: HashSet::new(),
             rdeps: Vec::new(),
             builds: Vec::new(),
-            jobsets: Vec::new(),
+            jobsets: AHashSet::new(),
             after,
             runnable_since,
             last_supported: chrono::Utc::now(),
