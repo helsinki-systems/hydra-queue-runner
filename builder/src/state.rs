@@ -4,6 +4,8 @@ use ahash::AHashMap;
 use futures::TryFutureExt;
 use tonic::Request;
 
+use crate::runner_v1::{StepStatus, StepUpdate};
+
 pub struct BuildInfo {
     handle: tokio::task::JoinHandle<()>,
 }
@@ -162,6 +164,13 @@ impl State {
         let gcroot_prefix = uuid::Uuid::new_v4().to_string();
         let gcroot = self.get_gcroot(&gcroot_prefix);
 
+        let _ = client // we ignore the error here, as this step status has no prio
+            .build_step_update(StepUpdate {
+                machine_id: machine_id.to_string(),
+                drv: drv.base_name().to_owned(),
+                step_status: StepStatus::SeningInputs as i32,
+            })
+            .await;
         import_requisites(
             &mut client,
             &gcroot,
@@ -176,6 +185,13 @@ impl State {
             .await?
             .ok_or(anyhow::anyhow!("drv info not found"))?;
 
+        let _ = client // we ignore the error here, as this step status has no prio
+            .build_step_update(StepUpdate {
+                machine_id: machine_id.to_string(),
+                drv: drv.base_name().to_owned(),
+                step_status: StepStatus::Building as i32,
+            })
+            .await;
         let before_build = Instant::now();
         let (mut child, mut log_output) = nix_utils::realise_drv(
             &drv,
@@ -212,10 +228,25 @@ impl State {
         let build_elapsed = before_build.elapsed();
         log::info!("Finished building {drv}");
 
+        let _ = client // we ignore the error here, as this step status has no prio
+            .build_step_update(StepUpdate {
+                machine_id: machine_id.to_string(),
+                drv: drv.base_name().to_owned(),
+                step_status: StepStatus::ReceivingOutputs as i32,
+            })
+            .await;
         upload_nars(client.clone(), output_paths).await?;
         let build_results =
             new_build_result_info(machine_id, &drv, drv_info, import_elapsed, build_elapsed)
                 .await?;
+
+        let _ = client // we ignore the error here, as this step status has no prio
+            .build_step_update(StepUpdate {
+                machine_id: machine_id.to_string(),
+                drv: drv.base_name().to_owned(),
+                step_status: StepStatus::PostProcessing as i32,
+            })
+            .await;
         client.complete_build_with_success(build_results).await?;
 
         self.remove_root_prefix(&gcroot_prefix);

@@ -50,6 +50,22 @@ pub enum StepStatus {
     PostProcessing = 50,
 }
 
+impl From<crate::server::grpc::runner_v1::StepStatus> for StepStatus {
+    fn from(item: crate::server::grpc::runner_v1::StepStatus) -> Self {
+        match item {
+            crate::server::grpc::runner_v1::StepStatus::Preparing => Self::Preparing,
+            crate::server::grpc::runner_v1::StepStatus::Connecting => Self::Connecting,
+            crate::server::grpc::runner_v1::StepStatus::SeningInputs => Self::SendingInputs,
+            crate::server::grpc::runner_v1::StepStatus::Building => Self::Building,
+            crate::server::grpc::runner_v1::StepStatus::WaitingForLocalSlot => {
+                Self::WaitingForLocalSlot
+            }
+            crate::server::grpc::runner_v1::StepStatus::ReceivingOutputs => Self::ReceivingOutputs,
+            crate::server::grpc::runner_v1::StepStatus::PostProcessing => Self::PostProcessing,
+        }
+    }
+}
+
 pub struct Jobset {
     pub project: String,
     pub name: String,

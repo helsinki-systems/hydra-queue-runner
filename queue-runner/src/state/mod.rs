@@ -239,7 +239,7 @@ impl State {
             .update_build_step(crate::db::models::UpdateBuildStep {
                 build_id,
                 step_nr,
-                status: crate::db::models::StepStatus::Building,
+                status: crate::db::models::StepStatus::Connecting,
             })
             .await?;
         machine.build_drv(job, &build_options).await;
@@ -662,6 +662,42 @@ impl State {
             }
             self.metrics.nr_steps_waiting.set(nr_steps_waiting);
         }
+    }
+
+    #[tracing::instrument(skip(self, machine_id, drv_path, step_status), err)]
+    pub async fn update_build_step(
+        &self,
+        machine_id: Option<uuid::Uuid>,
+        drv_path: &nix_utils::StorePath,
+        step_status: crate::db::models::StepStatus,
+    ) -> anyhow::Result<()> {
+        let build_id_and_step_nr = if let Some(machine_id) = machine_id {
+            if let Some(m) = self.machines.get_machine_by_id(machine_id) {
+                log::debug!("get job from machine: drv_path={drv_path} m={}", m.id);
+                m.get_build_id_and_step_nr(drv_path)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let Some((build_id, step_nr)) = build_id_and_step_nr else {
+            log::warn!(
+                "Failed to find job with build_id and step_nr for machine_id={machine_id:?} drv_path={drv_path}."
+            );
+            return Ok(());
+        };
+        self.db
+            .get()
+            .await?
+            .update_build_step(crate::db::models::UpdateBuildStep {
+                build_id,
+                step_nr,
+                status: step_status,
+            })
+            .await?;
+        Ok(())
     }
 
     #[allow(clippy::too_many_lines)]

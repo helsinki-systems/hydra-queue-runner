@@ -10,6 +10,7 @@ service RunnerService {
   rpc OpenTunnel(stream BuilderRequest) returns (stream RunnerRequest) {}
   rpc BuildLog(stream LogChunk) returns (Empty) {}
   rpc BuildResult(stream NarData) returns (Empty) {}
+  rpc BuildStepUpdate(StepUpdate) returns (Empty) {}
   rpc CompleteBuildWithSuccess(BuildResultInfo) returns (Empty) {}
   rpc CompleteBuildWithFailure(FailResultInfo) returns (Empty) {}
   rpc StreamFile(StorePath) returns (stream NarData) {}
@@ -140,6 +141,22 @@ message NixSupport {
   optional string hydra_release_name = 2;
   repeated BuildMetric metrics = 3;
   repeated BuildProduct products = 4;
+}
+
+enum StepStatus {
+  Preparing = 0;
+  Connecting = 1;
+  SeningInputs = 2;
+  Building = 3;
+  WaitingForLocalSlot = 4;
+  ReceivingOutputs = 5;
+  PostProcessing = 6;
+}
+
+message StepUpdate {
+  string machine_id = 1;
+  string drv = 2;
+  StepStatus step_status = 3;
 }
 
 message BuildResultInfo {

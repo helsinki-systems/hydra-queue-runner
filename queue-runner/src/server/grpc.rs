@@ -3,7 +3,10 @@ use std::{net::SocketAddr, sync::Arc};
 use anyhow::Context as _;
 use tokio::{io::AsyncWriteExt, sync::mpsc};
 
-use crate::state::{Machine, State};
+use crate::{
+    server::grpc::runner_v1::StepUpdate,
+    state::{Machine, State},
+};
 use runner_v1::{
     BuildResultInfo, BuilderRequest, FailResultInfo, JoinResponse, LogChunk, NarData,
     RunnerRequest, StorePath, builder_request,
@@ -240,6 +243,34 @@ impl RunnerService for Server {
             nix_utils::import_nar(new_stream, false)
                 .await
                 .map_err(|_| tonic::Status::internal("Failed to import nar"))?;
+        }
+
+        Ok(tonic::Response::new(runner_v1::Empty {}))
+    }
+
+    #[tracing::instrument(skip(self, req), err)]
+    async fn build_step_update(
+        &self,
+        req: tonic::Request<StepUpdate>,
+    ) -> BuilderResult<runner_v1::Empty> {
+        let state = self.state.clone();
+
+        let req = req.into_inner();
+        let drv = req.drv.clone();
+        let machine_id = uuid::Uuid::parse_str(&req.machine_id);
+        let step_status = crate::db::models::StepStatus::from(req.step_status());
+
+        if let Err(e) = state
+            .update_build_step(
+                machine_id.ok(),
+                &nix_utils::StorePath::new(&drv),
+                step_status,
+            )
+            .await
+        {
+            log::error!(
+                "Failed to update build step with drv={drv} step_status={step_status:?}: {e}"
+            );
         }
 
         Ok(tonic::Response::new(runner_v1::Empty {}))

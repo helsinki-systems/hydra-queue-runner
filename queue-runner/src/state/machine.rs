@@ -413,6 +413,13 @@ impl Machine {
         }
     }
 
+    #[tracing::instrument(skip(self))]
+    pub fn get_build_id_and_step_nr(&self, drv: &nix_utils::StorePath) -> Option<(i32, i32)> {
+        let jobs = self.jobs.read();
+        let job = jobs.iter().find(|j| &j.path == drv).cloned();
+        job.map(|j| (j.build_id, j.step_nr))
+    }
+
     #[tracing::instrument(skip(self, job))]
     fn insert_job(&self, job: Job) {
         let mut jobs = self.jobs.write();
