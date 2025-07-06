@@ -180,6 +180,7 @@ impl State {
         let (mut child, mut log_output) = nix_utils::realise_drv(
             &drv,
             &nix_utils::BuildOptions::complete(m.max_log_size, m.max_silent_time, m.build_timeout),
+            true,
         )
         .await?;
         let drv2 = drv.clone();
@@ -251,7 +252,11 @@ async fn import_path(
             })
             .await?
             .into_inner();
-        nix_utils::import_nar(input_stream.map_while(|s| s.map(|m| m.chunk.into()).ok())).await?;
+        nix_utils::import_nar(
+            input_stream.map_while(|s| s.map(|m| m.chunk.into()).ok()),
+            true,
+        )
+        .await?;
     }
     nix_utils::add_root(gcroot, &path);
     Ok(())
@@ -288,7 +293,7 @@ async fn upload_nars(
     let mut stream = futures::StreamExt::map(tokio_stream::iter(nars), |p| {
         let mut client = client.clone();
         async move {
-            let (mut child, s) = nix_utils::export_nar(&p).await?;
+            let (mut child, s) = nix_utils::export_nar(&p, true).await?;
             let wait_fut = child.wait().map_err(Into::<anyhow::Error>::into);
             let submit_fut = client
                 .build_result(tokio_stream::StreamExt::map_while(s, move |s| {

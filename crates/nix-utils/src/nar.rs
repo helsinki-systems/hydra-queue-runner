@@ -6,6 +6,7 @@ use crate::StorePath;
 #[tracing::instrument(skip(path), err)]
 pub async fn export_nar(
     path: &StorePath,
+    kill_on_drop: bool,
 ) -> Result<
     (
         tokio::process::Child,
@@ -15,6 +16,7 @@ pub async fn export_nar(
 > {
     let mut child = tokio::process::Command::new("nix-store")
         .args(["--export", &path.get_full_path()])
+        .kill_on_drop(kill_on_drop)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()?;
@@ -24,12 +26,13 @@ pub async fn export_nar(
 }
 
 #[tracing::instrument(skip(input_stream), err)]
-pub async fn import_nar<S>(mut input_stream: S) -> Result<(), crate::Error>
+pub async fn import_nar<S>(mut input_stream: S, kill_on_drop: bool) -> Result<(), crate::Error>
 where
     S: tokio_stream::Stream<Item = tokio_util::bytes::Bytes> + Send + Unpin + 'static,
 {
     let mut child = tokio::process::Command::new("nix-store")
         .arg("--import")
+        .kill_on_drop(kill_on_drop)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

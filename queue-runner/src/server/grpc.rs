@@ -237,7 +237,7 @@ impl RunnerService for Server {
         if let Some(Ok(first_item)) = stream.next().await {
             let new_stream = tokio_stream::once(first_item.chunk.into())
                 .chain(stream.map_while(|s| s.map(|m| m.chunk.into()).ok()));
-            nix_utils::import_nar(new_stream)
+            nix_utils::import_nar(new_stream, false)
                 .await
                 .map_err(|_| tonic::Status::internal("Failed to import nar"))?;
         }
@@ -300,7 +300,7 @@ impl RunnerService for Server {
         use tokio_stream::StreamExt as _;
 
         let path = nix_utils::StorePath::new(&req.into_inner().path);
-        let (_, mut bytes_stream) = nix_utils::export_nar(&path)
+        let (_, mut bytes_stream) = nix_utils::export_nar(&path, false)
             .await
             .map_err(|_| tonic::Status::internal("failed to export path"))?;
 

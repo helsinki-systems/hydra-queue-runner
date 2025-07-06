@@ -155,6 +155,7 @@ impl BuildOptions {
 pub async fn realise_drv(
     drv: &StorePath,
     opts: &BuildOptions,
+    kill_on_drop: bool,
 ) -> Result<
     (
         tokio::process::Child,
@@ -185,6 +186,7 @@ pub async fn realise_drv(
             format_bool(opts.substitute),
             &drv.get_full_path(),
         ])
+        .kill_on_drop(kill_on_drop)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()?;
