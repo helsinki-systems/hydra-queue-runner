@@ -219,7 +219,7 @@ impl RunnerService for Server {
                 let mut file = state
                     .new_log_file(&nix_utils::StorePath::new(&chunk.drv))
                     .await
-                    .unwrap();
+                    .map_err(|_| tonic::Status::internal("Failed to create log file."))?;
                 file.write_all(&chunk.data).await?;
                 out_file = Some(file);
             }
