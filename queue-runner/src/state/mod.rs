@@ -1528,7 +1528,7 @@ impl State {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self, build), err)]
     async fn handle_cached_build(&self, build: Arc<Build>) -> anyhow::Result<()> {
         let res = self.get_build_output_cached(&build.drv_path).await?;
 
