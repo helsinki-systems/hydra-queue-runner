@@ -60,6 +60,12 @@ pub async fn query_drvs(drvs: &[&StorePath]) -> Result<Vec<Derivation>, crate::E
         let drvs = serde_json::from_slice::<AHashMap<String, Derivation>>(&cmd.stdout)?;
         Ok(drvs.into_values().collect())
     } else {
+        log::warn!(
+            "nix derivation show returned exit={} stdout={:?} stderr={:?}",
+            cmd.status,
+            std::str::from_utf8(&cmd.stdout),
+            std::str::from_utf8(&cmd.stderr),
+        );
         Ok(vec![])
     }
 }

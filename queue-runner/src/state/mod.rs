@@ -1512,6 +1512,7 @@ impl State {
         };
         for o in &drv_outputs {
             if let Some(path) = &o.path {
+                // TODO: we can do this in 1 db query
                 if conn
                     .check_if_path_failed(&path.get_full_path())
                     .await
