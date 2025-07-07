@@ -9,7 +9,7 @@ pub use jobset::{Jobset, JobsetID, SCHEDULING_WINDOW};
 pub use machine::{Machine, Pressure, Stats as MachineStats};
 pub use queue::{BuildQueueStats, StepInfo};
 
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Instant;
 use std::{sync::Arc, sync::Weak};
 
@@ -293,29 +293,35 @@ impl State {
     async fn process_new_builds(
         &self,
         new_ids: Vec<BuildID>,
-        mut new_builds_by_id: AHashMap<BuildID, Arc<Build>>,
+        new_builds_by_id: Arc<parking_lot::RwLock<AHashMap<BuildID, Arc<Build>>>>,
         new_builds_by_path: MultiMap<nix_utils::StorePath, BuildID, ahash::RandomState>,
     ) {
-        let mut finished_drvs = AHashSet::<nix_utils::StorePath>::new();
+        let finished_drvs = Arc::new(parking_lot::RwLock::new(
+            AHashSet::<nix_utils::StorePath>::new(),
+        ));
 
         let starttime = chrono::Utc::now();
         let mut new_runnable_addition = false;
         for id in new_ids {
-            let Some(build) = new_builds_by_id.get(&id).cloned() else {
-                continue;
+            let build = {
+                let new_builds_by_id = new_builds_by_id.read();
+                let Some(build) = new_builds_by_id.get(&id).cloned() else {
+                    continue;
+                };
+                build
             };
 
-            let mut new_runnable = AHashSet::<Arc<Step>>::new();
-            let mut nr_added = 0;
+            let new_runnable = Arc::new(parking_lot::RwLock::new(AHashSet::<Arc<Step>>::new()));
+            let nr_added: Arc<AtomicI64> = Arc::new(0.into());
             let now = Instant::now();
 
             self.create_build(
                 build,
-                &mut nr_added,
-                &mut new_builds_by_id,
+                nr_added.clone(),
+                new_builds_by_id.clone(),
                 &new_builds_by_path,
-                &mut finished_drvs,
-                &mut new_runnable,
+                finished_drvs.clone(),
+                new_runnable.clone(),
             )
             .await;
 
@@ -325,17 +331,22 @@ impl State {
                 .build_read_time_ms
                 .add(now.elapsed().as_millis() as i64);
 
-            log::info!(
-                "got {} new runnable steps from {} new builds",
-                new_runnable.len(),
-                nr_added
-            );
-            for r in new_runnable {
-                self.make_runnable(&r);
-                new_runnable_addition = true;
+            {
+                let new_runnable = new_runnable.read();
+                log::info!(
+                    "got {} new runnable steps from {} new builds",
+                    new_runnable.len(),
+                    nr_added.load(Ordering::SeqCst)
+                );
+                for r in new_runnable.iter() {
+                    self.make_runnable(r);
+                    new_runnable_addition = true;
+                }
             }
 
-            self.metrics.nr_builds_read.add(nr_added);
+            self.metrics
+                .nr_builds_read
+                .add(nr_added.load(Ordering::SeqCst));
             if chrono::Utc::now() > (starttime + chrono::Duration::seconds(60)) {
                 self.metrics.queue_checks_early_exits.inc();
                 break;
@@ -423,6 +434,7 @@ impl State {
         log::debug!("new_builds_by_id: {new_builds_by_id:?}");
         log::debug!("new_builds_by_path: {new_builds_by_path:?}");
 
+        let new_builds_by_id = Arc::new(parking_lot::RwLock::new(new_builds_by_id));
         self.process_new_builds(new_ids, new_builds_by_id, new_builds_by_path)
             .await;
         Ok(())
@@ -1240,16 +1252,19 @@ impl State {
     async fn create_build(
         &self,
         build: Arc<Build>,
-        nr_added: &mut i64,
-        new_builds_by_id: &mut AHashMap<BuildID, Arc<Build>>,
+        nr_added: Arc<AtomicI64>,
+        new_builds_by_id: Arc<parking_lot::RwLock<AHashMap<BuildID, Arc<Build>>>>,
         new_builds_by_path: &MultiMap<nix_utils::StorePath, BuildID, ahash::RandomState>,
-        finished_drvs: &mut AHashSet<nix_utils::StorePath>,
-        new_runnable: &mut AHashSet<Arc<Step>>,
+        finished_drvs: Arc<parking_lot::RwLock<AHashSet<nix_utils::StorePath>>>,
+        new_runnable: Arc<parking_lot::RwLock<AHashSet<Arc<Step>>>>,
     ) {
         self.metrics.queue_build_loads.inc();
         log::info!("loading build {} ({})", build.id, build.full_job_name());
-        *nr_added += 1;
-        new_builds_by_id.remove(&build.id);
+        nr_added.fetch_add(1, Ordering::SeqCst);
+        {
+            let mut new_builds_by_id = new_builds_by_id.write();
+            new_builds_by_id.remove(&build.id);
+        }
 
         if !nix_utils::check_if_storepath_exists(&build.drv_path) {
             log::error!("aborting GC'ed build {}", build.id);
@@ -1274,17 +1289,17 @@ impl State {
         }
 
         // Create steps for this derivation and its dependencies.
-        let mut new_steps = AHashSet::<Arc<Step>>::new();
+        let new_steps = Arc::new(parking_lot::RwLock::new(AHashSet::<Arc<Step>>::new()));
         let step = match self
             .create_step(
                 // conn,
                 build.clone(),
-                &build.drv_path,
+                build.drv_path.clone(),
                 Some(build.clone()),
                 None,
-                finished_drvs,
-                &mut new_steps,
-                new_runnable,
+                finished_drvs.clone(),
+                new_steps.clone(),
+                new_runnable.clone(),
             )
             .await
         {
@@ -1298,24 +1313,44 @@ impl State {
             }
         };
 
-        for r in &new_steps {
-            let Some(builds) = new_builds_by_path.get_vec(r.get_drv_path()) else {
-                continue;
+        {
+            use futures::stream::StreamExt as _;
+
+            let builds = {
+                let new_steps = new_steps.read();
+                new_steps
+                    .iter()
+                    .filter_map(|r| Some(new_builds_by_path.get_vec(r.get_drv_path())?.clone()))
+                    .flatten()
+                    .collect::<Vec<_>>()
             };
-            for i in builds {
-                let Some(j) = new_builds_by_id.get(i) else {
-                    continue;
-                };
-                Box::pin(self.create_build(
-                    j.clone(),
-                    nr_added,
-                    new_builds_by_id,
-                    new_builds_by_path,
-                    finished_drvs,
-                    new_runnable,
-                ))
-                .await;
-            }
+            let mut stream = futures::StreamExt::map(tokio_stream::iter(builds), |b| {
+                let nr_added = nr_added.clone();
+                let new_builds_by_id = new_builds_by_id.clone();
+                let finished_drvs = finished_drvs.clone();
+                let new_runnable = new_runnable.clone();
+                async move {
+                    let j = {
+                        let new_builds_by_id = new_builds_by_id.read();
+                        let Some(j) = new_builds_by_id.get(&b) else {
+                            return;
+                        };
+                        j.clone()
+                    };
+
+                    Box::pin(self.create_build(
+                        j,
+                        nr_added,
+                        new_builds_by_id,
+                        new_builds_by_path,
+                        finished_drvs,
+                        new_runnable,
+                    ))
+                    .await;
+                }
+            })
+            .buffered(10);
+            while tokio_stream::StreamExt::next(&mut stream).await.is_some() {}
         }
 
         if let Some(step) = step {
@@ -1327,6 +1362,7 @@ impl State {
             build.set_toplevel_step(step.clone());
             build.propagate_priorities();
 
+            let new_steps = new_steps.read();
             log::info!(
                 "added build {} (top-level step {}, {} new steps)",
                 build.id,
@@ -1357,31 +1393,36 @@ impl State {
     async fn create_step(
         &self,
         build: Arc<Build>,
-        drv_path: &nix_utils::StorePath,
+        drv_path: nix_utils::StorePath,
         referring_build: Option<Arc<Build>>,
         referring_step: Option<Arc<Step>>,
-        finished_drvs: &mut AHashSet<nix_utils::StorePath>,
-        new_steps: &mut AHashSet<Arc<Step>>,
-        new_runnable: &mut AHashSet<Arc<Step>>,
+        finished_drvs: Arc<parking_lot::RwLock<AHashSet<nix_utils::StorePath>>>,
+        new_steps: Arc<parking_lot::RwLock<AHashSet<Arc<Step>>>>,
+        new_runnable: Arc<parking_lot::RwLock<AHashSet<Arc<Step>>>>,
     ) -> CreateStepResult {
-        if finished_drvs.contains(drv_path) {
-            return CreateStepResult::None;
+        use futures::stream::StreamExt as _;
+
+        {
+            let finished_drvs = finished_drvs.read();
+            if finished_drvs.contains(&drv_path) {
+                return CreateStepResult::None;
+            }
         }
 
         let mut is_new = false;
         let step = {
             let mut steps = self.steps.write();
-            let step = if let Some(step) = steps.get(drv_path) {
+            let step = if let Some(step) = steps.get(&drv_path) {
                 if let Some(step) = step.upgrade() {
                     step
                 } else {
-                    steps.remove(drv_path);
+                    steps.remove(&drv_path);
                     is_new = true;
-                    Step::new(drv_path.to_owned())
+                    Step::new(drv_path.clone())
                 }
             } else {
                 is_new = true;
-                Step::new(drv_path.to_owned())
+                Step::new(drv_path.clone())
             };
 
             {
@@ -1404,7 +1445,7 @@ impl State {
         self.metrics.queue_steps_created.inc();
         log::debug!("considering derivation '{drv_path}'");
 
-        let Some(drv) = nix_utils::query_drv(drv_path).await.ok().flatten() else {
+        let Some(drv) = nix_utils::query_drv(&drv_path).await.ok().flatten() else {
             return CreateStepResult::None;
         };
 
@@ -1438,7 +1479,7 @@ impl State {
                     self.db.clone(),
                     o,
                     build.id,
-                    drv_path,
+                    &drv_path,
                     &build_opts,
                     remote_store.as_ref(),
                 )
@@ -1456,7 +1497,8 @@ impl State {
         }
 
         if valid {
-            finished_drvs.insert(drv_path.to_owned());
+            let mut finished_drvs = finished_drvs.write();
+            finished_drvs.insert(drv_path.clone());
             return CreateStepResult::None;
         }
 
@@ -1465,20 +1507,31 @@ impl State {
             return CreateStepResult::None;
         };
 
-        // TODO: paralise
-        for i in &input_drvs {
-            match Box::pin(self.create_step(
-                // conn,
-                build.clone(),
-                &nix_utils::StorePath::new(i),
-                None,
-                Some(step.clone()),
-                finished_drvs,
-                new_steps,
-                new_runnable,
-            ))
-            .await
-            {
+        let step2 = step.clone();
+        let mut stream = futures::StreamExt::map(tokio_stream::iter(input_drvs), |i| {
+            let build = build.clone();
+            let step = step2.clone();
+            let finished_drvs = finished_drvs.clone();
+            let new_steps = new_steps.clone();
+            let new_runnable = new_runnable.clone();
+            async move {
+                let path = nix_utils::StorePath::new(&i);
+                Box::pin(self.create_step(
+                    // conn,
+                    build,
+                    path,
+                    None,
+                    Some(step),
+                    finished_drvs,
+                    new_steps,
+                    new_runnable,
+                ))
+                .await
+            }
+        })
+        .buffered(25);
+        while let Some(v) = tokio_stream::StreamExt::next(&mut stream).await {
+            match v {
                 CreateStepResult::None => (),
                 CreateStepResult::Valid(dep) => {
                     let mut state = step.state.write();
@@ -1494,11 +1547,15 @@ impl State {
             let state = step.state.read();
             step.atomic_state.created.store(true, Ordering::SeqCst);
             if state.deps.is_empty() {
+                let mut new_runnable = new_runnable.write();
                 new_runnable.insert(step.clone());
             }
         }
 
-        new_steps.insert(step.clone());
+        {
+            let mut new_steps = new_steps.write();
+            new_steps.insert(step.clone());
+        }
         CreateStepResult::Valid(step)
     }
 
