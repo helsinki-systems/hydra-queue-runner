@@ -331,9 +331,16 @@ impl RunnerService for Server {
         use tokio_stream::StreamExt as _;
 
         let path = nix_utils::StorePath::new(&req.into_inner().path);
-        let (_, mut bytes_stream) = nix_utils::export_nar(&path, false)
+        let paths = nix_utils::topo_sort_drvs(&path)
             .await
-            .map_err(|_| tonic::Status::internal("failed to export path"))?;
+            .ok()
+            .unwrap_or_default()
+            .iter()
+            .map(|s| nix_utils::StorePath::new(s))
+            .collect::<Vec<_>>();
+        let (_, mut bytes_stream) = nix_utils::export_nars(paths.as_slice(), false)
+            .await
+            .map_err(|_| tonic::Status::internal("failed to export paths"))?;
 
         let output = async_stream::try_stream! {
             while let Some(chunk) = bytes_stream.next().await {

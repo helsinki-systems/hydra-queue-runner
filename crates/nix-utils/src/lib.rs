@@ -45,7 +45,7 @@ pub use drv::{
     BuildOptions, Derivation, Output as DerivationOutput, query_drv, query_drvs,
     query_missing_outputs, query_missing_remote_outputs, realise_drv, topo_sort_drvs,
 };
-pub use nar::{export_nar, import_nar};
+pub use nar::{export_nar, export_nars, import_nar};
 pub use nix_support::{BuildMetric, BuildProduct, NixSupport, parse_nix_support_from_outputs};
 pub use pathinfo::{PathInfo, clear_query_path_cache, query_path_info, query_path_infos};
 pub use remote::RemoteStore;

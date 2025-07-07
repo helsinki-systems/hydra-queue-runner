@@ -200,6 +200,7 @@ impl State {
         import_requisites(
             &mut client,
             &gcroot,
+            &drv,
             m.requisites
                 .into_iter()
                 .map(|s| nix_utils::StorePath::new(&s)),
@@ -289,7 +290,7 @@ async fn import_path(
         tonic::transport::Channel,
     >,
     gcroot: &Gcroot,
-    path: nix_utils::StorePath,
+    path: &nix_utils::StorePath,
 ) -> anyhow::Result<()> {
     use tokio_stream::StreamExt as _;
 
@@ -317,18 +318,14 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
         tonic::transport::Channel,
     >,
     gcroot: &Gcroot,
+    drv: &nix_utils::StorePath,
     requisites: T,
 ) -> anyhow::Result<()> {
-    use futures::stream::StreamExt as _;
-
-    let mut stream = futures::StreamExt::map(tokio_stream::iter(requisites), |p| {
-        import_path(client.clone(), gcroot, p)
-    })
-    .buffer_unordered(50);
-
-    while let Some(r) = tokio_stream::StreamExt::next(&mut stream).await {
-        r?;
+    import_path(client.clone(), gcroot, drv).await?;
+    for p in requisites {
+        nix_utils::add_root(&gcroot.root, &p);
     }
+
     Ok(())
 }
 
