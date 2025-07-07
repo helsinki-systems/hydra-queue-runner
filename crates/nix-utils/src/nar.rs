@@ -1,4 +1,4 @@
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::io::AsyncWriteExt as _;
 use tokio_stream::StreamExt as _;
 
 use crate::StorePath;
@@ -57,43 +57,34 @@ where
         .arg("--import")
         .kill_on_drop(kill_on_drop)
         .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()?;
 
     let mut stdin = child.stdin.take().ok_or(crate::Error::Stream)?;
-    let mut stdout = child.stdout.take().ok_or(crate::Error::Stream)?;
-    let mut stderr = child.stderr.take().ok_or(crate::Error::Stream)?;
 
-    // Spawn a task to write to stdin
     tokio::spawn(async move {
         while let Some(chunk) = input_stream.next().await {
             if let Err(e) = stdin.write_all(&chunk).await {
-                log::error!("Error writing to child stdin: {e}");
-                return;
+                log::error!("Error writing to stdin: {}", e);
+                return Err(e);
             }
         }
 
-        // Close stdin to signal EOF
         if let Err(e) = stdin.shutdown().await {
-            log::error!("Failed to shutdown stdin: {e}");
+            log::error!("Error closing stdin: {}", e);
+            return Err(e);
         }
-    });
+        drop(stdin);
+
+        Ok::<(), tokio::io::Error>(())
+    })
+    .await??;
 
     let out = child.wait().await?;
     if out.success() {
         Ok(())
     } else {
-        let mut stdout_str = String::new();
-        let _ = stdout.read_to_string(&mut stdout_str).await;
-        let mut stderr_str = String::new();
-        let _ = stderr.read_to_string(&mut stderr_str).await;
-        log::error!(
-            "nix import failed with status={} stdout={:?} stderr={:?}",
-            out,
-            stdout_str,
-            stderr_str
-        );
         Err(super::Error::Exit(out))
     }
 }

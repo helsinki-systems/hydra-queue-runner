@@ -13,6 +13,9 @@ pub enum Error {
     #[error("std io error: `{0}`")]
     Io(#[from] std::io::Error),
 
+    #[error("tokio join error: `{0}`")]
+    TokioJoin(#[from] tokio::task::JoinError),
+
     #[error("utf8 error: `{0}`")]
     Utf8(#[from] std::str::Utf8Error),
 

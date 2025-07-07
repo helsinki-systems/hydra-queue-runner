@@ -338,9 +338,10 @@ impl RunnerService for Server {
             .iter()
             .map(|s| nix_utils::StorePath::new(s))
             .collect::<Vec<_>>();
-        let (_, mut bytes_stream) = nix_utils::export_nars(paths.as_slice(), false)
-            .await
-            .map_err(|_| tonic::Status::internal("failed to export paths"))?;
+        let (mut child, mut bytes_stream) =
+            nix_utils::export_nars(paths.as_slice(), false)
+                .await
+                .map_err(|_| tonic::Status::internal("failed to export paths"))?;
 
         let output = async_stream::try_stream! {
             while let Some(chunk) = bytes_stream.next().await {
@@ -349,7 +350,15 @@ impl RunnerService for Server {
                     chunk: chunk.into()
                 }
             }
+            nix_utils::validate_statuscode(
+                child
+                    .wait()
+                    .await
+                    .map_err(|_| tonic::Status::internal("failed to export paths"))?,
+            )
+            .map_err(|_| tonic::Status::internal("failed to export paths"))?;
         };
+
         Ok(tonic::Response::new(
             Box::pin(output) as Self::StreamFileStream
         ))
