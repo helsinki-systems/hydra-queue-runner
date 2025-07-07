@@ -60,7 +60,7 @@ in
       };
 
       package = lib.mkOption {
-        type = lib.types.path;
+        type = lib.types.package;
         default = pkgs.callPackage ./. { };
       };
     };
@@ -119,6 +119,12 @@ in
           "~@privileged"
           "~@resources"
         ];
+
+        ReadWritePaths = [
+          "/nix/var/nix/gcroots/"
+          "/nix/var/nix/daemon-socket/socket"
+        ];
+        ReadOnlyPaths = [ "/nix/" ];
         RuntimeDirectory = "queue-builder";
 
         ProtectSystem = "strict";

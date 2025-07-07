@@ -57,7 +57,7 @@ in
       };
 
       package = lib.mkOption {
-        type = lib.types.path;
+        type = lib.types.package;
         default = pkgs.callPackage ./. { };
       };
     };
@@ -93,6 +93,8 @@ in
       environment.HOME = "/run/queue-runner";
 
       serviceConfig = {
+        Restart = "always";
+
         ExecStart = lib.escapeShellArgs (
           [
             "${cfg.package}/bin/queue-runner"
@@ -122,7 +124,15 @@ in
           "~@privileged"
           "~@resources"
         ];
-        StateDirectory = "hydra";
+        StateDirectory = [ "hydra/queue-runner" ];
+        StateDirectoryMode = "0700";
+        ReadWritePaths = [
+          "/nix/var/nix/gcroots/"
+          "/run/postgresql/.s.PGSQL.${toString config.services.postgresql.port}"
+          "/nix/var/nix/daemon-socket/socket"
+          "/var/lib/hydra/build-logs/"
+        ];
+        ReadOnlyPaths = [ "/nix/" ];
         RuntimeDirectory = "queue-runner";
 
         ProtectSystem = "strict";
