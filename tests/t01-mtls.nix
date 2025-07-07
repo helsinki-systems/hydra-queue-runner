@@ -35,6 +35,7 @@
             serverRootCaCertPath = "${./certs/server.crt}";
             clientCertPath = "${./certs/client.crt}";
             clientKeyPath = "${./certs/client.key}";
+            domainName = "localhost";
           };
         };
       };

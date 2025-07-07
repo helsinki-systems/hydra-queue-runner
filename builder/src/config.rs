@@ -31,6 +31,10 @@ pub struct Args {
     /// Path to Client key
     #[clap(long)]
     pub client_key_path: Option<std::path::PathBuf>,
+
+    /// Domain name for mtls
+    #[clap(long)]
+    pub domain_name: Option<String>,
 }
 
 impl Args {
@@ -42,18 +46,24 @@ impl Args {
         self.server_root_ca_cert_path.is_some()
             && self.client_cert_path.is_some()
             && self.client_key_path.is_some()
+            && self.domain_name.is_some()
     }
 
     pub fn mtls_configured_correctly(&self) -> bool {
         self.mtls_enabled()
             || (self.server_root_ca_cert_path.is_none()
                 && self.client_cert_path.is_none()
-                && self.client_key_path.is_none())
+                && self.client_key_path.is_none()
+                && self.domain_name.is_none())
     }
 
     pub async fn get_mtls(
         &self,
-    ) -> anyhow::Result<(tonic::transport::Certificate, tonic::transport::Identity)> {
+    ) -> anyhow::Result<(
+        tonic::transport::Certificate,
+        tonic::transport::Identity,
+        String,
+    )> {
         let server_root_ca_cert_path = self
             .server_root_ca_cert_path
             .as_deref()
@@ -66,6 +76,10 @@ impl Args {
             .client_key_path
             .as_deref()
             .ok_or(anyhow::anyhow!("client_key_path not provided"))?;
+        let domain_name = self
+            .domain_name
+            .as_deref()
+            .ok_or(anyhow::anyhow!("domain_name not provided"))?;
 
         let server_root_ca_cert = tokio::fs::read_to_string(server_root_ca_cert_path).await?;
         let server_root_ca_cert = tonic::transport::Certificate::from_pem(server_root_ca_cert);
@@ -73,6 +87,7 @@ impl Args {
         let client_cert = tokio::fs::read_to_string(client_cert_path).await?;
         let client_key = tokio::fs::read_to_string(client_key_path).await?;
         let client_identity = tonic::transport::Identity::from_pem(client_cert, client_key);
-        Ok((server_root_ca_cert, client_identity))
+
+        Ok((server_root_ca_cert, client_identity, domain_name.to_owned()))
     }
 }

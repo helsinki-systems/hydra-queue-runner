@@ -75,6 +75,7 @@ impl Server {
         .accept_compressed(tonic::codec::CompressionEncoding::Zstd);
 
         if state.args.mtls_enabled() {
+            log::info!("Using mtls");
             let (client_ca_cert, server_identity) = state
                 .args
                 .get_mtls()

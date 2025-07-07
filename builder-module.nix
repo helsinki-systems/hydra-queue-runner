@@ -50,6 +50,10 @@ in
                 description = "Client key path";
                 type = lib.types.path;
               };
+              domainName = lib.mkOption {
+                description = "Domain name for mtls";
+                type = lib.types.singleLineStr;
+              };
             };
           }
         );
@@ -101,6 +105,8 @@ in
             cfg.mtls.clientCertPath
             "--client-key-path"
             cfg.mtls.clientKeyPath
+            "--domain-name"
+            cfg.mtls.domainName
           ]
         );
 

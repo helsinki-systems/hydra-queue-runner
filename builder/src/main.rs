@@ -109,17 +109,21 @@ async fn main() -> anyhow::Result<()> {
 
     if !args.mtls_configured_correctly() {
         log::error!(
-            "mtls configured inproperly, please pass all options: server_root_ca_cert_path, client_cert_path and client_key_path!"
+            "mtls configured inproperly, please pass all options: \
+            server_root_ca_cert_path, client_cert_path, client_key_path and domain_name!"
         );
         return Err(anyhow::anyhow!("Configuration issue"));
     }
 
+    log::info!("connecting to {}", args.gateway_endpoint);
     let channel = if args.mtls_enabled() {
-        let (server_root_ca_cert, client_identity) = args
+        log::info!("mtls is enabled");
+        let (server_root_ca_cert, client_identity, domain_name) = args
             .get_mtls()
             .await
             .context("Failed to get_mtls Certificate and Identity")?;
         let tls = tonic::transport::ClientTlsConfig::new()
+            .domain_name(domain_name)
             .ca_certificate(server_root_ca_cert)
             .identity(client_identity);
 
