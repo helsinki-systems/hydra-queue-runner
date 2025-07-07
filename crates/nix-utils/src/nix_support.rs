@@ -35,7 +35,7 @@ pub struct NixSupport {
 
 pub async fn parse_nix_support_from_outputs(
     derivation_outputs: &[crate::DerivationOutput],
-) -> std::io::Result<NixSupport> {
+) -> Result<NixSupport, super::Error> {
     let mut metrics = Vec::new();
     let mut failed = false;
     let mut hydra_release_name = None;
@@ -93,7 +93,9 @@ pub async fn parse_nix_support_from_outputs(
         }
     }
 
-    let regex = regex::Regex::new(r"").unwrap();
+    let regex = regex::Regex::new(
+        r#"([a-zA-Z0-9_-]+)\s+([a-zA-Z0-9_-]+)\s+(\"[^\"]+\"|[^\"\s]+)(\s+([^\"\s]+))?"#,
+    )?;
     let mut explicit_products = false;
     let mut products = Vec::new();
     for output in &outputs {

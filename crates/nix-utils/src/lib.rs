@@ -19,6 +19,9 @@ pub enum Error {
     #[error("Failed to get tokio stdout stream")]
     Stream,
 
+    #[error("regex error: `{0}`")]
+    Regex(#[from] regex::Error),
+
     #[error("Command failed with `{0}`")]
     Exit(std::process::ExitStatus),
 }
