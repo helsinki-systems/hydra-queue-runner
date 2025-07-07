@@ -970,7 +970,7 @@ impl State {
     }
 
     #[allow(clippy::too_many_lines)]
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self, machine, job, step), err)]
     async fn inner_fail_job(
         &self,
         drv_path: &nix_utils::StorePath,
