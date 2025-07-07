@@ -8,6 +8,8 @@
   openssl ? pkgs.openssl,
   zlib ? pkgs.zlib,
   protobuf ? pkgs.protobuf,
+  makeWrapper ? pkgs.makeWrapper,
+  nix ? pkgs.nix,
 }:
 rustPlatform.buildRustPackage {
   name = "queue-runner";
@@ -29,13 +31,20 @@ rustPlatform.buildRustPackage {
   nativeBuildInputs = [
     pkg-config
     protobuf
+    makeWrapper
   ];
   buildInputs = [
     openssl
     zlib
     protobuf
   ];
-  doCheck = false;
+
+  postInstall = ''
+    wrapProgram $out/bin/queue-runner \
+      --prefix PATH : ${lib.makeBinPath [ nix ]}
+    wrapProgram $out/bin/builder \
+      --prefix PATH : ${lib.makeBinPath [ nix ]}
+  '';
 
   meta = with lib; {
     description = "Hydra Queue-Runner implemented in rust";
