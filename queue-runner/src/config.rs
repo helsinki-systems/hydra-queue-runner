@@ -186,6 +186,7 @@ impl TryFrom<AppConfig> for PreparedApp {
                 .join(logname)
                 .join("hydra-roots")
         };
+        std::fs::create_dir_all(&roots_dir)?;
 
         Ok(Self {
             hydra_log_dir: val.hydra_log_dir,

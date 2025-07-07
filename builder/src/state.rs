@@ -162,7 +162,7 @@ impl State {
 
         let before_import = Instant::now();
         let gcroot_prefix = uuid::Uuid::new_v4().to_string();
-        let gcroot = self.get_gcroot(&gcroot_prefix);
+        let gcroot = self.get_gcroot(&gcroot_prefix)?;
 
         let _ = client // we ignore the error here, as this step status has no prio
             .build_step_update(StepUpdate {
@@ -253,8 +253,10 @@ impl State {
         Ok(())
     }
 
-    fn get_gcroot(&self, prefix: &str) -> std::path::PathBuf {
-        self.config.gcroots.join(prefix)
+    fn get_gcroot(&self, prefix: &str) -> std::io::Result<std::path::PathBuf> {
+        let path = self.config.gcroots.join(prefix);
+        std::fs::create_dir_all(&path)?;
+        Ok(path)
     }
 
     fn remove_root_prefix(&self, prefix: &str) {
