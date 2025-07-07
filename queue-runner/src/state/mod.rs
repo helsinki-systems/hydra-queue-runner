@@ -167,11 +167,11 @@ impl State {
         &self,
         step: Arc<Step>,
         system: &System,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<Option<Arc<Machine>>> {
         let drv = step.get_drv_path();
         let Some(machine) = self.machines.get_machine_for_system(system) else {
             log::warn!("No free machine found for system={system} drv={drv}");
-            return Ok(false);
+            return Ok(None);
         };
 
         let mut build_options = nix_utils::BuildOptions::new(None);
@@ -188,7 +188,7 @@ impl State {
                 // (putting it back in the runnable queue). If there are really no strong pointers to
                 // the step, it will be deleted.
                 log::info!("maybe cancelling build step {}", step.get_drv_path());
-                return Ok(false);
+                return Ok(None);
             }
 
             let Some(build) = dependents
@@ -197,7 +197,7 @@ impl State {
                 .or(dependents.iter().next())
             else {
                 // this should never happen, as we checked is_empty above and fallback is just any build
-                return Ok(false);
+                return Ok(None);
             };
 
             build_options.set_max_silent_time(build.max_silent_time);
@@ -210,7 +210,7 @@ impl State {
         if self.check_cached_failure(step.clone()).await {
             job.result.step_status = BuildStatus::CachedFailure;
             self.inner_fail_job(drv, None, job, step.clone()).await?;
-            return Ok(false);
+            return Ok(None);
         }
 
         self.construct_log_file_path(drv)
@@ -255,7 +255,7 @@ impl State {
         machine.build_drv(job, &build_options).await;
         self.metrics.nr_steps_started.add(1);
         self.metrics.nr_steps_building.add(1);
-        Ok(true)
+        Ok(Some(machine))
     }
 
     #[tracing::instrument(skip(self, drv), err)]
@@ -374,7 +374,8 @@ impl State {
             }
         }
 
-        // TODO: figure out why old queue-runner killed a bunch of steps at this point in time
+        let queues = self.queues.read().await;
+        queues.kill_active_steps().await;
         Ok(())
     }
 
@@ -685,7 +686,7 @@ impl State {
                         .realise_drv_on_valid_machine(job.step.clone(), system)
                         .await
                     {
-                        Ok(true) => queues.add_job_to_scheduled(&job, queue),
+                        Ok(Some(m)) => queues.add_job_to_scheduled(&job, queue, m),
                         Ok(_) => nr_steps_waiting += 1,
                         Err(e) => {
                             log::warn!(

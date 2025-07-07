@@ -294,7 +294,7 @@ async fn import_path(
 ) -> anyhow::Result<()> {
     use tokio_stream::StreamExt as _;
 
-    if !nix_utils::check_if_storepath_exists(&path) {
+    if !nix_utils::check_if_storepath_exists(path) {
         log::debug!("Importing {path}");
         let input_stream = client
             .stream_file(crate::runner_v1::StorePath {
@@ -308,7 +308,7 @@ async fn import_path(
         )
         .await?;
     }
-    nix_utils::add_root(&gcroot.root, &path);
+    nix_utils::add_root(&gcroot.root, path);
     Ok(())
 }
 

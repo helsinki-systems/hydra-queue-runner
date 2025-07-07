@@ -12,6 +12,7 @@ type Counter = std::sync::atomic::AtomicU64;
 pub struct StepInfo {
     pub step: Arc<Step>,
     already_scheduled: AtomicBool,
+    cancelled: AtomicBool,
     pub runnable_since: chrono::DateTime<chrono::Utc>,
 
     pub lowest_share_used: f64,
@@ -45,6 +46,7 @@ impl StepInfo {
 
         Self {
             already_scheduled: false.into(),
+            cancelled: false.into(),
             runnable_since: state.runnable_since,
             lowest_share_used,
             highest_global_priority: step
@@ -164,8 +166,9 @@ pub struct Queues {
     jobs: AHashSet<Arc<StepInfo>>,
     inner: AHashMap<System, Arc<BuildQueue>>,
     #[allow(clippy::type_complexity)]
-    scheduled:
-        parking_lot::RwLock<AHashMap<nix_utils::StorePath, (Arc<StepInfo>, Arc<BuildQueue>)>>,
+    scheduled: parking_lot::RwLock<
+        AHashMap<nix_utils::StorePath, (Arc<StepInfo>, Arc<BuildQueue>, Arc<super::Machine>)>,
+    >,
 }
 
 impl Queues {
@@ -206,11 +209,16 @@ impl Queues {
     }
 
     #[tracing::instrument(skip(self, step, queue))]
-    pub fn add_job_to_scheduled(&self, step: &Arc<StepInfo>, queue: &Arc<BuildQueue>) {
+    pub fn add_job_to_scheduled(
+        &self,
+        step: &Arc<StepInfo>,
+        queue: &Arc<BuildQueue>,
+        machine: Arc<super::Machine>,
+    ) {
         let mut scheduled = self.scheduled.write();
 
         let drv = step.step.get_drv_path();
-        scheduled.insert(drv.to_owned(), (step.clone(), queue.clone()));
+        scheduled.insert(drv.to_owned(), (step.clone(), queue.clone(), machine));
         step.already_scheduled.store(true, Ordering::SeqCst);
         queue.incr_active();
     }
@@ -219,7 +227,7 @@ impl Queues {
     pub fn remove_job_from_scheduled(&self, drv: &nix_utils::StorePath) {
         let mut scheduled = self.scheduled.write();
 
-        let Some((step_info, queue)) = scheduled.remove(drv) else {
+        let Some((step_info, queue, _)) = scheduled.remove(drv) else {
             return;
         };
 
@@ -229,7 +237,7 @@ impl Queues {
 
     #[tracing::instrument(skip(self))]
     pub fn mark_job_done(&mut self, drv: &nix_utils::StorePath) {
-        let Some((stepinfo, queue)) = ({
+        let Some((stepinfo, queue, _)) = ({
             let mut scheduled = self.scheduled.write();
             scheduled.remove(drv)
         }) else {
@@ -238,6 +246,31 @@ impl Queues {
 
         self.jobs.remove(&stepinfo);
         queue.decr_active();
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn kill_active_steps(&self) {
+        let active = {
+            let scheduled = self.scheduled.read();
+            scheduled.clone()
+        };
+        for (drv_path, (step_info, _, machine)) in &active {
+            if step_info.cancelled.load(Ordering::SeqCst) {
+                continue;
+            }
+
+            let mut dependents = AHashSet::new();
+            let mut steps = AHashSet::new();
+            step_info.step.get_dependents(&mut dependents, &mut steps);
+            if !dependents.is_empty() {
+                continue;
+            }
+
+            {
+                step_info.cancelled.store(true, Ordering::SeqCst);
+                machine.abort_build(drv_path).await;
+            }
+        }
     }
 
     #[tracing::instrument(skip(self))]
