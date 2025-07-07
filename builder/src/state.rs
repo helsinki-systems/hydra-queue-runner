@@ -30,6 +30,32 @@ pub struct State {
     pub config: Config,
 }
 
+#[derive(Debug)]
+struct Gcroot {
+    root: std::path::PathBuf,
+}
+
+impl Gcroot {
+    pub fn new(path: std::path::PathBuf) -> std::io::Result<Self> {
+        std::fs::create_dir_all(&path)?;
+        Ok(Self { root: path })
+    }
+}
+
+impl std::fmt::Display for Gcroot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        writeln!(f, "{:?}", self.root)
+    }
+}
+
+impl Drop for Gcroot {
+    fn drop(&mut self) {
+        if self.root.exists() {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+}
+
 impl State {
     pub fn new(ping_interval: u64, speed_factor: f32) -> Arc<Self> {
         let logname = std::env::var("LOGNAME").expect("LOGNAME not set");
@@ -222,7 +248,7 @@ impl State {
             .collect::<Vec<_>>();
         nix_utils::validate_statuscode(child.wait().await?)?;
         for o in &output_paths {
-            nix_utils::add_root(&gcroot, o);
+            nix_utils::add_root(&gcroot.root, o);
         }
 
         let build_elapsed = before_build.elapsed();
@@ -249,21 +275,11 @@ impl State {
             .await;
         client.complete_build_with_success(build_results).await?;
 
-        self.remove_root_prefix(&gcroot_prefix);
         Ok(())
     }
 
-    fn get_gcroot(&self, prefix: &str) -> std::io::Result<std::path::PathBuf> {
-        let path = self.config.gcroots.join(prefix);
-        std::fs::create_dir_all(&path)?;
-        Ok(path)
-    }
-
-    fn remove_root_prefix(&self, prefix: &str) {
-        let p = self.config.gcroots.join(prefix);
-        if p.exists() {
-            let _ = std::fs::remove_dir_all(p);
-        }
+    fn get_gcroot(&self, prefix: &str) -> std::io::Result<Gcroot> {
+        Gcroot::new(self.config.gcroots.join(prefix))
     }
 }
 
@@ -272,7 +288,7 @@ async fn import_path(
     mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
         tonic::transport::Channel,
     >,
-    gcroot: &std::path::PathBuf,
+    gcroot: &Gcroot,
     path: nix_utils::StorePath,
 ) -> anyhow::Result<()> {
     use tokio_stream::StreamExt as _;
@@ -291,7 +307,7 @@ async fn import_path(
         )
         .await?;
     }
-    nix_utils::add_root(gcroot, &path);
+    nix_utils::add_root(&gcroot.root, &path);
     Ok(())
 }
 
@@ -300,7 +316,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     client: &mut crate::runner_v1::runner_service_client::RunnerServiceClient<
         tonic::transport::Channel,
     >,
-    gcroot: &std::path::PathBuf,
+    gcroot: &Gcroot,
     requisites: T,
 ) -> anyhow::Result<()> {
     use futures::stream::StreamExt as _;
