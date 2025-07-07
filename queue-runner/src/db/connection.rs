@@ -275,6 +275,16 @@ impl Connection {
         .map(|v| (v.name.clone(), v))
         .collect())
     }
+
+    #[tracing::instrument(skip(self), err)]
+    pub async fn get_status(&mut self) -> sqlx::Result<Option<serde_json::Value>> {
+        Ok(
+            sqlx::query!("SELECT status FROM systemstatus WHERE what = 'queue-runner';",)
+                .fetch_optional(&mut *self.conn)
+                .await?
+                .map(|v| v.status),
+        )
+    }
 }
 
 impl Transaction<'_> {

@@ -1,8 +1,6 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
-use tracing_subscriber::{Layer as _, Registry, layer::SubscriberExt as _};
-
 use state::State;
 
 mod config;
@@ -40,39 +38,16 @@ fn spawn_config_reloader(
     });
 }
 
-#[cfg(debug_assertions)]
-fn init_tracing() -> anyhow::Result<()> {
-    tracing_log::LogTracer::init()?;
-    let log_env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .compact()
-        .with_filter(log_env_filter);
-    let console_layer = console_subscriber::spawn();
-
-    let subscriber = Registry::default().with(fmt_layer).with(console_layer);
-    tracing::subscriber::set_global_default(subscriber)?;
-    Ok(())
-}
-
-#[cfg(not(debug_assertions))]
-fn init_tracing() -> anyhow::Result<()> {
-    tracing_log::LogTracer::init()?;
-    let log_env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .compact()
-        .with_filter(log_env_filter);
-    let subscriber = Registry::default().with(fmt_layer);
-    tracing::subscriber::set_global_default(subscriber)?;
-    Ok(())
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    init_tracing()?;
+    let reload_handle = config::init_tracing()?;
 
-    let state = State::new().await?;
+    let state = State::new(reload_handle).await?;
+    if state.args.status {
+        state.get_status_from_main_process().await?;
+        return Ok(());
+    }
+
     if !state.args.mtls_configured_correctly() {
         log::error!(
             "mtls configured inproperly, please pass all options: server_cert_path, server_key_path and client_ca_cert_path!"

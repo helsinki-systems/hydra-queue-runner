@@ -60,8 +60,18 @@ pub struct State {
 }
 
 impl State {
-    pub async fn new() -> anyhow::Result<Arc<Self>> {
+    pub async fn new(
+        reload_handle: tracing_subscriber::reload::Handle<
+            tracing_subscriber::EnvFilter,
+            tracing_subscriber::Registry,
+        >,
+    ) -> anyhow::Result<Arc<Self>> {
         let args = Args::new();
+        if args.status {
+            let _ = reload_handle
+                .modify(|filter| *filter = tracing_subscriber::filter::EnvFilter::new("error"));
+        }
+
         let config = PreparedApp::init(&args.config_path)?;
         let (log_dir, db) = {
             let (log_dir, db_url, max_db_connections) = {
@@ -590,6 +600,32 @@ impl State {
                 }
             }
         });
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_status_from_main_process(self: Arc<Self>) -> anyhow::Result<()> {
+        let mut db = self.db.get().await?;
+        {
+            let mut tx = db.begin_transaction().await?;
+            tx.notify_dump_status().await?;
+            tx.commit().await?;
+        }
+        {
+            let mut listener = self.db.listener(vec!["status_dumped"]).await?;
+            let _ = match listener.try_next().await {
+                Ok(Some(v)) => v,
+                Ok(None) => return Ok(()),
+                Err(e) => {
+                    log::warn!("PgListener failed with e={e}");
+                    return Ok(());
+                }
+            };
+            if let Some(status) = db.get_status().await? {
+                println!("{}", serde_json::to_string_pretty(&status)?);
+            }
+        }
+
+        Ok(())
     }
 
     #[tracing::instrument(skip(self))]
