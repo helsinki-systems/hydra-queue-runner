@@ -969,7 +969,7 @@ impl State {
             (None, None)
         };
 
-        let (Some(machine), Some(job)) = machine_job_tuple else {
+        let (Some(machine), Some(mut job)) = machine_job_tuple else {
             // Seems like we did not have a job scheduled
             // aka something went wrong.
             // We trigger dispatch and try to recover but we cant update the DB
@@ -978,6 +978,7 @@ impl State {
             return Ok(());
         };
 
+        job.result.step_status = BuildStatus::Failed;
         self.inner_fail_job(drv_path, Some(machine), job, step)
             .await
     }
@@ -988,9 +989,11 @@ impl State {
         &self,
         drv_path: &nix_utils::StorePath,
         machine: Option<Arc<Machine>>,
-        job: machine::Job,
+        mut job: machine::Job,
         step: Arc<Step>,
     ) -> anyhow::Result<()> {
+        job.result.stop_time = chrono::Utc::now().timestamp();
+
         // TODO: builder:415
         let mut dependent_ids = Vec::new();
         loop {
@@ -1042,7 +1045,7 @@ impl State {
                         continue;
                     }
 
-                    log::error!("marking build {} as failed", b.id);
+                    log::info!("marking build {} as failed", b.id);
                     tx.update_build_after_failure(
                         b.id,
                         if &b.drv_path != step.get_drv_path()
