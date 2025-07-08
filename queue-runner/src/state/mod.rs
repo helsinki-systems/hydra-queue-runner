@@ -693,6 +693,9 @@ impl State {
                     if job.get_already_scheduled() {
                         continue;
                     }
+                    if job.step.get_finished() {
+                        continue;
+                    }
 
                     match self
                         .realise_drv_on_valid_machine(job.step.clone(), system)

@@ -126,6 +126,9 @@ impl State {
         m: crate::runner_v1::BuildMessage,
     ) {
         let drv = nix_utils::StorePath::new(&m.drv);
+        if self.contains_build(&drv) {
+            return;
+        }
         log::info!("Building {drv}");
 
         let task_handle = tokio::spawn({
@@ -134,6 +137,7 @@ impl State {
             async move {
                 match self_.process_build(client.clone(), m).await {
                     Ok(()) => {
+                        log::info!("Successfully completed build process for {drv}");
                         self_.remove_build(&drv);
                     }
                     Err(e) => {
@@ -159,6 +163,11 @@ impl State {
                 handle: task_handle,
             },
         );
+    }
+
+    fn contains_build(&self, drv: &nix_utils::StorePath) -> bool {
+        let active = self.active_builds.read();
+        active.contains_key(drv)
     }
 
     fn insert_new_build(&self, drv: nix_utils::StorePath, b: BuildInfo) {
