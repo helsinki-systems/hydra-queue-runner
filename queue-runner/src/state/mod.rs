@@ -1571,20 +1571,15 @@ impl State {
         let Ok(mut conn) = self.db.get().await else {
             return false;
         };
-        for o in &drv_outputs {
-            if let Some(path) = &o.path {
-                // TODO: we can do this in 1 db query
-                if conn
-                    .check_if_path_failed(&path.get_full_path())
-                    .await
-                    .unwrap_or_default()
-                {
-                    return true;
-                }
-            }
-        }
 
-        false
+        conn.check_if_paths_failed(
+            &drv_outputs
+                .iter()
+                .filter_map(|o| o.path.as_ref().map(|p| p.get_full_path()))
+                .collect::<Vec<_>>(),
+        )
+        .await
+        .unwrap_or_default()
     }
 
     #[tracing::instrument(skip(self, step))]

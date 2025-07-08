@@ -130,13 +130,13 @@ impl Connection {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self), err)]
-    pub async fn check_if_path_failed(&mut self, path: &str) -> sqlx::Result<bool> {
+    #[tracing::instrument(skip(self, paths), err)]
+    pub async fn check_if_paths_failed(&mut self, paths: &[String]) -> sqlx::Result<bool> {
         Ok(
-            sqlx::query!("SELECT path FROM failedpaths where path = $1", path)
-                .fetch_optional(&mut *self.conn)
+            !sqlx::query!("SELECT path FROM failedpaths where path = ANY($1)", paths)
+                .fetch_all(&mut *self.conn)
                 .await?
-                .is_some(),
+                .is_empty(),
         )
     }
 
