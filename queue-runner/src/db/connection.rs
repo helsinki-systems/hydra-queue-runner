@@ -728,8 +728,7 @@ impl Transaction<'_> {
             error_msg,
             propagated_from
         ),
-        err,
-        ret
+        err
     )]
     pub async fn create_build_step(
         &mut self,

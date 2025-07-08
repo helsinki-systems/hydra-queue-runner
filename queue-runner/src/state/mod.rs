@@ -162,7 +162,7 @@ impl State {
         }
     }
 
-    #[tracing::instrument(skip(self, step, system), err, ret)]
+    #[tracing::instrument(skip(self, step, system), err)]
     async fn realise_drv_on_valid_machine(
         &self,
         step: Arc<Step>,
@@ -170,7 +170,7 @@ impl State {
     ) -> anyhow::Result<Option<Arc<Machine>>> {
         let drv = step.get_drv_path();
         let Some(machine) = self.machines.get_machine_for_system(system) else {
-            log::warn!("No free machine found for system={system} drv={drv}");
+            log::debug!("No free machine found for system={system} drv={drv}");
             return Ok(None);
         };
 
@@ -1561,7 +1561,7 @@ impl State {
         CreateStepResult::Valid(step)
     }
 
-    #[tracing::instrument(skip(self, step), ret)]
+    #[tracing::instrument(skip(self, step), ret, level = "debug")]
     async fn check_cached_failure(&self, step: Arc<Step>) -> bool {
         let Some(drv_outputs) = step.get_outputs() else {
             return false;
