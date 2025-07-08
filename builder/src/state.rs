@@ -135,7 +135,12 @@ impl State {
             let self_ = self.clone();
             let drv = drv.clone();
             async move {
-                match self_.process_build(client.clone(), m).await {
+                let mut import_elapsed = std::time::Duration::from_millis(0);
+                let mut build_elapsed = std::time::Duration::from_millis(0);
+                match self_
+                    .process_build(client.clone(), m, &mut import_elapsed, &mut build_elapsed)
+                    .await
+                {
                     Ok(()) => {
                         log::info!("Successfully completed build process for {drv}");
                         self_.remove_build(&drv);
@@ -147,6 +152,10 @@ impl State {
                             .complete_build_with_failure(crate::runner_v1::FailResultInfo {
                                 machine_id: self_.id.to_string(),
                                 drv: drv.base_name().to_owned(),
+                                import_time_ms: u64::try_from(import_elapsed.as_millis())
+                                    .unwrap_or_default(),
+                                build_time_ms: u64::try_from(build_elapsed.as_millis())
+                                    .unwrap_or_default(),
                             })
                             .await
                         {
@@ -201,6 +210,8 @@ impl State {
             tonic::transport::Channel,
         >,
         m: crate::runner_v1::BuildMessage,
+        import_elapsed: &mut std::time::Duration,
+        build_elapsed: &mut std::time::Duration,
     ) -> anyhow::Result<()> {
         use tokio_stream::StreamExt as _;
 
@@ -227,7 +238,7 @@ impl State {
                 .map(|s| nix_utils::StorePath::new(&s)),
         )
         .await?;
-        let import_elapsed = before_import.elapsed();
+        *import_elapsed = before_import.elapsed();
 
         let drv_info = nix_utils::query_drv(&drv)
             .await?
@@ -273,7 +284,7 @@ impl State {
             nix_utils::add_root(&gcroot.root, o);
         }
 
-        let build_elapsed = before_build.elapsed();
+        *build_elapsed = before_build.elapsed();
         log::info!("Finished building {drv}");
 
         let _ = client // we ignore the error here, as this step status has no prio
@@ -285,7 +296,7 @@ impl State {
             .await;
         upload_nars(client.clone(), output_paths).await?;
         let build_results =
-            new_build_result_info(machine_id, &drv, drv_info, import_elapsed, build_elapsed)
+            new_build_result_info(machine_id, &drv, drv_info, *import_elapsed, *build_elapsed)
                 .await?;
 
         let _ = client // we ignore the error here, as this step status has no prio

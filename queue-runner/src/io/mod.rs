@@ -41,10 +41,10 @@ pub struct MachineStats {
     nr_steps_done: u64,
     total_step_time: u64,
     total_step_build_time: u64,
-    idle_since: u64,
+    idle_since: i64,
 
-    last_failure: u64,
-    disabled_until: u64,
+    last_failure: i64,
+    disabled_until: i64,
     consecutive_failures: u64,
     last_ping: i64,
     since_last_ping: i64,

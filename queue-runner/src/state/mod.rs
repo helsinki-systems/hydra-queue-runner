@@ -800,6 +800,14 @@ impl State {
         };
         job.result.step_status = BuildStatus::Success;
         job.result.stop_time = chrono::Utc::now().timestamp();
+        if job.result.start_time > 0 {
+            if let Ok(v) = u64::try_from(job.result.stop_time - job.result.start_time) {
+                machine.stats.add_to_total_step_time(v);
+            }
+            machine
+                .stats
+                .add_to_total_build_step_time(output.build_elapsed.as_secs());
+        }
 
         {
             let mut db = self.db.get().await?;
@@ -940,6 +948,7 @@ impl State {
         &self,
         machine_id: Option<uuid::Uuid>,
         drv_path: &nix_utils::StorePath,
+        build_elapsed: std::time::Duration,
     ) -> anyhow::Result<()> {
         let step = {
             let steps = self.steps.write();
@@ -981,6 +990,10 @@ impl State {
         };
 
         job.result.step_status = BuildStatus::Failed;
+        machine
+            .stats
+            .add_to_total_build_step_time(build_elapsed.as_secs());
+
         self.inner_fail_job(drv_path, Some(machine), job, step)
             .await
     }
@@ -995,6 +1008,14 @@ impl State {
         step: Arc<Step>,
     ) -> anyhow::Result<()> {
         job.result.stop_time = chrono::Utc::now().timestamp();
+        if let Some(machine) = &machine {
+            if job.result.start_time > 0 {
+                if let Ok(v) = u64::try_from(job.result.stop_time - job.result.start_time) {
+                    machine.stats.add_to_total_step_time(v);
+                }
+            }
+            machine.stats.store_last_failure_now();
+        }
 
         // TODO: builder:415
         let mut dependent_ids = Vec::new();

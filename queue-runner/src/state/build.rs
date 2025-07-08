@@ -415,6 +415,8 @@ pub struct BuildMetric {
 
 pub struct BuildOutput {
     pub failed: bool,
+    pub import_elapsed: std::time::Duration,
+    pub build_elapsed: std::time::Duration,
 
     pub release_name: Option<String>,
 
@@ -437,6 +439,8 @@ impl TryFrom<crate::db::models::BuildOutput> for BuildOutput {
         .ok_or(anyhow::anyhow!("buildstatus did not map"))?;
         Ok(Self {
             failed: build_status != BuildStatus::Success,
+            import_elapsed: std::time::Duration::from_millis(0),
+            build_elapsed: std::time::Duration::from_millis(0),
             release_name: v.releasename,
             #[allow(clippy::cast_sign_loss)]
             closure_size: v.closuresize.unwrap_or_default() as u64,
@@ -481,6 +485,8 @@ impl From<crate::server::grpc::runner_v1::BuildResultInfo> for BuildOutput {
 
         Self {
             failed,
+            import_elapsed: std::time::Duration::from_millis(v.import_time_ms),
+            build_elapsed: std::time::Duration::from_millis(v.build_time_ms),
             release_name,
             closure_size,
             size: nar_size,
@@ -529,6 +535,8 @@ impl BuildOutput {
 
         Ok(Self {
             failed: nix_support.failed,
+            import_elapsed: std::time::Duration::from_millis(0),
+            build_elapsed: std::time::Duration::from_millis(0),
             release_name: nix_support.hydra_release_name,
             closure_size,
             size: nar_size,

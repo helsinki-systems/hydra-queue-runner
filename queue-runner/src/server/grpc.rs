@@ -326,7 +326,11 @@ impl RunnerService for Server {
         let machine_id = uuid::Uuid::parse_str(&req.machine_id);
 
         if let Err(e) = state
-            .fail_step(machine_id.ok(), &nix_utils::StorePath::new(&drv))
+            .fail_step(
+                machine_id.ok(),
+                &nix_utils::StorePath::new(&drv),
+                std::time::Duration::from_millis(req.build_time_ms),
+            )
             .await
         {
             log::error!("Failed to fail step with drv={drv}: {e}");

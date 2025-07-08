@@ -61,10 +61,10 @@ pub struct Stats {
     nr_steps_done: Counter,
     total_step_time: Counter,
     total_step_build_time: Counter,
-    idle_since: Counter,
+    idle_since: std::sync::atomic::AtomicI64,
 
-    last_failure: Counter,
-    disabled_until: Counter,
+    last_failure: std::sync::atomic::AtomicI64,
+    disabled_until: std::sync::atomic::AtomicI64,
     consecutive_failures: Counter,
     last_ping: std::sync::atomic::AtomicI64,
 
@@ -86,7 +86,7 @@ impl Stats {
             nr_steps_done: 0.into(),
             total_step_time: 0.into(),
             total_step_build_time: 0.into(),
-            idle_since: 0.into(),
+            idle_since: (chrono::Utc::now().timestamp()).into(),
             last_failure: 0.into(),
             disabled_until: 0.into(),
             consecutive_failures: 0.into(),
@@ -106,6 +106,13 @@ impl Stats {
     }
 
     pub fn store_current_jobs(&self, c: u64) {
+        if c == 0 && self.idle_since.load(Ordering::SeqCst) == 0 {
+            self.idle_since
+                .store(chrono::Utc::now().timestamp(), Ordering::SeqCst);
+        } else {
+            self.idle_since.store(0, Ordering::SeqCst);
+        }
+
         self.current_jobs.store(c, Ordering::SeqCst);
     }
 
@@ -117,23 +124,40 @@ impl Stats {
         self.nr_steps_done.load(Ordering::SeqCst)
     }
 
+    pub fn incr_nr_steps_done(&self) {
+        self.nr_steps_done.fetch_add(1, Ordering::SeqCst);
+    }
+
     pub fn get_total_step_time(&self) -> u64 {
         self.total_step_time.load(Ordering::SeqCst)
+    }
+
+    pub fn add_to_total_step_time(&self, v: u64) {
+        self.total_step_time.fetch_add(v, Ordering::SeqCst);
     }
 
     pub fn get_total_step_build_time(&self) -> u64 {
         self.total_step_build_time.load(Ordering::SeqCst)
     }
 
-    pub fn get_idle_since(&self) -> u64 {
+    pub fn add_to_total_build_step_time(&self, v: u64) {
+        self.total_step_build_time.fetch_add(v, Ordering::SeqCst);
+    }
+
+    pub fn get_idle_since(&self) -> i64 {
         self.idle_since.load(Ordering::SeqCst)
     }
 
-    pub fn get_last_failure(&self) -> u64 {
+    pub fn get_last_failure(&self) -> i64 {
         self.last_failure.load(Ordering::SeqCst)
     }
 
-    pub fn get_disabled_until(&self) -> u64 {
+    pub fn store_last_failure_now(&self) {
+        self.last_failure
+            .store(chrono::Utc::now().timestamp(), Ordering::SeqCst);
+    }
+
+    pub fn get_disabled_until(&self) -> i64 {
         self.disabled_until.load(Ordering::SeqCst)
     }
 
@@ -442,6 +466,7 @@ impl Machine {
         let job = jobs.iter().find(|j| &j.path == drv).cloned();
         jobs.retain(|j| &j.path != drv);
         self.stats.store_current_jobs(jobs.len() as u64);
+        self.stats.incr_nr_steps_done();
         job
     }
 }

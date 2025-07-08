@@ -176,4 +176,6 @@ message BuildResultInfo {
 message FailResultInfo {
   string machine_id = 1;
   string drv = 2;
+  uint64 import_time_ms = 3;
+  uint64 build_time_ms = 4;
 }
