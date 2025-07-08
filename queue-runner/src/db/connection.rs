@@ -360,6 +360,7 @@ impl Transaction<'_> {
         build_id: i32,
         status: BuildStatus,
     ) -> sqlx::Result<()> {
+        #[allow(clippy::cast_possible_truncation)]
         sqlx::query!(
             r#"
             UPDATE builds SET
@@ -373,7 +374,8 @@ impl Transaction<'_> {
               id = $1 AND finished = 0"#,
             build_id,
             status as i32,
-            0,
+            // TODO migrate to 64bit timestamp
+            chrono::Utc::now().timestamp() as i32,
         )
         .execute(&mut *self.tx)
         .await?;
