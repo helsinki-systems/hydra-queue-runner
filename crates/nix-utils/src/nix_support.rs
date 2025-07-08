@@ -138,7 +138,11 @@ pub async fn parse_nix_support_from_outputs(
             let name = if &path == *output {
                 String::new()
             } else {
-                path.base_name().to_string()
+                std::path::Path::new(&path_full_path)
+                    .file_name()
+                    .and_then(|f| f.to_str())
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_default()
             };
 
             let sha256hash = if is_regular {
