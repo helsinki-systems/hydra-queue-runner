@@ -815,7 +815,7 @@ impl State {
         // TODO: can retry: builder.cc:260
 
         for (_, path) in &output.outputs {
-            self.add_root(&nix_utils::StorePath::new(path));
+            self.add_root(path);
         }
 
         let remote_store_url = {
@@ -831,8 +831,7 @@ impl State {
                 let mut stream =
                     futures::StreamExt::map(tokio_stream::iter(outputs), |(_, path)| {
                         // TODO: copy logs, currently not possible with cli interface
-                        let path = nix_utils::StorePath::new(&path);
-                        remote_store.copy_path(path)
+                        remote_store.copy_path(path.clone())
                     })
                     .buffer_unordered(10);
                 while let Some(v) = tokio_stream::StreamExt::next(&mut stream).await {
@@ -1575,7 +1574,7 @@ impl State {
         conn.check_if_paths_failed(
             &drv_outputs
                 .iter()
-                .filter_map(|o| o.path.as_ref().map(|p| p.get_full_path()))
+                .filter_map(|o| o.path.as_ref().map(nix_utils::StorePath::get_full_path))
                 .collect::<Vec<_>>(),
         )
         .await
@@ -1626,7 +1625,7 @@ impl State {
         let res = self.get_build_output_cached(&build.drv_path).await?;
 
         for (_, path) in &res.outputs {
-            self.add_root(&nix_utils::StorePath::new(path));
+            self.add_root(path);
         }
 
         {

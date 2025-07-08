@@ -866,7 +866,8 @@ impl Transaction<'_> {
         .await?;
 
         for (name, path) in &res.outputs {
-            self.update_build_output(build.id, name, path).await?;
+            self.update_build_output(build.id, name, &path.get_full_path())
+                .await?;
         }
 
         self.delete_build_products_by_build_id(build.id).await?;
@@ -879,9 +880,17 @@ impl Transaction<'_> {
                 subtype: p.subtype.clone(),
                 file_size: p.file_size.and_then(|v| i64::try_from(v).ok()),
                 sha256hash: p.sha256hash.clone(),
-                path: p.path.clone(),
+                path: p
+                    .path
+                    .as_ref()
+                    .map(nix_utils::StorePath::get_full_path)
+                    .unwrap_or_default(),
                 name: p.name.clone(),
-                default_path: p.default_path.clone(),
+                default_path: p
+                    .default_path
+                    .as_ref()
+                    .map(nix_utils::StorePath::get_full_path)
+                    .unwrap_or_default(),
             })
             .await?;
         }

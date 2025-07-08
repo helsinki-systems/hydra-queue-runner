@@ -348,8 +348,8 @@ impl RemoteBuild {
 }
 
 pub struct BuildProduct {
-    pub path: String,
-    pub default_path: String,
+    pub path: Option<nix_utils::StorePath>,
+    pub default_path: Option<nix_utils::StorePath>,
 
     pub r#type: String,
     pub subtype: String,
@@ -364,8 +364,8 @@ pub struct BuildProduct {
 impl From<crate::db::models::BuildProduct> for BuildProduct {
     fn from(v: crate::db::models::BuildProduct) -> Self {
         Self {
-            path: v.path.unwrap_or_default(),
-            default_path: v.defaultpath.unwrap_or_default(),
+            path: v.path.map(|v| nix_utils::StorePath::new(&v)),
+            default_path: v.defaultpath.map(|v| nix_utils::StorePath::new(&v)),
             r#type: v.r#type,
             subtype: v.subtype,
             name: v.name,
@@ -380,8 +380,8 @@ impl From<crate::db::models::BuildProduct> for BuildProduct {
 impl From<crate::server::grpc::runner_v1::BuildProduct> for BuildProduct {
     fn from(v: crate::server::grpc::runner_v1::BuildProduct) -> Self {
         Self {
-            path: v.path,
-            default_path: v.default_path,
+            path: Some(nix_utils::StorePath::new(&v.path)),
+            default_path: Some(nix_utils::StorePath::new(&v.default_path)),
             r#type: v.r#type,
             subtype: v.subtype,
             name: v.name,
@@ -395,8 +395,8 @@ impl From<crate::server::grpc::runner_v1::BuildProduct> for BuildProduct {
 impl From<nix_utils::BuildProduct> for BuildProduct {
     fn from(v: nix_utils::BuildProduct) -> Self {
         Self {
-            path: v.path,
-            default_path: v.default_path,
+            path: Some(nix_utils::StorePath::new(&v.path)),
+            default_path: Some(nix_utils::StorePath::new(&v.default_path)),
             r#type: v.r#type,
             subtype: v.subtype,
             name: v.name,
@@ -422,7 +422,7 @@ pub struct BuildOutput {
     pub size: u64,
 
     pub products: Vec<BuildProduct>,
-    pub outputs: AHashMap<String, String>,
+    pub outputs: AHashMap<String, nix_utils::StorePath>,
     pub metrics: AHashMap<String, BuildMetric>,
 }
 
@@ -461,7 +461,7 @@ impl From<crate::server::grpc::runner_v1::BuildResultInfo> for BuildOutput {
                     // We dont care about outputs that dont have a path,
                 }
                 Some(crate::server::grpc::runner_v1::output::Output::Withpath(o)) => {
-                    outputs.insert(o.name, o.path);
+                    outputs.insert(o.name, nix_utils::StorePath::new(&o.path));
                     closure_size += o.closure_size;
                     nar_size += o.nar_size;
                 }
@@ -520,7 +520,7 @@ impl BuildOutput {
         for o in outputs {
             if let Some(path) = o.path {
                 if let Some(info) = pathinfos.get(&path) {
-                    outputs_map.insert(o.name, path.get_full_path());
+                    outputs_map.insert(o.name, path);
                     closure_size += info.closure_size;
                     nar_size += info.nar_size;
                 }
