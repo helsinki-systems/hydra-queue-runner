@@ -86,6 +86,7 @@ impl From<std::sync::Arc<crate::state::MachineStats>> for MachineStats {
 pub struct Machine {
     systems: Vec<crate::state::System>,
     hostname: String,
+    uptime: f64,
     cpu_count: u32,
     bogomips: f32,
     speed_factor: f32,
@@ -103,8 +104,10 @@ impl Machine {
         sort_fn: crate::config::MachineSortFn,
     ) -> Self {
         let jobs = { item.jobs.read().iter().map(|j| j.path.clone()).collect() };
+        let time = chrono::Utc::now();
         Self {
             systems: item.systems.clone(),
+            uptime: (time - item.joined_at).as_seconds_f64(),
             hostname: item.hostname.clone(),
             cpu_count: item.cpu_count,
             bogomips: item.bogomips,
@@ -167,7 +170,7 @@ impl Process {
 pub struct QueueRunnerStats {
     status: &'static str,
     time: chrono::DateTime<chrono::Utc>,
-    uptime: chrono::Duration,
+    uptime: f64,
     proc: Option<Process>,
 
     build_count: usize,
@@ -232,7 +235,7 @@ impl QueueRunnerStats {
         Self {
             status: "up",
             time,
-            uptime: time - state.started_at,
+            uptime: (time - state.started_at).as_seconds_f64(),
             proc: Process::new(),
             build_count,
             jobset_count,
