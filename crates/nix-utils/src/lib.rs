@@ -87,6 +87,10 @@ impl StorePath {
         &self.base_name[..HASH_LEN]
     }
 
+    pub fn is_drv(&self) -> bool {
+        self.base_name.ends_with(".drv")
+    }
+
     pub fn get_full_path(&self) -> String {
         format!("/nix/store/{}", self.base_name)
     }

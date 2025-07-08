@@ -290,11 +290,11 @@ async fn import_path(
         tonic::transport::Channel,
     >,
     gcroot: &Gcroot,
-    path: &nix_utils::StorePath,
+    path: nix_utils::StorePath,
 ) -> anyhow::Result<()> {
     use tokio_stream::StreamExt as _;
 
-    if !nix_utils::check_if_storepath_exists(path) {
+    if !nix_utils::check_if_storepath_exists(&path) {
         log::debug!("Importing {path}");
         let input_stream = client
             .stream_file(crate::runner_v1::StorePath {
@@ -308,7 +308,7 @@ async fn import_path(
         )
         .await?;
     }
-    nix_utils::add_root(&gcroot.root, path);
+    nix_utils::add_root(&gcroot.root, &path);
     Ok(())
 }
 
@@ -321,9 +321,23 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     drv: &nix_utils::StorePath,
     requisites: T,
 ) -> anyhow::Result<()> {
-    import_path(client.clone(), gcroot, drv).await?;
-    for p in requisites {
-        nix_utils::add_root(&gcroot.root, &p);
+    use futures::stream::StreamExt as _;
+
+    let (drvs, other): (Vec<_>, Vec<_>) = requisites
+        .into_iter()
+        .partition(nix_utils::StorePath::is_drv);
+
+    let mut stream = futures::StreamExt::map(tokio_stream::iter(other), |p| {
+        import_path(client.clone(), gcroot, p)
+    })
+    .buffer_unordered(50);
+    while let Some(r) = tokio_stream::StreamExt::next(&mut stream).await {
+        r?;
+    }
+
+    // Do this drv by drv otherwise drvs get corrupted
+    for drv in drvs {
+        import_path(client.clone(), gcroot, drv).await?;
     }
 
     Ok(())
