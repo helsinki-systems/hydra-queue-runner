@@ -134,8 +134,11 @@ impl State {
             async move {
                 match self_.process_build(client.clone(), m).await {
                     Ok(()) => {
-                        let mut active = self_.active_builds.write();
-                        active.remove(&drv);
+                        {
+                            let mut active = self_.active_builds.write();
+                            active.remove(&drv);
+                        }
+                        self_.publish_builds_to_sd_notify();
                     }
                     Err(e) => {
                         log::error!("Build of {drv} failed with {e}");
@@ -162,15 +165,19 @@ impl State {
                 }),
             );
         }
+        self.publish_builds_to_sd_notify();
     }
 
     #[tracing::instrument(skip(self, m))]
     pub fn abort_build(&self, m: &crate::runner_v1::AbortMessage) {
         let drv = nix_utils::StorePath::new(&m.drv);
-        let mut active = self.active_builds.write();
-        if let Some(b) = active.remove(&drv) {
-            b.abort();
+        {
+            let mut active = self.active_builds.write();
+            if let Some(b) = active.remove(&drv) {
+                b.abort();
+            }
         }
+        self.publish_builds_to_sd_notify();
     }
 
     #[tracing::instrument(skip(self, client, m), err)]
@@ -281,6 +288,24 @@ impl State {
 
     fn get_gcroot(&self, prefix: &str) -> std::io::Result<Gcroot> {
         Gcroot::new(self.config.gcroots.join(prefix))
+    }
+
+    fn publish_builds_to_sd_notify(&self) {
+        let active = {
+            let builds = self.active_builds.read();
+            builds
+                .keys()
+                .map(|b| b.base_name().to_owned())
+                .collect::<Vec<_>>()
+        };
+
+        let _notify = sd_notify::notify(
+            false,
+            &[
+                sd_notify::NotifyState::Status(&format!("Building: {}", active.join(", "))),
+                sd_notify::NotifyState::Ready,
+            ],
+        );
     }
 }
 
