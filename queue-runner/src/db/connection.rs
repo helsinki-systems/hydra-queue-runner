@@ -510,21 +510,26 @@ impl Transaction<'_> {
         Ok(success)
     }
 
-    #[tracing::instrument(skip(self, output), err)]
-    pub async fn insert_build_step_output(
+    #[tracing::instrument(skip(self, outputs), err)]
+    pub async fn insert_build_step_outputs(
         &mut self,
-        output: InsertBuildStepOutput,
+        outputs: &[InsertBuildStepOutput],
     ) -> sqlx::Result<()> {
-        // TODO: support inserting multiple at the same time
-        sqlx::query!(
-            "INSERT INTO buildstepoutputs (build, stepnr, name, path) VALUES ($1, $2, $3, $4)",
-            output.build_id,
-            output.step_nr,
-            output.name,
-            output.path,
-        )
-        .execute(&mut *self.tx)
-        .await?;
+        if outputs.is_empty() {
+            return Ok(());
+        }
+
+        let mut query_builder =
+            sqlx::QueryBuilder::new("INSERT INTO buildstepoutputs (build, stepnr, name, path) ");
+
+        query_builder.push_values(outputs, |mut b, output| {
+            b.push_bind(output.build_id)
+                .push_bind(output.step_nr)
+                .push_bind(&output.name)
+                .push_bind(&output.path);
+        });
+        let query = query_builder.build();
+        query.execute(&mut *self.tx).await?;
         Ok(())
     }
 
@@ -763,15 +768,20 @@ impl Transaction<'_> {
             }
         };
 
-        for o in step.get_outputs().unwrap_or_default() {
-            self.insert_build_step_output(crate::db::models::InsertBuildStepOutput {
-                build_id,
-                step_nr,
-                name: o.name,
-                path: o.path.map(|s| s.get_full_path()),
-            })
-            .await?;
-        }
+        self.insert_build_step_outputs(
+            &step
+                .get_outputs()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|o| crate::db::models::InsertBuildStepOutput {
+                    build_id,
+                    step_nr,
+                    name: o.name,
+                    path: o.path.map(|s| s.get_full_path()),
+                })
+                .collect::<Vec<_>>(),
+        )
+        .await?;
 
         if status == crate::db::models::BuildStatus::Busy {
             self.notify_step_started(build_id, step_nr).await?;
@@ -816,12 +826,12 @@ impl Transaction<'_> {
             }
         };
 
-        self.insert_build_step_output(crate::db::models::InsertBuildStepOutput {
+        self.insert_build_step_outputs(&[crate::db::models::InsertBuildStepOutput {
             build_id,
             step_nr,
             name: output.name,
             path: output.path.map(|s| s.get_full_path()),
-        })
+        }])
         .await?;
 
         Ok(step_nr)
