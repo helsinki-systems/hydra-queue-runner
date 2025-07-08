@@ -80,15 +80,28 @@ async fn start_bidirectional_stream(
         .await?
         .into_inner();
 
+    let mut consecutive_failure_count = 0;
     while let Some(item) = stream.next().await {
         match item.map(|v| v.message) {
             Ok(Some(v)) => {
+                consecutive_failure_count = 0;
                 if let Err(err) = handle_request(state2.clone(), client, v).await {
                     log::error!("Failed to correctly handle request: {err}");
                 }
             }
-            Ok(None) => (),
-            Err(e) => log::error!("stream message delivery failed: {e}"),
+            Ok(None) => {
+                consecutive_failure_count = 0;
+            }
+            Err(e) => {
+                consecutive_failure_count += 1;
+                log::error!("stream message delivery failed: {e}");
+                if consecutive_failure_count == 10 {
+                    return Err(anyhow::anyhow!(
+                        "Failed to communicate {consecutive_failure_count} times over the channel. \
+                        Terminating the application."
+                    ));
+                }
+            }
         }
     }
     Ok(())
