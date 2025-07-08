@@ -57,11 +57,16 @@ message PingMessage {
   Pressure io_full = 10;
 }
 
+message SimplePingMessage {
+  string message = 1;
+}
+
 message RunnerRequest {
   oneof message {
     JoinResponse join = 1;
-    BuildMessage build = 2;
-    AbortMessage abort = 3;
+    SimplePingMessage ping = 2;
+    BuildMessage build = 3;
+    AbortMessage abort = 4;
   }
 }
 

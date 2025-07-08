@@ -9,7 +9,7 @@ use crate::{
 };
 use runner_v1::{
     BuildResultInfo, BuilderRequest, FailResultInfo, JoinResponse, LogChunk, NarData,
-    RunnerRequest, StorePath, builder_request,
+    RunnerRequest, SimplePingMessage, StorePath, builder_request,
     runner_service_server::{RunnerService, RunnerServiceServer},
 };
 
@@ -151,9 +151,21 @@ impl RunnerService for Server {
             return Err(tonic::Status::internal("Failed to send join Response."));
         }
 
+        let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
         tokio::spawn(async move {
             loop {
                 tokio::select! {
+                    _ = ping_interval.tick() => {
+                        let msg = RunnerRequest {
+                            message: Some(runner_v1::runner_request::Message::Ping(SimplePingMessage {
+                                message: "ping".into(),
+                            }))
+                        };
+                        if output_tx.send(Ok(msg)).await.is_err() {
+                            state.remove_machine(machine_id).await;
+                            break
+                        }
+                    },
                     msg = input_rx.recv() => {
                         if let Some(msg) = msg {
                             if output_tx.send(Ok(RunnerRequest { message: Some(msg) })).await.is_err() {
