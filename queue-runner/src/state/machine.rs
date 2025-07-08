@@ -66,6 +66,7 @@ pub struct Stats {
     last_failure: Counter,
     disabled_until: Counter,
     consecutive_failures: Counter,
+    last_ping: std::sync::atomic::AtomicI64,
 
     load1: atomic_float::AtomicF32,
     load5: atomic_float::AtomicF32,
@@ -89,6 +90,7 @@ impl Stats {
             last_failure: 0.into(),
             disabled_until: 0.into(),
             consecutive_failures: 0.into(),
+            last_ping: 0.into(),
 
             load1: 0.0.into(),
             load5: 0.0.into(),
@@ -139,7 +141,14 @@ impl Stats {
         self.consecutive_failures.load(Ordering::SeqCst)
     }
 
+    pub fn get_last_ping(&self) -> i64 {
+        self.last_ping.load(Ordering::SeqCst)
+    }
+
     pub fn store_ping(&self, msg: &crate::server::grpc::runner_v1::PingMessage) {
+        self.last_ping
+            .store(chrono::Utc::now().timestamp(), Ordering::SeqCst);
+
         self.load1.store(msg.load1, Ordering::SeqCst);
         self.load5.store(msg.load5, Ordering::SeqCst);
         self.load15.store(msg.load15, Ordering::SeqCst);

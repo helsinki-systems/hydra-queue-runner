@@ -46,6 +46,8 @@ pub struct MachineStats {
     last_failure: u64,
     disabled_until: u64,
     consecutive_failures: u64,
+    last_ping: i64,
+    since_last_ping: i64,
 
     load1: f32,
     load5: f32,
@@ -58,8 +60,10 @@ pub struct MachineStats {
     io_full_psi: Pressure,
 }
 
-impl From<std::sync::Arc<crate::state::MachineStats>> for MachineStats {
-    fn from(item: std::sync::Arc<crate::state::MachineStats>) -> Self {
+impl MachineStats {
+    fn from(item: &std::sync::Arc<crate::state::MachineStats>, now: i64) -> Self {
+        let last_ping = item.get_last_ping();
+
         Self {
             current_jobs: item.get_current_jobs(),
             nr_steps_done: item.get_nr_steps_done(),
@@ -69,6 +73,8 @@ impl From<std::sync::Arc<crate::state::MachineStats>> for MachineStats {
             last_failure: item.get_last_failure(),
             disabled_until: item.get_disabled_until(),
             consecutive_failures: item.get_consecutive_failures(),
+            last_ping,
+            since_last_ping: now - last_ping,
             load1: item.get_load1(),
             load5: item.get_load5(),
             load15: item.get_load15(),
@@ -116,7 +122,7 @@ impl Machine {
             total_mem: item.total_mem,
             features: item.features.clone(),
             cgroups: item.cgroups,
-            stats: MachineStats::from(item.stats.clone()),
+            stats: MachineStats::from(&item.stats, time.timestamp()),
             jobs,
         }
     }
