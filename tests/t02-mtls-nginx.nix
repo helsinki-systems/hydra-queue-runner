@@ -32,7 +32,15 @@
             onlySSL = true;
 
             locations."/".extraConfig = ''
+              # This is necessary so that grpc connections do not get closed early
+              # see https://stackoverflow.com/a/67805465
+              client_body_timeout 31536000s;
+
               grpc_pass grpc://[::1]:50051;
+
+              grpc_read_timeout 31536000s;
+              grpc_send_timeout 31536000s;
+              grpc_socket_keepalive on;
 
               grpc_set_header Host $host;
               grpc_set_header X-Real-IP $remote_addr;
