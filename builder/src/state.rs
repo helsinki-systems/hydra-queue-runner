@@ -134,14 +134,11 @@ impl State {
             async move {
                 match self_.process_build(client.clone(), m).await {
                     Ok(()) => {
-                        {
-                            let mut active = self_.active_builds.write();
-                            active.remove(&drv);
-                        }
-                        self_.publish_builds_to_sd_notify();
+                        self_.remove_build(&drv);
                     }
                     Err(e) => {
                         log::error!("Build of {drv} failed with {e}");
+                        self_.remove_build(&drv);
                         if let Err(e) = client
                             .complete_build_with_failure(crate::runner_v1::FailResultInfo {
                                 machine_id: self_.id.to_string(),
@@ -156,28 +153,36 @@ impl State {
             }
         });
 
+        self.insert_new_build(
+            drv,
+            BuildInfo {
+                handle: task_handle,
+            },
+        );
+    }
+
+    fn insert_new_build(&self, drv: nix_utils::StorePath, b: BuildInfo) {
         {
             let mut active = self.active_builds.write();
-            active.insert(
-                drv,
-                Arc::new(BuildInfo {
-                    handle: task_handle,
-                }),
-            );
+            active.insert(drv, Arc::new(b));
         }
         self.publish_builds_to_sd_notify();
     }
 
+    fn remove_build(&self, drv: &nix_utils::StorePath) -> Option<Arc<BuildInfo>> {
+        let b = {
+            let mut active = self.active_builds.write();
+            active.remove(drv)
+        };
+        self.publish_builds_to_sd_notify();
+        b
+    }
+
     #[tracing::instrument(skip(self, m))]
     pub fn abort_build(&self, m: &crate::runner_v1::AbortMessage) {
-        let drv = nix_utils::StorePath::new(&m.drv);
-        {
-            let mut active = self.active_builds.write();
-            if let Some(b) = active.remove(&drv) {
-                b.abort();
-            }
+        if let Some(b) = self.remove_build(&nix_utils::StorePath::new(&m.drv)) {
+            b.abort();
         }
-        self.publish_builds_to_sd_notify();
     }
 
     #[tracing::instrument(skip(self, client, m), err)]
@@ -302,7 +307,11 @@ impl State {
         let _notify = sd_notify::notify(
             false,
             &[
-                sd_notify::NotifyState::Status(&format!("Building: {}", active.join(", "))),
+                sd_notify::NotifyState::Status(&if active.is_empty() {
+                    "Building 0 drvs".into()
+                } else {
+                    format!("Building {} drvs: {}", active.len(), active.join(", "))
+                }),
                 sd_notify::NotifyState::Ready,
             ],
         );
