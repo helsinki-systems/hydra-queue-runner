@@ -106,7 +106,7 @@ impl serde::Serialize for StorePath {
 
 impl std::fmt::Display for StorePath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        writeln!(f, "{}", self.base_name)
+        write!(f, "{}", self.base_name)
     }
 }
 
