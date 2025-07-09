@@ -10,7 +10,7 @@ in
 {
   options = {
     services.queue-builder-dev = {
-      enable = lib.mkEnableOption (lib.mdDoc "QueueBuilder");
+      enable = lib.mkEnableOption "QueueBuilder";
 
       queueRunnerAddr = lib.mkOption {
         description = "Queue Runner address to the grpc server";
@@ -19,14 +19,14 @@ in
 
       pingInterval = lib.mkOption {
         description = "Interval in which pings are send to the runner";
-        type = lib.types.int;
+        type = lib.types.ints.positive;
         default = 30;
       };
 
       speedFactor = lib.mkOption {
         description = "Additional Speed factor for this machine";
         type = lib.types.oneOf [
-          lib.types.int
+          lib.types.ints.positive
           lib.types.float
         ];
         default = 1;
@@ -86,8 +86,10 @@ in
       environment.HOME = "/run/queue-builder";
 
       serviceConfig = {
+        Type = "notify";
         Restart = "always";
         RestartSec = "5s";
+
         ExecStart = lib.escapeShellArgs (
           [
             "${cfg.package}/bin/builder"
@@ -157,6 +159,10 @@ in
       };
     };
 
+    systemd.tmpfiles.rules = [
+      "d /nix/var/nix/gcroots/per-user/hydra-queue-builder 0755 hydra-queue-builder hydra -"
+    ];
+
     users = {
       groups.hydra = { };
       users.hydra-queue-builder = {
@@ -164,5 +170,9 @@ in
         isSystemUser = true;
       };
     };
+
+    nix.extraOptions = ''
+      experimental-features = nix-command
+    '';
   };
 }

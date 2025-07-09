@@ -43,15 +43,15 @@ Message workflow (see: `proto/v1/streaming.proto`)
 ## queue runner config
 
 ```toml
-hydra_log_dir = "/var/lib/hydra/logs"
-db_url = "postgres://hydra@%2Frun%2Fpostgresql:5432/hydra"
-max_db_connections = 128
+hydraLogDir = "/var/lib/hydra/logs"
+dbUrl = "postgres://hydra@%2Frun%2Fpostgresql:5432/hydra"
+maxDbConnections = 128
 # valid options: SpeedFactorOnly, CpuCoreCountWithSpeedFactor, BogomipsWithSpeedFactor
-machine_sort_fn = "SpeedFactorOnly"
-remote_store_addr = "s3://my-bucket?region=eu-west-1"
-signing_key_path = "/run/secrets/hydra/signing_key"
+machineSortFn = "SpeedFactorOnly"
+remoteStoreAddr = "s3://my-bucket?region=eu-west-1"
+signingKeyPath = "/run/secrets/hydra/signing_key"
 # if queue is allowed to substitute
-use_substitute = false
+useSubstitutes = false
 ```
 
 ## TODO list

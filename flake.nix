@@ -62,8 +62,9 @@
             };
           in
           lib.optionalAttrs pkgs.stdenv.isLinux {
-            # t00-simple = import ./tests/t00-simple.nix testArgs;
-            t01-simple = import ./tests/t01-mtls.nix testArgs;
+            t00-simple = import ./tests/t00-simple.nix testArgs;
+            t01-mtls = import ./tests/t01-mtls.nix testArgs;
+            t02-mtls-nginx = import ./tests/t02-mtls-nginx.nix testArgs;
           };
 
       }

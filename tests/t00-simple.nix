@@ -12,9 +12,7 @@
 
         services.queue-runner-dev = {
           enable = true;
-          settings = {
-            db_url = "postgres://hydra@%2Frun%2Fpostgresql:5432/hydra";
-          };
+          grpcAddress = "[::]";
         };
         networking.firewall.allowedTCPPorts = [ 50051 ];
       };
@@ -39,8 +37,10 @@
     runner.wait_for_open_port(50051)
     runner.wait_for_open_port(8080)
     runner.succeed("curl -sSfL 'http://[::1]:8080/metrics'")
+    runner.succeed("systemctl --failed | grep -q '^0 loaded'")  # Nothing failed
 
     builder01.wait_for_unit("queue-builder-dev.service")
+    builder01.succeed("systemctl --failed | grep -q '^0 loaded'")  # Nothing failed
 
     # TODO: insert build and validate
   '';

@@ -8,23 +8,81 @@ let
   cfg = config.services.queue-runner-dev;
 
   format = pkgs.formats.toml { };
-  configFile = format.generate "queue-runner.toml" cfg.settings;
 in
 {
   options = {
     services.queue-runner-dev = {
-      enable = lib.mkEnableOption (lib.mdDoc "QueueRunner");
+      enable = lib.mkEnableOption "QueueRunner";
 
       settings = lib.mkOption {
-        type = lib.types.submodule { freeformType = format.type; };
+        description = "Reloadable settings for queue runner";
+        type = lib.types.submodule {
+          options = {
+            hydraLogDir = lib.mkOption {
+              description = "Hydra log directory";
+              type = lib.types.path;
+              default = "/var/lib/hydra/build-logs";
+            };
+            dbUrl = lib.mkOption {
+              description = "Postgresql database url";
+              type = lib.types.singleLineStr;
+              default = "postgres://hydra@%2Frun%2Fpostgresql:5432/hydra";
+            };
+            maxDbConnections = lib.mkOption {
+              description = "Postgresql maximum db connections";
+              type = lib.types.ints.positive;
+              default = 128;
+            };
+            machineSortFn = lib.mkOption {
+              description = "Function name for sorting machines";
+              type = lib.types.enum [
+                "SpeedFactorOnly"
+                "CpuCoreCountWithSpeedFactor"
+                "BogomipsWithSpeedFactor"
+              ];
+              default = "SpeedFactorOnly";
+            };
+            remoteStoreAddr = lib.mkOption {
+              description = "Remote store address";
+              type = lib.types.nullOr lib.types.singleLineStr;
+              default = null;
+            };
+            signingKeyPath = lib.mkOption {
+              description = "Signing key path";
+              type = lib.types.nullOr lib.types.path;
+              default = null;
+            };
+            useSubstitutes = lib.mkOption {
+              description = "Use substitution for paths";
+              type = lib.types.bool;
+              default = false;
+            };
+            rootsDir = lib.mkOption {
+              description = "Gcroots directory, defaults to /nix/var/nix/gcroots/per-user/$LOGNAME/hydra-roots";
+              type = lib.types.nullOr lib.types.path;
+              default = null;
+            };
+          };
+        };
+        default = { };
+      };
 
-        description = lib.mdDoc "Settings";
+      grpcAddress = lib.mkOption {
+        type = lib.types.singleLineStr;
+        default = "[::1]";
+        description = "The IP address the grpc listener should bound to";
       };
 
       grpcPort = lib.mkOption {
         description = "Which grpc port this app should listen on";
         type = lib.types.port;
         default = 50051;
+      };
+
+      restAddress = lib.mkOption {
+        type = lib.types.singleLineStr;
+        default = "[::1]";
+        description = "The IP address the rest listener should bound to";
       };
 
       restPort = lib.mkOption {
@@ -64,13 +122,6 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    services.queue-runner-dev.settings = builtins.mapAttrs (_: v: lib.mkDefault v) {
-      hydra_log_dir = "/var/lib/hydra/logs";
-      max_db_connections = 128;
-      machine_sort_fn = "SpeedFactorOnly";
-      use_substitute = false;
-    };
-
     systemd.services.queue-runner-dev = {
       description = "queue-runner main service";
 
@@ -80,6 +131,7 @@ in
         "postgresql.service"
       ];
       wantedBy = [ "multi-user.target" ];
+      reloadTriggers = [ config.environment.etc."hydra/queue-runner.toml".source ];
 
       environment = {
         NIX_REMOTE = "daemon";
@@ -93,17 +145,19 @@ in
       environment.HOME = "/run/queue-runner";
 
       serviceConfig = {
+        Type = "notify";
         Restart = "always";
+        RestartSec = "5s";
 
         ExecStart = lib.escapeShellArgs (
           [
             "${cfg.package}/bin/queue-runner"
             "--rest-bind"
-            "[::1]:${toString cfg.restPort}"
+            "${cfg.restAddress}:${toString cfg.restPort}"
             "--grpc-bind"
-            "[::1]:${toString cfg.grpcPort}"
+            "${cfg.grpcAddress}:${toString cfg.grpcPort}"
             "--config-path"
-            configFile
+            "/etc/hydra/queue-runner.toml"
           ]
           ++ lib.optionals (cfg.mtls != null) [
             "--server-cert-path"
@@ -114,6 +168,7 @@ in
             cfg.mtls.clientCaCertPath
           ]
         );
+        ExecReload = "${pkgs.util-linux}/bin/kill -HUP $MAINPID";
 
         User = "hydra-queue-runner";
         Group = "hydra";
@@ -164,6 +219,14 @@ in
         RestrictNamespaces = true;
       };
     };
+
+    environment.etc."hydra/queue-runner.toml".source = format.generate "queue-runner.toml" (
+      lib.filterAttrsRecursive (_: v: v != null) cfg.settings
+    );
+    systemd.tmpfiles.rules = [
+      "d /nix/var/nix/gcroots/per-user/hydra-queue-runner 0755 hydra-queue-runner hydra -"
+      "d /var/lib/hydra/build-logs/ 0755 hydra-queue-runner hydra -"
+    ];
 
     users = {
       groups.hydra = { };

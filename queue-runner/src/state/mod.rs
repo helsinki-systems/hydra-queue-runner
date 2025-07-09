@@ -1475,9 +1475,9 @@ impl State {
             return CreateStepResult::None;
         };
 
-        let (use_substitute, remote_store_url) = {
+        let (use_substitutes, remote_store_url) = {
             let config = self.config.read();
-            (config.use_substitute, config.get_remote_store_addr())
+            (config.use_substitutes, config.get_remote_store_addr())
         };
         let missing_outputs = if let Some(remote_store_url) = remote_store_url.as_deref() {
             nix_utils::query_missing_remote_outputs(drv.outputs.clone(), remote_store_url).await
@@ -1492,7 +1492,7 @@ impl State {
 
         log::debug!("missing outputs: {missing_outputs:?}");
         let mut valid = missing_outputs.is_empty();
-        if !missing_outputs.is_empty() && use_substitute {
+        if !missing_outputs.is_empty() && use_substitutes {
             use futures::stream::StreamExt as _;
 
             let mut substituted = 0;

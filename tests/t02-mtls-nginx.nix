@@ -12,9 +12,6 @@
 
         services.queue-runner-dev = {
           enable = true;
-          settings = {
-            db_url = "postgres://hydra@%2Frun%2Fpostgresql:5432/hydra";
-          };
         };
 
         services.nginx = {
@@ -83,8 +80,6 @@
     runner.succeed("curl -sSfL 'http://[::1]:8080/metrics'")
     runner.succeed("systemctl --failed | grep -q '^0 loaded'")  # Nothing failed
 
-    # restart builder once server is up
-    builder01.succeed("systemctl restart queue-builder-dev.service")
     builder01.wait_for_unit("queue-builder-dev.service")
     builder01.succeed("systemctl --failed | grep -q '^0 loaded'")  # Nothing failed
 

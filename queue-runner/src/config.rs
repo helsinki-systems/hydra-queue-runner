@@ -118,6 +118,7 @@ pub enum MachineSortFn {
 /// Main configuration of the application
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct AppConfig {
     #[serde(default = "default_log_dir")]
     hydra_log_dir: std::path::PathBuf,
@@ -135,7 +136,7 @@ struct AppConfig {
     signing_key_path: Option<std::path::PathBuf>,
 
     #[serde(default)]
-    use_substitute: bool,
+    use_substitutes: bool,
 
     roots_dir: Option<std::path::PathBuf>,
 }
@@ -149,7 +150,7 @@ pub struct PreparedApp {
     pub machine_sort_fn: MachineSortFn,
     remote_store_addr: Option<String>,
     signing_key_path: Option<std::path::PathBuf>,
-    pub use_substitute: bool,
+    pub use_substitutes: bool,
     pub roots_dir: std::path::PathBuf,
 }
 
@@ -195,7 +196,7 @@ impl TryFrom<AppConfig> for PreparedApp {
             machine_sort_fn: val.machine_sort_fn,
             remote_store_addr,
             signing_key_path,
-            use_substitute: val.use_substitute,
+            use_substitutes: val.use_substitutes,
             roots_dir,
         })
     }
