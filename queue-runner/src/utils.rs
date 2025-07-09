@@ -81,7 +81,8 @@ pub async fn substitute_output(
     };
 
     let starttime = i32::try_from(chrono::Utc::now().timestamp())?; // TODO
-    nix_utils::realise_drv(path, build_opts, false).await?;
+    let (mut child, _) = nix_utils::realise_drv(path, build_opts, false).await?;
+    nix_utils::validate_statuscode(child.wait().await?)?;
     if let Some(remote_store) = remote_store {
         remote_store.copy_path(path.to_owned()).await?;
     }
