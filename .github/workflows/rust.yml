@@ -52,3 +52,18 @@ jobs:
         run: sudo apt update && sudo apt install -y pkg-config protobuf-compiler
 
       - run: cargo build --all --tests --all-features
+
+  build:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y pkg-config protobuf-compiler
+
+      - run: cargo test

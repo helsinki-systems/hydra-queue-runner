@@ -49,7 +49,7 @@ pub struct Derivation {
     pub system: String,
 }
 
-#[tracing::instrument(skip(drvs), err)]
+#[tracing::instrument(err)]
 pub async fn query_drvs(drvs: &[&StorePath]) -> Result<Vec<Derivation>, crate::Error> {
     let cmd = &tokio::process::Command::new("nix")
         .args(["derivation", "show"])
@@ -57,8 +57,8 @@ pub async fn query_drvs(drvs: &[&StorePath]) -> Result<Vec<Derivation>, crate::E
         .output()
         .await?;
     if cmd.status.success() {
-        let drvs = serde_json::from_slice::<AHashMap<String, Derivation>>(&cmd.stdout)?;
-        Ok(drvs.into_values().collect())
+        let drvs = serde_json::from_slice::<AHashMap<String, Option<Derivation>>>(&cmd.stdout)?;
+        Ok(drvs.into_values().flatten().collect())
     } else {
         log::warn!(
             "nix derivation show returned exit={} stdout={:?} stderr={:?}",
@@ -70,12 +70,12 @@ pub async fn query_drvs(drvs: &[&StorePath]) -> Result<Vec<Derivation>, crate::E
     }
 }
 
-#[tracing::instrument(skip(drv), err)]
+#[tracing::instrument(err)]
 pub async fn query_drv(drv: &StorePath) -> Result<Option<Derivation>, crate::Error> {
     Ok(query_drvs(&[drv]).await?.into_iter().next())
 }
 
-#[tracing::instrument(skip(drv), err)]
+#[tracing::instrument(err)]
 pub async fn topo_sort_drvs(drv: &StorePath) -> Result<Vec<String>, crate::Error> {
     use std::io::BufRead as _;
 
