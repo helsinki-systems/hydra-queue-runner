@@ -41,9 +41,6 @@ pub struct State {
     pub log_dir: std::path::PathBuf,
 
     // hardcoded values fromold queue runner
-    // pub maxTries: u32 = 5;
-    // pub retryInterval: u32 = 30;
-    // pub retryBackoff: f32 = 3.0;
     // pub maxParallelCopyClosure: u32 = 4;
     // pub maxUnsupportedTime: u32 = 0;
     pub builds: parking_lot::RwLock<AHashMap<BuildID, Arc<Build>>>,
@@ -679,7 +676,7 @@ impl State {
                 continue;
             };
             let state = r.state.read();
-            if r.atomic_state.tries.load(Ordering::SeqCst) > 0 && state.after > now {
+            if r.atomic_state.tries.load(Ordering::SeqCst) > 0 {
                 continue;
             }
 
@@ -706,6 +703,12 @@ impl State {
                     }
                     if job.step.get_finished() {
                         continue;
+                    }
+                    {
+                        let state = job.step.state.read();
+                        if state.after > now {
+                            continue;
+                        }
                     }
 
                     match self
@@ -970,14 +973,14 @@ impl State {
         };
         step.set_finished(false);
         self.metrics.nr_steps_done.add(1);
-        self.metrics.nr_steps_building.add(1);
+        self.metrics.nr_steps_building.sub(1);
 
-        {
-            let queues = self.queues.write().await;
+        let queue_data = {
+            let queues = self.queues.read().await;
             // TODO: max failure count
             log::info!("removing job from running in system queue: drv_path={drv_path}");
-            queues.remove_job_from_scheduled(drv_path);
-        }
+            queues.remove_job_from_scheduled(drv_path)
+        };
 
         let machine_job_tuple = if let Some(machine_id) = machine_id {
             if let Some(m) = self.machines.get_machine_by_id(machine_id) {
@@ -990,6 +993,49 @@ impl State {
         } else {
             (None, None)
         };
+
+        if let Some((step_info, queue, _)) = &queue_data {
+            let (max_retries, retry_interval, retry_backoff) = {
+                let config = self.config.read();
+                (
+                    config.max_retries,
+                    config.retry_interval,
+                    config.retry_backoff,
+                )
+            };
+
+            // TODO: if can_retry {
+            step_info
+                .step
+                .atomic_state
+                .tries
+                .fetch_add(1, Ordering::SeqCst);
+            let tries = step_info.step.atomic_state.tries.load(Ordering::SeqCst);
+            if tries < max_retries {
+                // retry step
+                // TODO: update metrics: maschine.build_step_time, maschine.total_step_time, maschine.last_failure
+                self.metrics.nr_retries.add(1);
+                #[allow(clippy::cast_precision_loss)]
+                #[allow(clippy::cast_possible_truncation)]
+                let delta = (retry_interval * retry_backoff.powf((tries - 1) as f32)) as i64;
+                log::info!("will retry '{drv_path}' after {delta}s");
+                {
+                    let mut step_state = step_info.step.state.write();
+                    step_state.after = chrono::Utc::now() + chrono::Duration::seconds(delta);
+                }
+                if i64::from(tries) > self.metrics.max_nr_retries.get() {
+                    self.metrics.max_nr_retries.set(i64::from(tries));
+                }
+
+                self.trigger_dispatch();
+                return Ok(());
+            }
+
+            // remove job from queues, aka actually fail the job
+            let mut queues = self.queues.write().await;
+            queues.remove_job(step_info, queue);
+        }
+        drop(queue_data);
 
         let (Some(machine), Some(mut job)) = machine_job_tuple else {
             // Seems like we did not have a job scheduled

@@ -107,6 +107,18 @@ fn default_max_db_connections() -> u32 {
     128
 }
 
+fn default_max_tries() -> u32 {
+    5
+}
+
+fn default_retry_interval() -> u32 {
+    60
+}
+
+fn default_retry_backoff() -> f32 {
+    3.0
+}
+
 #[derive(Debug, Default, serde::Deserialize, Copy, Clone, PartialEq, Eq)]
 pub enum MachineSortFn {
     SpeedFactorOnly,
@@ -143,6 +155,15 @@ struct AppConfig {
     use_substitutes: bool,
 
     roots_dir: Option<std::path::PathBuf>,
+
+    #[serde(default = "default_max_tries")]
+    max_retries: u32,
+
+    #[serde(default = "default_retry_interval")]
+    retry_interval: u32,
+
+    #[serde(default = "default_retry_backoff")]
+    retry_backoff: f32,
 }
 
 /// Prepared configuration of the application
@@ -157,6 +178,9 @@ pub struct PreparedApp {
     signing_key_path: Option<std::path::PathBuf>,
     pub use_substitutes: bool,
     pub roots_dir: std::path::PathBuf,
+    pub max_retries: u32,
+    pub retry_interval: f32,
+    pub retry_backoff: f32,
 }
 
 impl TryFrom<AppConfig> for PreparedApp {
@@ -212,6 +236,10 @@ impl TryFrom<AppConfig> for PreparedApp {
             signing_key_path,
             use_substitutes: val.use_substitutes,
             roots_dir,
+            max_retries: val.max_retries,
+            #[allow(clippy::cast_precision_loss)]
+            retry_interval: val.retry_interval as f32,
+            retry_backoff: val.retry_backoff,
         })
     }
 }

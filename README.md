@@ -52,6 +52,9 @@ remoteStoreAddr = "s3://my-bucket?region=eu-west-1"
 signingKeyPath = "/run/secrets/hydra/signing_key"
 # if queue is allowed to substitute
 useSubstitutes = false
+maxRetries = 5
+retryInterval = 60
+retryBackoff = 3.0
 ```
 
 ## TODO list

@@ -67,6 +67,21 @@ in
               type = lib.types.nullOr lib.types.path;
               default = null;
             };
+            maxRetries = lib.mkOption {
+              description = "Number of maximum amount of retries for a build step.";
+              type = lib.types.ints.positive;
+              default = 5;
+            };
+            retryInterval = lib.mkOption {
+              description = "Interval in which retires should be able to be attempted again.";
+              type = lib.types.ints.positive;
+              default = 60;
+            };
+            retryBackoff = lib.mkOption {
+              description = "Additional backoff on top of the retry interval.";
+              type = lib.types.int;
+              default = 3.0;
+            };
           };
         };
         default = { };

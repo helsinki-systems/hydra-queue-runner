@@ -117,12 +117,12 @@ impl BuildQueue {
                 current_jobs.push(j);
             }
         }
-        self.total_runnable
-            .store(current_jobs.len() as u64, Ordering::SeqCst);
         self.wait_time.fetch_add(wait_time, Ordering::SeqCst);
 
         // only keep valid pointers
         current_jobs.retain(|v| v.upgrade().is_some());
+        self.total_runnable
+            .store(current_jobs.len() as u64, Ordering::SeqCst);
 
         let delta = 0.00001;
         current_jobs.sort_by(|a, b| {
@@ -145,6 +145,14 @@ impl BuildQueue {
                 (None, None) => std::cmp::Ordering::Equal,
             }
         });
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn scrube_jobs(&self) {
+        let mut current_jobs = self.jobs.write();
+        current_jobs.retain(|v| v.upgrade().is_some());
+        self.total_runnable
+            .store(current_jobs.len() as u64, Ordering::SeqCst);
     }
 
     pub fn clone_inner(&self) -> Vec<Weak<StepInfo>> {
@@ -224,15 +232,23 @@ impl Queues {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn remove_job_from_scheduled(&self, drv: &nix_utils::StorePath) {
+    pub fn remove_job_from_scheduled(
+        &self,
+        drv: &nix_utils::StorePath,
+    ) -> Option<(Arc<StepInfo>, Arc<BuildQueue>, Arc<super::Machine>)> {
         let mut scheduled = self.scheduled.write();
 
-        let Some((step_info, queue, _)) = scheduled.remove(drv) else {
-            return;
-        };
-
+        let (step_info, queue, machine) = scheduled.remove(drv)?;
         step_info.already_scheduled.store(false, Ordering::SeqCst);
         queue.decr_active();
+        Some((step_info, queue, machine))
+    }
+
+    #[tracing::instrument(skip(self, stepinfo, queue))]
+    pub fn remove_job(&mut self, stepinfo: &Arc<StepInfo>, queue: &Arc<BuildQueue>) {
+        self.jobs.remove(stepinfo);
+        // active should be removed
+        queue.scrube_jobs();
     }
 
     #[tracing::instrument(skip(self))]
@@ -269,6 +285,7 @@ impl Queues {
             {
                 step_info.cancelled.store(true, Ordering::SeqCst);
                 machine.abort_build(drv_path).await;
+                // TODO fail job
             }
         }
     }
