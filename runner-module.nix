@@ -42,6 +42,11 @@ in
               ];
               default = "SpeedFactorOnly";
             };
+            dispatchTriggerTimerInS = lib.mkOption {
+              description = "Timer for triggering dispatch in an interval in seconds. Setting this to a value <= 0 will disable this timer and only trigger the dispatcher if queue changes happend.";
+              type = lib.types.int;
+              default = 120;
+            };
             remoteStoreAddr = lib.mkOption {
               description = "Remote store address";
               type = lib.types.nullOr lib.types.singleLineStr;

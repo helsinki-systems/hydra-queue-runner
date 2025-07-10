@@ -302,7 +302,6 @@ impl State {
         ));
 
         let starttime = chrono::Utc::now();
-        let mut new_runnable_addition = false;
         for id in new_ids {
             let build = {
                 let new_builds_by_id = new_builds_by_id.read();
@@ -341,7 +340,6 @@ impl State {
                 );
                 for r in new_runnable.iter() {
                     r.make_runnable();
-                    new_runnable_addition = true;
                 }
             }
 
@@ -354,9 +352,8 @@ impl State {
             }
         }
 
-        if new_runnable_addition {
-            self.trigger_dispatch();
-        }
+        // we can just always trigger dispatch as we might have a free machine and its cheap
+        self.trigger_dispatch();
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -521,7 +518,18 @@ impl State {
             async move {
                 loop {
                     let before_sleep = Instant::now();
-                    self.notify_dispatch.notified().await;
+                    let dispatch_trigger_timer = {
+                        let config = self.config.read();
+                        config.dispatch_trigger_timer
+                    };
+                    if let Some(timer) = dispatch_trigger_timer {
+                        tokio::select! {
+                            () = self.notify_dispatch.notified() => {},
+                            () = tokio::time::sleep(timer) => {},
+                        };
+                    } else {
+                        self.notify_dispatch.notified().await;
+                    }
 
                     #[allow(clippy::cast_possible_truncation)]
                     self.metrics

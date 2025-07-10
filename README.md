@@ -46,6 +46,7 @@ hydraLogDir = "/var/lib/hydra/logs"
 dbUrl = "postgres://hydra@%2Frun%2Fpostgresql:5432/hydra"
 maxDbConnections = 128
 # valid options: SpeedFactorOnly, CpuCoreCountWithSpeedFactor, BogomipsWithSpeedFactor
+dispatchTriggerTimerInS = 120
 machineSortFn = "SpeedFactorOnly"
 remoteStoreAddr = "s3://my-bucket?region=eu-west-1"
 signingKeyPath = "/run/secrets/hydra/signing_key"

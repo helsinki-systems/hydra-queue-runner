@@ -132,6 +132,10 @@ struct AppConfig {
     #[serde(default)]
     machine_sort_fn: MachineSortFn,
 
+    // setting this to -1, will disable the timer
+    #[serde(default)]
+    dispatch_trigger_timer_in_s: i64,
+
     remote_store_addr: Option<String>,
     signing_key_path: Option<std::path::PathBuf>,
 
@@ -148,6 +152,7 @@ pub struct PreparedApp {
     pub db_url: secrecy::SecretString,
     pub max_db_connections: u32,
     pub machine_sort_fn: MachineSortFn,
+    pub dispatch_trigger_timer: Option<tokio::time::Duration>,
     remote_store_addr: Option<String>,
     signing_key_path: Option<std::path::PathBuf>,
     pub use_substitutes: bool,
@@ -194,6 +199,15 @@ impl TryFrom<AppConfig> for PreparedApp {
             db_url: val.db_url,
             max_db_connections: val.max_db_connections,
             machine_sort_fn: val.machine_sort_fn,
+            dispatch_trigger_timer: u64::try_from(val.dispatch_trigger_timer_in_s)
+                .ok()
+                .and_then(|v| {
+                    if v == 0 {
+                        None
+                    } else {
+                        Some(tokio::time::Duration::from_secs(v))
+                    }
+                }),
             remote_store_addr,
             signing_key_path,
             use_substitutes: val.use_substitutes,
