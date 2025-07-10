@@ -44,7 +44,7 @@ impl Gcroot {
 
 impl std::fmt::Display for Gcroot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        writeln!(f, "{:?}", self.root)
+        write!(f, "{:?}", self.root)
     }
 }
 
@@ -117,7 +117,7 @@ impl State {
         })
     }
 
-    #[tracing::instrument(skip(self, client, m))]
+    #[tracing::instrument(skip(self, client, m), fields(drv=m.drv))]
     pub fn schedule_build(
         self: Arc<Self>,
         mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
@@ -203,7 +203,7 @@ impl State {
         }
     }
 
-    #[tracing::instrument(skip(self, client, m), err)]
+    #[tracing::instrument(skip(self, client, m), fields(drv=m.drv), err)]
     async fn process_build(
         &self,
         mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
@@ -311,6 +311,7 @@ impl State {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self), err)]
     fn get_gcroot(&self, prefix: &str) -> std::io::Result<Gcroot> {
         Gcroot::new(self.config.gcroots.join(prefix))
     }
@@ -427,7 +428,7 @@ async fn upload_nars(
     Ok(())
 }
 
-#[tracing::instrument(skip(drv_info), err)]
+#[tracing::instrument(skip(drv_info), ret(level = tracing::Level::DEBUG), err)]
 async fn new_build_result_info(
     machine_id: uuid::Uuid,
     drv: &nix_utils::StorePath,

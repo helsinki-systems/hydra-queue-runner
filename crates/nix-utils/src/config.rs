@@ -34,7 +34,14 @@ pub async fn get_nix_config() -> Result<NixConfig, crate::Error> {
         .args(["config", "show", "--json"])
         .output()
         .await?;
-    crate::validate_statuscode(o.status)?;
+    if let Err(e) = crate::validate_statuscode(o.status) {
+        log::error!(
+            "{e} stdout={:?} stderr={:?}",
+            std::str::from_utf8(&o.stdout),
+            std::str::from_utf8(&o.stderr)
+        );
+        return Err(e);
+    };
 
     Ok(serde_json::from_slice::<NixConfig>(&o.stdout)?)
 }
