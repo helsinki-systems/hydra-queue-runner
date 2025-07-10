@@ -78,12 +78,12 @@ in
         NIX_REMOTE = "daemon";
         LIBEV_FLAGS = "4"; # go ahead and mandate epoll(2)
         RUST_BACKTRACE = "1";
-      };
 
-      # Note: it's important to set this for nix-store, because it wants to use
-      # $HOME in order to use a temporary cache dir. bizarre failures will occur
-      # otherwise
-      environment.HOME = "/run/queue-builder";
+        # Note: it's important to set this for nix-store, because it wants to use
+        # $HOME in order to use a temporary cache dir. bizarre failures will occur
+        # otherwise
+        HOME = "/run/queue-builder";
+      };
 
       serviceConfig = {
         Type = "notify";
@@ -162,6 +162,15 @@ in
     systemd.tmpfiles.rules = [
       "d /nix/var/nix/gcroots/per-user/hydra-queue-builder 0755 hydra-queue-builder hydra -"
     ];
+    nix = {
+      settings = {
+        allowed-users = [ "hydra-queue-builder" ];
+        trusted-users = [ "hydra-queue-builder" ];
+      };
+      extraOptions = ''
+        experimental-features = nix-command
+      '';
+    };
 
     users = {
       groups.hydra = { };
@@ -171,8 +180,5 @@ in
       };
     };
 
-    nix.extraOptions = ''
-      experimental-features = nix-command
-    '';
   };
 }

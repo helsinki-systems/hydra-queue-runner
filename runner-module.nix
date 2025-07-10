@@ -79,7 +79,7 @@ in
             };
             retryBackoff = lib.mkOption {
               description = "Additional backoff on top of the retry interval.";
-              type = lib.types.int;
+              type = lib.types.float;
               default = 3.0;
             };
           };
@@ -157,12 +157,12 @@ in
         NIX_REMOTE = "daemon";
         LIBEV_FLAGS = "4"; # go ahead and mandate epoll(2)
         RUST_BACKTRACE = "1";
-      };
 
-      # Note: it's important to set this for nix-store, because it wants to use
-      # $HOME in order to use a temporary cache dir. bizarre failures will occur
-      # otherwise
-      environment.HOME = "/run/queue-runner";
+        # Note: it's important to set this for nix-store, because it wants to use
+        # $HOME in order to use a temporary cache dir. bizarre failures will occur
+        # otherwise
+        HOME = "/run/queue-runner";
+      };
 
       serviceConfig = {
         Type = "notify";
