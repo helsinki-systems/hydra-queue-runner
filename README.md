@@ -35,7 +35,6 @@ Message workflow (see: `proto/v1/streaming.proto`)
 - `GET /status/jobsets`
 - `GET /status/builds`
 - `GET /status/steps`
-- `GET /status/runnable`
 - `GET /status/queues`
 - `PUT /build --json {"jobset_id": 1, "drv": "/nix/store/7ayly6qqhzk2x5ww3i3ibaxl69i5mqkg-hdf5-cpp-1.14.6.drv"}`
 - `GET /metrics`
@@ -62,7 +61,6 @@ TODO(conni2461): add list what currently works and what still needs to be done
 - [ ] handle unsupported steps
 - [ ] more tests
 - [ ] document inner workings
-- [ ] maybe drop runnable vec and move into Queues
 - [ ] github nix ci
 - [ ] migrate hydra to 64bit timestamps
 - [ ] status pages fixes

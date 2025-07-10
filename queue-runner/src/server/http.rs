@@ -130,7 +130,6 @@ async fn router(
             (&hyper::Method::GET, "/status/jobsets") => handler::status::jobsets(req, state),
             (&hyper::Method::GET, "/status/builds") => handler::status::builds(req, state),
             (&hyper::Method::GET, "/status/steps") => handler::status::steps(req, state),
-            (&hyper::Method::GET, "/status/runnable") => handler::status::runnable(req, state),
             (&hyper::Method::GET, "/status/queues") => handler::status::queues(req, state).await,
             (&hyper::Method::POST, "/dump_status") => handler::dump_status::post(req, state).await,
             (&hyper::Method::PUT, "/build") => handler::build::put(req, state).await,
@@ -220,24 +219,6 @@ mod handler {
                     .steps
                     .read()
                     .values()
-                    .filter_map(std::sync::Weak::upgrade)
-                    .map(Into::into)
-                    .collect()
-            };
-            construct_json_ok_response(&io::StepsResponse::new(steps))
-        }
-
-        #[allow(clippy::no_effect_underscore_binding)]
-        #[tracing::instrument(skip(_req, state), err)]
-        pub fn runnable(
-            _req: hyper::Request<hyper::body::Incoming>,
-            state: std::sync::Arc<State>,
-        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
-            let steps: Vec<io::Step> = {
-                state
-                    .runnable
-                    .read()
-                    .iter()
                     .filter_map(std::sync::Weak::upgrade)
                     .map(Into::into)
                     .collect()

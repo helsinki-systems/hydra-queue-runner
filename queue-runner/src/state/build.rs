@@ -214,6 +214,7 @@ pub struct Step {
     drv_path: nix_utils::StorePath,
     drv: arc_swap::ArcSwapOption<nix_utils::Derivation>,
 
+    runnable: AtomicBool,
     finished: AtomicBool,
     pub atomic_state: StepAtomicState,
     pub state: parking_lot::RwLock<StepState>,
@@ -240,6 +241,7 @@ impl Step {
         Arc::new(Self {
             drv_path,
             drv: arc_swap::ArcSwapOption::from(None),
+            runnable: false.into(),
             finished: false.into(),
             atomic_state: StepAtomicState::new(),
             state: parking_lot::RwLock::new(StepState::new(
@@ -259,6 +261,10 @@ impl Step {
 
     pub fn set_finished(&self, v: bool) {
         self.finished.store(v, Ordering::SeqCst);
+    }
+
+    pub fn get_runnable(&self) -> bool {
+        self.runnable.load(Ordering::SeqCst)
     }
 
     pub fn set_drv(&self, drv: nix_utils::Derivation) {
@@ -307,6 +313,20 @@ impl Step {
             let Some(rdep) = rdep.upgrade() else { continue };
             rdep.get_dependents(builds, steps);
         }
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn make_runnable(&self) {
+        log::info!("step '{}' is now runnable", self.get_drv_path());
+        debug_assert!(self.atomic_state.created.load(Ordering::SeqCst));
+        debug_assert!(!self.get_finished());
+
+        {
+            let mut state = self.state.write();
+            debug_assert!(state.deps.is_empty());
+            state.runnable_since = chrono::Utc::now();
+        }
+        self.runnable.store(true, Ordering::SeqCst);
     }
 }
 

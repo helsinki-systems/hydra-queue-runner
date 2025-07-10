@@ -50,7 +50,6 @@ pub struct State {
     // Projectname, Jobsetname
     pub jobsets: parking_lot::RwLock<AHashMap<(String, String), Arc<Jobset>>>,
     pub steps: parking_lot::RwLock<AHashMap<nix_utils::StorePath, Weak<Step>>>,
-    pub runnable: parking_lot::RwLock<Vec<Weak<Step>>>,
     pub queues: tokio::sync::RwLock<queue::Queues>,
 
     pub started_at: chrono::DateTime<chrono::Utc>,
@@ -97,7 +96,6 @@ impl State {
             builds: parking_lot::RwLock::new(AHashMap::new()),
             jobsets: parking_lot::RwLock::new(AHashMap::new()),
             steps: parking_lot::RwLock::new(AHashMap::new()),
-            runnable: parking_lot::RwLock::new(Vec::new()),
             queues: tokio::sync::RwLock::new(queue::Queues::new()),
             started_at: chrono::Utc::now(),
             metrics: metrics::PromMetrics::new()?,
@@ -135,9 +133,12 @@ impl State {
     }
 
     pub fn get_nr_runnables(&self) -> usize {
-        let mut runnable = self.runnable.write();
-        runnable.retain(|r| r.upgrade().is_some());
-        runnable.len()
+        let mut steps = self.steps.write();
+        steps.retain(|_, s| s.upgrade().is_some());
+        steps
+            .iter()
+            .filter_map(|(_, s)| s.upgrade().map(|v| v.get_runnable()))
+            .count()
     }
 
     #[tracing::instrument(skip(self, machine))]
@@ -339,7 +340,7 @@ impl State {
                     nr_added.load(Ordering::SeqCst)
                 );
                 for r in new_runnable.iter() {
-                    self.make_runnable(r);
+                    r.make_runnable();
                     new_runnable_addition = true;
                 }
             }
@@ -650,10 +651,12 @@ impl State {
     async fn do_dispatch_once(&self) {
         let mut new_runnable = Vec::new();
         {
-            let mut runnable = self.runnable.write();
-            runnable.retain(|r| {
+            let mut steps = self.steps.write();
+            steps.retain(|_, r| {
                 if let Some(step) = r.upgrade() {
-                    new_runnable.push(step.clone());
+                    if step.get_runnable() {
+                        new_runnable.push(step.clone());
+                    }
                     true
                 } else {
                     false
@@ -931,7 +934,7 @@ impl State {
                 }
 
                 if runnable {
-                    self.make_runnable(&rdep);
+                    rdep.make_runnable();
                 }
             }
         }
@@ -1603,24 +1606,6 @@ impl State {
         )
         .await
         .unwrap_or_default()
-    }
-
-    #[tracing::instrument(skip(self, step))]
-    fn make_runnable(&self, step: &Arc<Step>) {
-        log::info!("step '{}' is now runnable", step.get_drv_path());
-
-        {
-            let mut state = step.state.write();
-            debug_assert!(step.atomic_state.created.load(Ordering::SeqCst));
-            debug_assert!(!step.get_finished());
-            debug_assert!(state.deps.is_empty());
-            state.runnable_since = chrono::Utc::now();
-        }
-
-        {
-            let mut runnable = self.runnable.write();
-            runnable.push(Arc::downgrade(step));
-        }
     }
 
     #[tracing::instrument(skip(self), err)]
