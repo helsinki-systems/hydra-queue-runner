@@ -135,6 +135,7 @@ impl State {
         steps
             .iter()
             .filter_map(|(_, s)| s.upgrade().map(|v| v.get_runnable()))
+            .filter(|v| *v)
             .count()
     }
 

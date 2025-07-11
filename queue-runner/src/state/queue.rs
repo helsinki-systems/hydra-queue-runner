@@ -69,6 +69,10 @@ impl StepInfo {
     pub fn set_already_scheduled(&self, v: bool) {
         self.already_scheduled.store(v, Ordering::SeqCst);
     }
+
+    pub fn get_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
 }
 
 pub struct BuildQueue {

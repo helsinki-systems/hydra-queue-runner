@@ -39,6 +39,8 @@ impl From<&crate::state::Pressure> for Pressure {
 pub struct MachineStats {
     current_jobs: u64,
     nr_steps_done: u64,
+    avg_step_time: u64,
+    avg_step_build_time: u64,
     total_step_time: u64,
     total_step_build_time: u64,
     idle_since: i64,
@@ -64,11 +66,25 @@ impl MachineStats {
     fn from(item: &std::sync::Arc<crate::state::MachineStats>, now: i64) -> Self {
         let last_ping = item.get_last_ping();
 
+        let nr_steps_done = item.get_nr_steps_done();
+        let total_step_time = item.get_total_step_time();
+        let total_step_build_time = item.get_total_step_build_time();
+        let (avg_step_time, avg_step_build_time) = if nr_steps_done > 0 {
+            (
+                total_step_time / nr_steps_done,
+                total_step_build_time / nr_steps_done,
+            )
+        } else {
+            (0, 0)
+        };
+
         Self {
             current_jobs: item.get_current_jobs(),
-            nr_steps_done: item.get_nr_steps_done(),
-            total_step_time: item.get_total_step_time(),
-            total_step_build_time: item.get_total_step_build_time(),
+            nr_steps_done,
+            avg_step_time,
+            avg_step_build_time,
+            total_step_time,
+            total_step_build_time,
             idle_since: item.get_idle_since(),
             last_failure: item.get_last_failure(),
             disabled_until: item.get_disabled_until(),
@@ -349,6 +365,7 @@ pub struct Build {
     timeout: i32,
     local_priority: i32,
     global_priority: i32,
+    finished_in_db: bool,
 }
 
 impl From<std::sync::Arc<crate::state::Build>> for Build {
@@ -363,6 +380,7 @@ impl From<std::sync::Arc<crate::state::Build>> for Build {
             timeout: item.timeout,
             local_priority: item.local_priority,
             global_priority: item.global_priority.load(Ordering::SeqCst),
+            finished_in_db: item.finished_in_db.load(Ordering::SeqCst),
         }
     }
 }
@@ -385,6 +403,7 @@ impl BuildsResponse {
 #[derive(Debug, serde::Serialize)]
 pub struct Step {
     drv_path: nix_utils::StorePath,
+    runnable: bool,
     finished: bool,
 
     created: bool,
@@ -399,6 +418,7 @@ impl From<std::sync::Arc<crate::state::Step>> for Step {
     fn from(item: std::sync::Arc<crate::state::Step>) -> Self {
         Self {
             drv_path: item.get_drv_path().clone(),
+            runnable: item.get_runnable(),
             finished: item.get_finished(),
             created: item.atomic_state.created.load(Ordering::SeqCst),
             tries: item.atomic_state.tries.load(Ordering::SeqCst),
@@ -434,6 +454,7 @@ impl StepsResponse {
 pub struct StepInfo {
     drv_path: nix_utils::StorePath,
     already_scheduled: bool,
+    cancelled: bool,
     runnable_since: chrono::DateTime<chrono::Utc>,
 
     lowest_share_used: f64,
@@ -447,6 +468,7 @@ impl From<std::sync::Arc<crate::state::StepInfo>> for StepInfo {
         Self {
             drv_path: item.step.get_drv_path().clone(),
             already_scheduled: item.get_already_scheduled(),
+            cancelled: item.get_cancelled(),
             runnable_since: item.runnable_since,
             lowest_share_used: item.lowest_share_used,
             highest_global_priority: item.highest_global_priority,
