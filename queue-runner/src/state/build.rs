@@ -365,6 +365,13 @@ impl RemoteBuild {
             log_file: String::new(),
         }
     }
+
+    pub fn get_total_step_time(&self) -> u64 {
+        if self.start_time < 0 {
+            return 0;
+        }
+        u64::try_from(self.stop_time - self.start_time).unwrap_or_default()
+    }
 }
 
 pub struct BuildProduct {

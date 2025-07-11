@@ -301,7 +301,7 @@ impl RunnerService for Server {
 
         let build_output = crate::state::BuildOutput::from(req);
         if let Err(e) = state
-            .mark_step_done(
+            .succeed_step(
                 machine_id.ok(),
                 &nix_utils::StorePath::new(&drv),
                 build_output,

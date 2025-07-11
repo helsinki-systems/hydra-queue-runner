@@ -318,4 +318,16 @@ impl PromMetrics {
 
         Ok(buffer)
     }
+
+    pub fn add_to_total_step_time(&self, v: u64) {
+        if let Ok(v) = i64::try_from(v) {
+            self.total_step_time.add(v);
+        }
+    }
+
+    pub fn add_to_total_build_step_time(&self, v: u64) {
+        if let Ok(v) = i64::try_from(v) {
+            self.total_step_build_time.add(v);
+        }
+    }
 }

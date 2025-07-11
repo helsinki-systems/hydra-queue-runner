@@ -496,6 +496,7 @@ impl State {
                     continue;
                 }
             };
+            self.metrics.nr_queue_wakeups.add(1);
             log::trace!("New notification from PgListener. notification={notification:?}");
 
             match notification.channel() {
@@ -782,7 +783,7 @@ impl State {
 
     #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self, output), err)]
-    pub async fn mark_step_done(
+    pub async fn succeed_step(
         &self,
         machine_id: Option<uuid::Uuid>,
         drv_path: &nix_utils::StorePath,
@@ -828,12 +829,14 @@ impl State {
         };
         job.result.step_status = BuildStatus::Success;
         job.result.stop_time = chrono::Utc::now().timestamp();
-        if job.result.start_time > 0 {
-            if let Ok(v) = u64::try_from(job.result.stop_time - job.result.start_time) {
-                machine.stats.add_to_total_step_time(v);
-            }
+        {
+            let total_step_time = job.result.get_total_step_time();
+            machine.stats.add_to_total_step_time(total_step_time);
             machine
                 .stats
+                .add_to_total_build_step_time(output.build_elapsed.as_secs());
+            self.metrics.add_to_total_step_time(total_step_time);
+            self.metrics
                 .add_to_total_build_step_time(output.build_elapsed.as_secs());
         }
 
@@ -1027,7 +1030,12 @@ impl State {
             let tries = step_info.step.atomic_state.tries.load(Ordering::SeqCst);
             if tries < max_retries {
                 // retry step
-                // TODO: update metrics: maschine.build_step_time, maschine.total_step_time, maschine.last_failure
+                // TODO: update metrics:
+                // - build_step_time,
+                // - total_step_time,
+                // - maschine.build_step_time,
+                // - maschine.total_step_time,
+                // - maschine.last_failure
                 self.metrics.nr_retries.add(1);
                 #[allow(clippy::cast_precision_loss)]
                 #[allow(clippy::cast_possible_truncation)]
@@ -1065,6 +1073,8 @@ impl State {
         machine
             .stats
             .add_to_total_build_step_time(build_elapsed.as_secs());
+        self.metrics
+            .add_to_total_build_step_time(build_elapsed.as_secs());
 
         self.inner_fail_job(drv_path, Some(machine), job, step)
             .await
@@ -1080,13 +1090,13 @@ impl State {
         step: Arc<Step>,
     ) -> anyhow::Result<()> {
         job.result.stop_time = chrono::Utc::now().timestamp();
-        if let Some(machine) = &machine {
-            if job.result.start_time > 0 {
-                if let Ok(v) = u64::try_from(job.result.stop_time - job.result.start_time) {
-                    machine.stats.add_to_total_step_time(v);
-                }
+        {
+            let total_step_time = job.result.get_total_step_time();
+            self.metrics.add_to_total_step_time(total_step_time);
+            if let Some(machine) = &machine {
+                machine.stats.add_to_total_step_time(total_step_time);
+                machine.stats.store_last_failure_now();
             }
-            machine.stats.store_last_failure_now();
         }
 
         // TODO: builder:415
