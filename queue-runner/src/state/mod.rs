@@ -1598,7 +1598,7 @@ impl State {
                 match v {
                     Ok(()) => substituted += 1,
                     Err(e) => {
-                        log::error!("Failed to substitute path: {e}");
+                        log::warn!("Failed to substitute path: {e}");
                     }
                 }
             }
