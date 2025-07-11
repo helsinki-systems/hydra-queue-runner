@@ -1027,6 +1027,7 @@ impl State {
                     self.metrics.max_nr_retries.set(i64::from(tries));
                 }
 
+                step_info.set_already_scheduled(false);
                 self.trigger_dispatch();
                 return Ok(());
             }
