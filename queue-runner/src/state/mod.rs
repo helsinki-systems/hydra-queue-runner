@@ -152,10 +152,24 @@ impl State {
     #[tracing::instrument(skip(self))]
     pub async fn remove_machine(&self, machine_id: uuid::Uuid) {
         if let Some(m) = self.machines.remove_machine(machine_id) {
-            let queues = self.queues.read().await;
-            let jobs = m.jobs.read();
-            for job in jobs.iter() {
-                queues.remove_job_from_scheduled(&job.path);
+            let jobs = {
+                let jobs = m.jobs.read();
+                jobs.clone()
+            };
+            for job in &jobs {
+                if let Err(e) = self
+                    .fail_step(
+                        Some(machine_id),
+                        &job.path,
+                        std::time::Duration::from_secs(0),
+                    )
+                    .await
+                {
+                    log::error!(
+                        "Failed to fail step machine_id={machine_id} drv={} e={e}",
+                        job.path
+                    );
+                }
             }
         }
     }
