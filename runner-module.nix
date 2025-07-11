@@ -82,6 +82,11 @@ in
               type = lib.types.float;
               default = 3.0;
             };
+            stopQueueRunAfter = lib.mkOption {
+              description = "Seconds after which the queue run should be interupted early";
+              type = lib.types.ints.positive;
+              default = 60;
+            };
           };
         };
         default = { };

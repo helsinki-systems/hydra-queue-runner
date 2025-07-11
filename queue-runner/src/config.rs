@@ -119,6 +119,10 @@ fn default_retry_backoff() -> f32 {
     3.0
 }
 
+fn default_stop_queue_run_after() -> u32 {
+    60
+}
+
 #[derive(Debug, Default, serde::Deserialize, Copy, Clone, PartialEq, Eq)]
 pub enum MachineSortFn {
     SpeedFactorOnly,
@@ -164,6 +168,9 @@ struct AppConfig {
 
     #[serde(default = "default_retry_backoff")]
     retry_backoff: f32,
+
+    #[serde(default = "default_stop_queue_run_after")]
+    stop_queue_run_after: u32,
 }
 
 /// Prepared configuration of the application
@@ -181,6 +188,7 @@ pub struct PreparedApp {
     pub max_retries: u32,
     pub retry_interval: f32,
     pub retry_backoff: f32,
+    pub stop_queue_run_after: chrono::Duration,
 }
 
 impl TryFrom<AppConfig> for PreparedApp {
@@ -240,6 +248,7 @@ impl TryFrom<AppConfig> for PreparedApp {
             #[allow(clippy::cast_precision_loss)]
             retry_interval: val.retry_interval as f32,
             retry_backoff: val.retry_backoff,
+            stop_queue_run_after: chrono::Duration::seconds(i64::from(val.stop_queue_run_after)),
         })
     }
 }

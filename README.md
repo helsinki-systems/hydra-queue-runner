@@ -55,6 +55,7 @@ useSubstitutes = false
 maxRetries = 5
 retryInterval = 60
 retryBackoff = 3.0
+stopQueueRunAfter = 60
 ```
 
 ## TODO list

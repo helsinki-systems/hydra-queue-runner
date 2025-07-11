@@ -358,13 +358,19 @@ impl State {
             self.metrics
                 .nr_builds_read
                 .add(nr_added.load(Ordering::SeqCst));
-            if chrono::Utc::now() > (starttime + chrono::Duration::seconds(60)) {
+            let stop_queue_run_after = {
+                let config = self.config.read();
+                config.stop_queue_run_after
+            };
+
+            if chrono::Utc::now() > (starttime + stop_queue_run_after) {
                 self.metrics.queue_checks_early_exits.inc();
                 break;
             }
         }
 
         // we can just always trigger dispatch as we might have a free machine and its cheap
+        self.metrics.queue_checks_finished.inc();
         self.trigger_dispatch();
     }
 
