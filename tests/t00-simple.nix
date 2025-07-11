@@ -12,7 +12,7 @@
 
         services.queue-runner-dev = {
           enable = true;
-          grpcAddress = "[::]";
+          grpc.address = "[::]";
         };
         networking.firewall.allowedTCPPorts = [ 50051 ];
       };

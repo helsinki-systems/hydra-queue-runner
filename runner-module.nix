@@ -87,28 +87,44 @@ in
         default = { };
       };
 
-      grpcAddress = lib.mkOption {
-        type = lib.types.singleLineStr;
-        default = "[::1]";
-        description = "The IP address the grpc listener should bound to";
+      grpc = lib.mkOption {
+        description = "grpc options";
+        default = { };
+        type = lib.types.submodule {
+          options = {
+            address = lib.mkOption {
+              type = lib.types.singleLineStr;
+              default = "[::1]";
+              description = "The IP address the grpc listener should bound to";
+            };
+
+            port = lib.mkOption {
+              description = "Which grpc port this app should listen on";
+              type = lib.types.port;
+              default = 50051;
+            };
+          };
+        };
       };
 
-      grpcPort = lib.mkOption {
-        description = "Which grpc port this app should listen on";
-        type = lib.types.port;
-        default = 50051;
-      };
+      rest = lib.mkOption {
+        description = "rest options";
+        default = { };
+        type = lib.types.submodule {
+          options = {
+            address = lib.mkOption {
+              type = lib.types.singleLineStr;
+              default = "[::1]";
+              description = "The IP address the rest listener should bound to";
+            };
 
-      restAddress = lib.mkOption {
-        type = lib.types.singleLineStr;
-        default = "[::1]";
-        description = "The IP address the rest listener should bound to";
-      };
-
-      restPort = lib.mkOption {
-        description = "Which rest port this app should listen on";
-        type = lib.types.port;
-        default = 8080;
+            port = lib.mkOption {
+              description = "Which rest port this app should listen on";
+              type = lib.types.port;
+              default = 8080;
+            };
+          };
+        };
       };
 
       mtls = lib.mkOption {
@@ -173,9 +189,9 @@ in
           [
             "${cfg.package}/bin/queue-runner"
             "--rest-bind"
-            "${cfg.restAddress}:${toString cfg.restPort}"
+            "${cfg.rest.address}:${toString cfg.rest.port}"
             "--grpc-bind"
-            "${cfg.grpcAddress}:${toString cfg.grpcPort}"
+            "${cfg.grpc.address}:${toString cfg.grpc.port}"
             "--config-path"
             "/etc/hydra/queue-runner.toml"
           ]

@@ -12,7 +12,7 @@
 
         services.queue-runner-dev = {
           enable = true;
-          grpcAddress = "[::]";
+          grpc.address = "[::]";
           mtls = {
             clientCaCertPath = "${./certs/ca.crt}";
             serverCertPath = "${./certs/server.crt}";
