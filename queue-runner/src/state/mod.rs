@@ -797,10 +797,12 @@ impl State {
         output: BuildOutput,
     ) -> anyhow::Result<()> {
         let step = {
-            let steps = self.steps.write();
-            let Some(step) = steps.get(drv_path).and_then(Weak::upgrade) else {
-                return Ok(());
-            };
+            let steps = self.steps.read();
+            let step = steps
+                .get(drv_path)
+                .ok_or(anyhow::anyhow!("Step is missing in self.steps"))?;
+            let step = Weak::upgrade(step)
+                .ok_or(anyhow::anyhow!("Step is no longer a owning pointer."))?;
             step
         };
         step.set_finished(true);
@@ -989,10 +991,12 @@ impl State {
         build_elapsed: std::time::Duration,
     ) -> anyhow::Result<()> {
         let step = {
-            let steps = self.steps.write();
-            let Some(step) = steps.get(drv_path).and_then(Weak::upgrade) else {
-                return Ok(());
-            };
+            let steps = self.steps.read();
+            let step = steps
+                .get(drv_path)
+                .ok_or(anyhow::anyhow!("Step is missing in self.steps"))?;
+            let step = Weak::upgrade(step)
+                .ok_or(anyhow::anyhow!("Step is no longer a owning pointer."))?;
             step
         };
         step.set_finished(false);
