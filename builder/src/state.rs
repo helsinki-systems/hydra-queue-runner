@@ -117,7 +117,7 @@ impl State {
         })
     }
 
-    #[tracing::instrument(skip(self, client, m), fields(drv=m.drv))]
+    #[tracing::instrument(skip(self, client, m), fields(drv=%m.drv))]
     pub fn schedule_build(
         self: Arc<Self>,
         mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
@@ -196,14 +196,14 @@ impl State {
         b
     }
 
-    #[tracing::instrument(skip(self, m))]
+    #[tracing::instrument(skip(self, m), fields(drv=%m.drv))]
     pub fn abort_build(&self, m: &crate::runner_v1::AbortMessage) {
         if let Some(b) = self.remove_build(&nix_utils::StorePath::new(&m.drv)) {
             b.abort();
         }
     }
 
-    #[tracing::instrument(skip(self, client, m), fields(drv=m.drv), err)]
+    #[tracing::instrument(skip(self, client, m), fields(drv=%m.drv), err)]
     async fn process_build(
         &self,
         mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
@@ -316,6 +316,7 @@ impl State {
         Gcroot::new(self.config.gcroots.join(prefix))
     }
 
+    #[tracing::instrument(skip(self))]
     fn publish_builds_to_sd_notify(&self) {
         let active = {
             let builds = self.active_builds.read();
@@ -339,7 +340,7 @@ impl State {
     }
 }
 
-#[tracing::instrument(skip(client), err)]
+#[tracing::instrument(skip(client), fields(%gcroot, %path), err)]
 async fn import_path(
     mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
         tonic::transport::Channel,
@@ -367,7 +368,7 @@ async fn import_path(
     Ok(())
 }
 
-#[tracing::instrument(skip(client, requisites), err)]
+#[tracing::instrument(skip(client, requisites), fields(%gcroot, %drv), err)]
 async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     client: &mut crate::runner_v1::runner_service_client::RunnerServiceClient<
         tonic::transport::Channel,
@@ -428,7 +429,7 @@ async fn upload_nars(
     Ok(())
 }
 
-#[tracing::instrument(skip(drv_info), ret(level = tracing::Level::DEBUG), err)]
+#[tracing::instrument(skip(drv_info), fields(%drv), ret(level = tracing::Level::DEBUG), err)]
 async fn new_build_result_info(
     machine_id: uuid::Uuid,
     drv: &nix_utils::StorePath,

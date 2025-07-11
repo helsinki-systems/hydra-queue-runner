@@ -291,15 +291,18 @@ impl Machines {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_all_machines(&self) -> Vec<Arc<Machine>> {
         let inner = self.inner.read();
         inner.by_uuid.values().cloned().collect()
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_machine_count(&self) -> usize {
         self.inner.read().by_uuid.len()
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_machine_count_in_use(&self) -> usize {
         self.inner
             .read()
@@ -387,7 +390,7 @@ impl Machine {
         })
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, job, opts))]
     pub async fn build_drv(&self, job: Job, opts: &nix_utils::BuildOptions) {
         let drv = job.path.clone();
         if let Err(e) = self
@@ -408,8 +411,7 @@ impl Machine {
         self.insert_job(job);
     }
 
-    #[tracing::instrument(skip(self))]
-    #[allow(dead_code)]
+    #[tracing::instrument(skip(self), fields(%drv))]
     pub async fn abort_build(&self, drv: &nix_utils::StorePath) {
         if let Err(e) = self
             .msg_queue
@@ -446,7 +448,7 @@ impl Machine {
         }
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self), fields(%drv))]
     pub fn get_build_id_and_step_nr(&self, drv: &nix_utils::StorePath) -> Option<(i32, i32)> {
         let jobs = self.jobs.read();
         let job = jobs.iter().find(|j| &j.path == drv).cloned();
@@ -460,7 +462,7 @@ impl Machine {
         self.stats.store_current_jobs(jobs.len() as u64);
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self), fields(%drv))]
     pub fn remove_job(&self, drv: &nix_utils::StorePath) -> Option<Job> {
         let mut jobs = self.jobs.write();
         let job = jobs.iter().find(|j| &j.path == drv).cloned();

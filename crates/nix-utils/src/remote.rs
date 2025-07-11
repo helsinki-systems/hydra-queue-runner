@@ -12,7 +12,7 @@ impl<'a> RemoteStore<'a> {
         Self { remote_addr }
     }
 
-    #[tracing::instrument(skip(self, path), err)]
+    #[tracing::instrument(skip(self), fields(%path), err)]
     pub async fn copy_path(&self, path: StorePath) -> Result<(), crate::Error> {
         let mut child = tokio::process::Command::new("nix")
             .args(["copy", "--to", self.remote_addr, &path.get_full_path()])
@@ -23,7 +23,7 @@ impl<'a> RemoteStore<'a> {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, path))]
+    #[tracing::instrument(skip(self), fields(%path))]
     pub async fn check_if_storepath_exists(&self, path: &StorePath) -> bool {
         let full_path = path.get_full_path();
         let Ok(cmd) = tokio::process::Command::new("nix")

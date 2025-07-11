@@ -57,7 +57,7 @@ fn extract_path_info(
     result = true,
     convert = r#"{ format!("{}", path) }"#
 )]
-#[tracing::instrument(err)]
+#[tracing::instrument(fields(%path), err)]
 pub async fn query_path_info(path: &StorePath) -> Result<Option<PathInfo>, crate::Error> {
     let full_path = path.get_full_path();
     let cmd = &tokio::process::Command::new("nix")

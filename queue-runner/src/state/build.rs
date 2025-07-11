@@ -105,7 +105,6 @@ impl Build {
         *toplevel = Some(step);
     }
 
-    #[allow(clippy::unused_self)]
     pub fn propagate_priorities(&self) {
         let mut queued = AHashSet::new();
         let mut todo = std::collections::VecDeque::new();
@@ -537,7 +536,7 @@ impl From<crate::server::grpc::runner_v1::BuildResultInfo> for BuildOutput {
 }
 
 impl BuildOutput {
-    #[tracing::instrument(skip(outputs))]
+    #[tracing::instrument(skip(outputs), err)]
     pub async fn new(outputs: Vec<nix_utils::DerivationOutput>) -> anyhow::Result<Self> {
         let flat_outputs = outputs
             .iter()

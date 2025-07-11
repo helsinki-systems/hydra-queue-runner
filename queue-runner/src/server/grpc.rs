@@ -260,7 +260,7 @@ impl RunnerService for Server {
         Ok(tonic::Response::new(runner_v1::Empty {}))
     }
 
-    #[tracing::instrument(skip(self, req), err)]
+    #[tracing::instrument(skip(self), err)]
     async fn build_step_update(
         &self,
         req: tonic::Request<StepUpdate>,
@@ -288,7 +288,7 @@ impl RunnerService for Server {
         Ok(tonic::Response::new(runner_v1::Empty {}))
     }
 
-    #[tracing::instrument(skip(self, req), err)]
+    #[tracing::instrument(skip(self, req), fields(machine_id=req.get_ref().machine_id, drv=req.get_ref().drv), err)]
     async fn complete_build_with_success(
         &self,
         req: tonic::Request<BuildResultInfo>,
@@ -314,7 +314,7 @@ impl RunnerService for Server {
         Ok(tonic::Response::new(runner_v1::Empty {}))
     }
 
-    #[tracing::instrument(skip(self, req), err)]
+    #[tracing::instrument(skip(self, req), fields(machine_id=req.get_ref().machine_id, drv=req.get_ref().drv), err)]
     async fn complete_build_with_failure(
         &self,
         req: tonic::Request<FailResultInfo>,

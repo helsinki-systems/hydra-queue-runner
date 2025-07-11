@@ -70,12 +70,12 @@ pub async fn query_drvs(drvs: &[&StorePath]) -> Result<Vec<Derivation>, crate::E
     }
 }
 
-#[tracing::instrument(err)]
+#[tracing::instrument(fields(%drv), err)]
 pub async fn query_drv(drv: &StorePath) -> Result<Option<Derivation>, crate::Error> {
     Ok(query_drvs(&[drv]).await?.into_iter().next())
 }
 
-#[tracing::instrument(err)]
+#[tracing::instrument(fields(%drv), err)]
 pub async fn topo_sort_drvs(drv: &StorePath) -> Result<Vec<String>, crate::Error> {
     use std::io::BufRead as _;
 
@@ -157,7 +157,7 @@ impl BuildOptions {
 }
 
 #[allow(clippy::type_complexity)]
-#[tracing::instrument(skip(drv, opts), err)]
+#[tracing::instrument(skip(opts), fields(%drv), err)]
 pub async fn realise_drv(
     drv: &StorePath,
     opts: &BuildOptions,

@@ -271,7 +271,7 @@ impl State {
         Ok(Some(machine))
     }
 
-    #[tracing::instrument(skip(self, drv), err)]
+    #[tracing::instrument(skip(self), fields(%drv), err)]
     async fn construct_log_file_path(
         &self,
         drv: &nix_utils::StorePath,
@@ -284,7 +284,7 @@ impl State {
         Ok(log_file)
     }
 
-    #[tracing::instrument(skip(self, drv), err)]
+    #[tracing::instrument(skip(self), fields(%drv), err)]
     pub async fn new_log_file(
         &self,
         drv: &nix_utils::StorePath,
@@ -400,7 +400,7 @@ impl State {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, drv_path))]
+    #[tracing::instrument(skip(self), fields(%drv_path))]
     pub async fn queue_one_build(
         &self,
         jobset_id: i32,
@@ -746,7 +746,7 @@ impl State {
         }
     }
 
-    #[tracing::instrument(skip(self, machine_id, drv_path, step_status), err)]
+    #[tracing::instrument(skip(self, machine_id, step_status), fields(%drv_path), err)]
     pub async fn update_build_step(
         &self,
         machine_id: Option<uuid::Uuid>,
@@ -783,7 +783,7 @@ impl State {
     }
 
     #[allow(clippy::too_many_lines)]
-    #[tracing::instrument(skip(self, output), err)]
+    #[tracing::instrument(skip(self, output), fields(%drv_path), err)]
     pub async fn succeed_step(
         &self,
         machine_id: Option<uuid::Uuid>,
@@ -975,7 +975,7 @@ impl State {
     }
 
     #[allow(clippy::too_many_lines)]
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self), fields(%drv_path), err)]
     pub async fn fail_step(
         &self,
         machine_id: Option<uuid::Uuid>,
@@ -1082,7 +1082,7 @@ impl State {
     }
 
     #[allow(clippy::too_many_lines)]
-    #[tracing::instrument(skip(self, machine, job, step), err)]
+    #[tracing::instrument(skip(self, machine, job, step), fields(%drv_path), err)]
     async fn inner_fail_job(
         &self,
         drv_path: &nix_utils::StorePath,
@@ -1357,7 +1357,7 @@ impl State {
         new_builds_by_path,
         finished_drvs,
         new_runnable
-    ))]
+    ), fields(build_id=build.id))]
     async fn create_build(
         &self,
         build: Arc<Build>,
@@ -1492,13 +1492,12 @@ impl State {
     #[tracing::instrument(skip(
         self,
         build,
-        drv_path,
         referring_build,
         referring_step,
         finished_drvs,
         new_steps,
         new_runnable
-    ))]
+    ), fields(build_id=build.id, %drv_path))]
     async fn create_step(
         &self,
         build: Arc<Build>,
@@ -1709,7 +1708,7 @@ impl State {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, build), err)]
+    #[tracing::instrument(skip(self, build), fields(build_id=build.id), err)]
     async fn handle_cached_build(&self, build: Arc<Build>) -> anyhow::Result<()> {
         let res = self.get_build_output_cached(&build.drv_path).await?;
 

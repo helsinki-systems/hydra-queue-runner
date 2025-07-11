@@ -3,7 +3,7 @@ use tokio_stream::StreamExt as _;
 
 use crate::StorePath;
 
-#[tracing::instrument(skip(path), err)]
+#[tracing::instrument(fields(%path), err)]
 pub async fn export_nar(
     path: &StorePath,
     kill_on_drop: bool,
@@ -25,7 +25,7 @@ pub async fn export_nar(
     Ok((child, tokio_util::io::ReaderStream::new(stdout)))
 }
 
-#[tracing::instrument(skip(paths), err)]
+#[tracing::instrument(fields(paths), err)]
 pub async fn export_nars(
     paths: &[StorePath],
     kill_on_drop: bool,

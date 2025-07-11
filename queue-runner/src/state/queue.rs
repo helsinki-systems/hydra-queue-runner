@@ -239,7 +239,7 @@ impl Queues {
         queue.incr_active();
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self), fields(%drv))]
     pub fn remove_job_from_scheduled(
         &self,
         drv: &nix_utils::StorePath,
@@ -259,7 +259,7 @@ impl Queues {
         queue.scrube_jobs();
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self), fields(%drv))]
     pub fn mark_job_done(&mut self, drv: &nix_utils::StorePath) {
         let Some((stepinfo, queue, _)) = ({
             let mut scheduled = self.scheduled.write();

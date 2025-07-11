@@ -67,7 +67,7 @@ pub async fn finish_build_step(
     Ok(())
 }
 
-#[tracing::instrument(skip(db, o, build_id, build_opts, remote_store), err(level=tracing::Level::WARN))]
+#[tracing::instrument(skip(db, o, build_opts, remote_store), fields(%drv_path), err(level=tracing::Level::WARN))]
 pub async fn substitute_output(
     db: crate::db::Database,
     o: nix_utils::DerivationOutput,
