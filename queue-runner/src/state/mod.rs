@@ -718,17 +718,31 @@ impl State {
             for (system, queue) in queues.iter() {
                 for job in queue.clone_inner() {
                     let Some(job) = job.upgrade() else {
+                        log::warn!("Found weak point job in system={system}");
                         continue;
                     };
                     if job.get_already_scheduled() {
+                        log::warn!(
+                            "Can't schedule job because job is already scheduled system={system} drv={}",
+                            job.step.get_drv_path()
+                        );
                         continue;
                     }
                     if job.step.get_finished() {
+                        log::warn!(
+                            "Can't schedule job because job is already finished system={system} drv={}",
+                            job.step.get_drv_path()
+                        );
                         continue;
                     }
                     {
                         let state = job.step.state.read();
                         if state.after > now {
+                            log::warn!(
+                                "Can't schedule job because job is not yet ready system={system} drv={} after={}",
+                                job.step.get_drv_path(),
+                                state.after,
+                            );
                             continue;
                         }
                     }
@@ -738,7 +752,13 @@ impl State {
                         .await
                     {
                         Ok(Some(m)) => queues.add_job_to_scheduled(&job, queue, m),
-                        Ok(_) => nr_steps_waiting += 1,
+                        Ok(_) => {
+                            log::warn!(
+                                "Waiting for job to schedule because no builder is ready system={system} drv={}",
+                                job.step.get_drv_path(),
+                            );
+                            nr_steps_waiting += 1;
+                        }
                         Err(e) => {
                             log::warn!(
                                 "Failed to realise drv on valid machine, will be skipped: drv={} e={e}",
@@ -801,9 +821,7 @@ impl State {
             let step = steps
                 .get(drv_path)
                 .ok_or(anyhow::anyhow!("Step is missing in self.steps"))?;
-            let step = Weak::upgrade(step)
-                .ok_or(anyhow::anyhow!("Step is no longer a owning pointer."))?;
-            step
+            Weak::upgrade(step).ok_or(anyhow::anyhow!("Step is no longer a owning pointer."))?
         };
         step.set_finished(true);
         self.metrics.nr_steps_done.add(1);
@@ -995,9 +1013,7 @@ impl State {
             let step = steps
                 .get(drv_path)
                 .ok_or(anyhow::anyhow!("Step is missing in self.steps"))?;
-            let step = Weak::upgrade(step)
-                .ok_or(anyhow::anyhow!("Step is no longer a owning pointer."))?;
-            step
+            Weak::upgrade(step).ok_or(anyhow::anyhow!("Step is no longer a owning pointer."))?
         };
         step.set_finished(false);
         self.metrics.nr_steps_done.add(1);
