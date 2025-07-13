@@ -1303,7 +1303,7 @@ impl State {
         step: Arc<Step>,
     ) -> anyhow::Result<()> {
         // Some step previously failed, so mark the build as failed right away.
-        log::error!(
+        log::warn!(
             "marking build {} as cached failure due to '{}'",
             build.id,
             step.get_drv_path()
