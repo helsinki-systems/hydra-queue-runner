@@ -284,21 +284,6 @@ impl Queues {
         queue.scrube_jobs();
     }
 
-    #[tracing::instrument(skip(self), fields(%drv))]
-    pub fn mark_job_done(&mut self, drv: &nix_utils::StorePath) {
-        let Some((stepinfo, queue, _)) = ({
-            let mut scheduled = self.scheduled.write();
-            scheduled.remove(drv)
-        }) else {
-            return;
-        };
-
-        self.jobs.remove(&stepinfo);
-        drop(stepinfo);
-        queue.decr_active();
-        queue.scrube_jobs();
-    }
-
     #[tracing::instrument(skip(self))]
     pub async fn kill_active_steps(&self) {
         let active = {

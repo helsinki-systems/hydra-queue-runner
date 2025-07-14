@@ -842,44 +842,32 @@ impl State {
         drv_path: &nix_utils::StorePath,
         output: BuildOutput,
     ) -> anyhow::Result<()> {
-        let step = {
-            let steps = self.steps.read();
-            let step = steps
-                .get(drv_path)
-                .ok_or(anyhow::anyhow!("Step is missing in self.steps"))?;
-            Weak::upgrade(step).ok_or(anyhow::anyhow!("Step is no longer a owning pointer."))?
+        log::info!("marking job as done: drv_path={drv_path}");
+        let (step_info, queue, machine) = {
+            let queues = self.queues.read().await;
+            queues
+                .remove_job_from_scheduled(drv_path)
+                .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?
         };
-        step.set_finished(true);
+
+        step_info.step.set_finished(true);
         self.metrics.nr_steps_done.add(1);
         self.metrics.nr_steps_building.sub(1);
 
+        log::debug!(
+            "removing job from machine: drv_path={drv_path} m={}",
+            machine.id
+        );
+        let mut job = machine.remove_job(drv_path).ok_or(anyhow::anyhow!(
+            "Job is missing in machine.jobs m={}",
+            machine
+        ))?;
+
         {
             let mut queues = self.queues.write().await;
-            log::info!("marking job as done: drv_path={drv_path}");
-            queues.mark_job_done(drv_path);
+            queues.remove_job(&step_info, &queue);
         }
 
-        let machine_job_tuple = if let Some(machine_id) = machine_id {
-            if let Some(m) = self.machines.get_machine_by_id(machine_id) {
-                log::debug!("removing job from machine: drv_path={drv_path} m={}", m.id);
-                let j = m.remove_job(drv_path);
-                (Some(m), j)
-            } else {
-                (None, None)
-            }
-        } else {
-            (None, None)
-        };
-
-        let (Some(machine), Some(mut job)) = machine_job_tuple else {
-            // Seems like we did not have a job scheduled
-            // aka something went wrong.
-            // We trigger dispatch and try to recover but we cant update the DB
-            log::warn!("Failed to find job and machine.");
-            self.trigger_dispatch();
-
-            return Ok(());
-        };
         job.result.step_status = BuildStatus::Success;
         job.result.stop_time = chrono::Utc::now().timestamp();
         {
@@ -940,7 +928,7 @@ impl State {
 
         let mut direct = Vec::new();
         {
-            let state = step.state.read();
+            let state = step_info.step.state.read();
             for b in &state.builds {
                 let Some(b) = b.upgrade() else {
                     continue;
@@ -952,7 +940,7 @@ impl State {
 
             if direct.is_empty() {
                 let mut steps = self.steps.write();
-                steps.retain(|s, _| s != step.get_drv_path());
+                steps.retain(|s, _| s != step_info.step.get_drv_path());
             }
         }
 
@@ -996,7 +984,7 @@ impl State {
         }
 
         {
-            let state = step.state.write();
+            let state = step_info.step.state.write();
             for rdep in &state.rdeps {
                 let Some(rdep) = rdep.upgrade() else {
                     continue;
@@ -1007,7 +995,7 @@ impl State {
                     let mut rdep_state = rdep.state.write();
                     rdep_state
                         .deps
-                        .retain(|s| s.get_drv_path() != step.get_drv_path());
+                        .retain(|s| s.get_drv_path() != step_info.step.get_drv_path());
                     if rdep_state.deps.is_empty()
                         && rdep.atomic_state.created.load(Ordering::SeqCst)
                     {
@@ -1035,93 +1023,75 @@ impl State {
         drv_path: &nix_utils::StorePath,
         build_elapsed: std::time::Duration,
     ) -> anyhow::Result<()> {
-        let step = {
-            let steps = self.steps.read();
-            let step = steps
-                .get(drv_path)
-                .ok_or(anyhow::anyhow!("Step is missing in self.steps"))?;
-            Weak::upgrade(step).ok_or(anyhow::anyhow!("Step is no longer a owning pointer."))?
+        log::info!("removing job from running in system queue: drv_path={drv_path}");
+        let (step_info, queue, machine) = {
+            let queues = self.queues.read().await;
+            queues
+                .remove_job_from_scheduled(drv_path)
+                .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?
         };
-        step.set_finished(false);
+
+        step_info.step.set_finished(false);
         self.metrics.nr_steps_done.add(1);
         self.metrics.nr_steps_building.sub(1);
 
-        let queue_data = {
-            let queues = self.queues.read().await;
-            // TODO: max failure count
-            log::info!("removing job from running in system queue: drv_path={drv_path}");
-            queues.remove_job_from_scheduled(drv_path)
+        log::debug!(
+            "removing job from machine: drv_path={drv_path} m={}",
+            machine.id
+        );
+        let mut job = machine.remove_job(drv_path).ok_or(anyhow::anyhow!(
+            "Job is missing in machine.jobs m={}",
+            machine
+        ))?;
+
+        // TODO: max failure count
+        let (max_retries, retry_interval, retry_backoff) = {
+            let config = self.config.read();
+            (
+                config.max_retries,
+                config.retry_interval,
+                config.retry_backoff,
+            )
         };
 
-        let machine_job_tuple = if let Some(machine_id) = machine_id {
-            if let Some(m) = self.machines.get_machine_by_id(machine_id) {
-                log::debug!("removing job from machine: drv_path={drv_path} m={}", m.id);
-                let j = m.remove_job(drv_path);
-                (Some(m), j)
-            } else {
-                (None, None)
+        // TODO: if can_retry {
+        step_info
+            .step
+            .atomic_state
+            .tries
+            .fetch_add(1, Ordering::SeqCst);
+        let tries = step_info.step.atomic_state.tries.load(Ordering::SeqCst);
+        if tries < max_retries {
+            // retry step
+            // TODO: update metrics:
+            // - build_step_time,
+            // - total_step_time,
+            // - maschine.build_step_time,
+            // - maschine.total_step_time,
+            // - maschine.last_failure
+            self.metrics.nr_retries.add(1);
+            #[allow(clippy::cast_precision_loss)]
+            #[allow(clippy::cast_possible_truncation)]
+            let delta = (retry_interval * retry_backoff.powf((tries - 1) as f32)) as i64;
+            log::info!("will retry '{drv_path}' after {delta}s");
+            {
+                let mut step_state = step_info.step.state.write();
+                step_state.after = chrono::Utc::now() + chrono::Duration::seconds(delta);
             }
-        } else {
-            (None, None)
-        };
-
-        if let Some((step_info, queue, _)) = &queue_data {
-            let (max_retries, retry_interval, retry_backoff) = {
-                let config = self.config.read();
-                (
-                    config.max_retries,
-                    config.retry_interval,
-                    config.retry_backoff,
-                )
-            };
-
-            // TODO: if can_retry {
-            step_info
-                .step
-                .atomic_state
-                .tries
-                .fetch_add(1, Ordering::SeqCst);
-            let tries = step_info.step.atomic_state.tries.load(Ordering::SeqCst);
-            if tries < max_retries {
-                // retry step
-                // TODO: update metrics:
-                // - build_step_time,
-                // - total_step_time,
-                // - maschine.build_step_time,
-                // - maschine.total_step_time,
-                // - maschine.last_failure
-                self.metrics.nr_retries.add(1);
-                #[allow(clippy::cast_precision_loss)]
-                #[allow(clippy::cast_possible_truncation)]
-                let delta = (retry_interval * retry_backoff.powf((tries - 1) as f32)) as i64;
-                log::info!("will retry '{drv_path}' after {delta}s");
-                {
-                    let mut step_state = step_info.step.state.write();
-                    step_state.after = chrono::Utc::now() + chrono::Duration::seconds(delta);
-                }
-                if i64::from(tries) > self.metrics.max_nr_retries.get() {
-                    self.metrics.max_nr_retries.set(i64::from(tries));
-                }
-
-                step_info.set_already_scheduled(false);
-                self.trigger_dispatch();
-                return Ok(());
+            if i64::from(tries) > self.metrics.max_nr_retries.get() {
+                self.metrics.max_nr_retries.set(i64::from(tries));
             }
 
-            // remove job from queues, aka actually fail the job
-            let mut queues = self.queues.write().await;
-            queues.remove_job(step_info, queue);
-        }
-        drop(queue_data);
-
-        let (Some(machine), Some(mut job)) = machine_job_tuple else {
-            // Seems like we did not have a job scheduled
-            // aka something went wrong.
-            // We trigger dispatch and try to recover but we cant update the DB
+            step_info.set_already_scheduled(false);
             self.trigger_dispatch();
-
             return Ok(());
-        };
+        }
+
+        // remove job from queues, aka actually fail the job
+        {
+            let mut queues = self.queues.write().await;
+            queues.remove_job(&step_info, &queue);
+        }
 
         job.result.step_status = BuildStatus::Failed;
         machine
@@ -1130,7 +1100,7 @@ impl State {
         self.metrics
             .add_to_total_build_step_time(build_elapsed.as_secs());
 
-        self.inner_fail_job(drv_path, Some(machine), job, step)
+        self.inner_fail_job(drv_path, Some(machine), job, step_info.step.clone())
             .await
     }
 
