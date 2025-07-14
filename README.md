@@ -59,7 +59,7 @@ useSubstitutes = false
 maxRetries = 5
 retryInterval = 60
 retryBackoff = 3.0
-stopQueueRunAfter = 120
+stopQueueRunAfterInS = 120
 ```
 
 ## TODO list

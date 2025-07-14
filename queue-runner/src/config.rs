@@ -107,6 +107,14 @@ fn default_max_db_connections() -> u32 {
     128
 }
 
+fn default_dispatch_trigger_timer_in_s() -> i64 {
+    120
+}
+
+fn default_queue_trigger_timer_in_s() -> i64 {
+    -1
+}
+
 fn default_max_tries() -> u32 {
     5
 }
@@ -119,8 +127,8 @@ fn default_retry_backoff() -> f32 {
     3.0
 }
 
-fn default_stop_queue_run_after() -> u32 {
-    60
+fn default_stop_queue_run_after_in_s() -> i64 {
+    120
 }
 
 #[derive(Debug, Default, serde::Deserialize, Copy, Clone, PartialEq, Eq)]
@@ -149,11 +157,11 @@ struct AppConfig {
     machine_sort_fn: MachineSortFn,
 
     // setting this to -1, will disable the timer
-    #[serde(default)]
+    #[serde(default = "default_dispatch_trigger_timer_in_s")]
     dispatch_trigger_timer_in_s: i64,
 
     // setting this to -1, will disable the timer
-    #[serde(default)]
+    #[serde(default = "default_queue_trigger_timer_in_s")]
     queue_trigger_timer_in_s: i64,
 
     remote_store_addr: Option<String>,
@@ -173,8 +181,8 @@ struct AppConfig {
     #[serde(default = "default_retry_backoff")]
     retry_backoff: f32,
 
-    #[serde(default = "default_stop_queue_run_after")]
-    stop_queue_run_after: u32,
+    #[serde(default = "default_stop_queue_run_after_in_s")]
+    stop_queue_run_after_in_s: i64,
 }
 
 /// Prepared configuration of the application
@@ -193,7 +201,7 @@ pub struct PreparedApp {
     pub max_retries: u32,
     pub retry_interval: f32,
     pub retry_backoff: f32,
-    pub stop_queue_run_after: chrono::Duration,
+    pub stop_queue_run_after: Option<chrono::Duration>,
 }
 
 impl TryFrom<AppConfig> for PreparedApp {
@@ -262,7 +270,11 @@ impl TryFrom<AppConfig> for PreparedApp {
             #[allow(clippy::cast_precision_loss)]
             retry_interval: val.retry_interval as f32,
             retry_backoff: val.retry_backoff,
-            stop_queue_run_after: chrono::Duration::seconds(i64::from(val.stop_queue_run_after)),
+            stop_queue_run_after: if val.stop_queue_run_after_in_s <= 0 {
+                None
+            } else {
+                Some(chrono::Duration::seconds(val.stop_queue_run_after_in_s))
+            },
         })
     }
 }

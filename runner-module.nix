@@ -87,9 +87,9 @@ in
               type = lib.types.float;
               default = 3.0;
             };
-            stopQueueRunAfter = lib.mkOption {
-              description = "Seconds after which the queue run should be interupted early";
-              type = lib.types.ints.positive;
+            stopQueueRunAfterInS = lib.mkOption {
+              description = "Seconds after which the queue run should be interupted early. Setting this to a value <= 0 will disable this feature and the queue run will never exit early.";
+              type = lib.types.int;
               default = 120;
             };
           };

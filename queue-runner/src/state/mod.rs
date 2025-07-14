@@ -362,9 +362,11 @@ impl State {
                 config.stop_queue_run_after
             };
 
-            if chrono::Utc::now() > (starttime + stop_queue_run_after) {
-                self.metrics.queue_checks_early_exits.inc();
-                break;
+            if let Some(stop_queue_run_after) = stop_queue_run_after {
+                if chrono::Utc::now() > (starttime + stop_queue_run_after) {
+                    self.metrics.queue_checks_early_exits.inc();
+                    break;
+                }
             }
         }
 
