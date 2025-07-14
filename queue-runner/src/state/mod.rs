@@ -15,7 +15,6 @@ use std::{sync::Arc, sync::Weak};
 
 use ahash::{AHashMap, AHashSet};
 use futures::TryStreamExt;
-use multimap::MultiMap;
 use secrecy::ExposeSecret as _;
 
 use crate::config::{Args, PreparedApp};
@@ -307,7 +306,7 @@ impl State {
         &self,
         new_ids: Vec<BuildID>,
         new_builds_by_id: Arc<parking_lot::RwLock<AHashMap<BuildID, Arc<Build>>>>,
-        new_builds_by_path: MultiMap<nix_utils::StorePath, BuildID, ahash::RandomState>,
+        new_builds_by_path: AHashMap<nix_utils::StorePath, AHashSet<BuildID>>,
     ) {
         let finished_drvs = Arc::new(parking_lot::RwLock::new(
             AHashSet::<nix_utils::StorePath>::new(),
@@ -431,8 +430,7 @@ impl State {
 
         let mut new_ids = Vec::<BuildID>::new();
         let mut new_builds_by_id = AHashMap::<BuildID, Arc<Build>>::new();
-        let mut new_builds_by_path =
-            MultiMap::<nix_utils::StorePath, BuildID, ahash::RandomState>::default();
+        let mut new_builds_by_path = AHashMap::<nix_utils::StorePath, AHashSet<BuildID>>::default();
 
         {
             let mut conn = self.db.get().await?;
@@ -443,7 +441,10 @@ impl State {
                 let build = Build::new(b, jobset)?;
                 new_ids.push(build.id);
                 new_builds_by_id.insert(build.id, build.clone());
-                new_builds_by_path.insert(build.drv_path.clone(), build.id);
+                new_builds_by_path
+                    .entry(build.drv_path.clone())
+                    .or_insert_with(AHashSet::new)
+                    .insert(build.id);
             }
         }
         log::debug!("new_ids: {new_ids:?}");
@@ -698,29 +699,30 @@ impl State {
         {
             let mut steps = self.steps.write();
             steps.retain(|_, r| {
-                if let Some(step) = r.upgrade() {
-                    if step.get_runnable() {
-                        new_runnable.push(step.clone());
-                    }
-                    true
-                } else {
-                    false
+                let Some(step) = r.upgrade() else {
+                    return false;
+                };
+                if step.get_runnable() {
+                    new_runnable.push(step.clone());
                 }
+                true
             });
         }
 
         let now = chrono::Utc::now();
-        let mut new_queues = MultiMap::<System, StepInfo, ahash::RandomState>::default();
+        let mut new_queues = AHashMap::<System, Vec<StepInfo>>::default();
         for r in new_runnable {
             let Some(system) = r.get_system() else {
                 continue;
             };
-            let state = r.state.read();
             if r.atomic_state.tries.load(Ordering::SeqCst) > 0 {
                 continue;
             }
 
-            new_queues.insert(system, StepInfo::new(r.clone(), &state));
+            new_queues
+                .entry(system)
+                .or_insert_with(Vec::new)
+                .push(StepInfo::new(r.clone()));
         }
 
         {
@@ -1408,7 +1410,7 @@ impl State {
         build: Arc<Build>,
         nr_added: Arc<AtomicI64>,
         new_builds_by_id: Arc<parking_lot::RwLock<AHashMap<BuildID, Arc<Build>>>>,
-        new_builds_by_path: &MultiMap<nix_utils::StorePath, BuildID, ahash::RandomState>,
+        new_builds_by_path: &AHashMap<nix_utils::StorePath, AHashSet<BuildID>>,
         finished_drvs: Arc<parking_lot::RwLock<AHashSet<nix_utils::StorePath>>>,
         new_runnable: Arc<parking_lot::RwLock<AHashSet<Arc<Step>>>>,
     ) {
@@ -1474,7 +1476,7 @@ impl State {
                 let new_steps = new_steps.read();
                 new_steps
                     .iter()
-                    .filter_map(|r| Some(new_builds_by_path.get_vec(r.get_drv_path())?.clone()))
+                    .filter_map(|r| Some(new_builds_by_path.get(r.get_drv_path())?.clone()))
                     .flatten()
                     .collect::<Vec<_>>()
             };

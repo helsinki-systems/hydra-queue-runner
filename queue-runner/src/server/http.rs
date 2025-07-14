@@ -288,7 +288,7 @@ mod handler {
                 .await
                 .get_jobs()
                 .into_iter()
-                .map(|s| s.into())
+                .map(Into::into)
                 .collect();
             construct_json_ok_response(&io::StepInfoResponse::new(stepinfos))
         }
@@ -305,7 +305,7 @@ mod handler {
                 .await
                 .get_scheduled()
                 .into_iter()
-                .map(|s| s.into())
+                .map(Into::into)
                 .collect();
             construct_json_ok_response(&io::StepInfoResponse::new(stepinfos))
         }

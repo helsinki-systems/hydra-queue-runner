@@ -5,7 +5,7 @@ use std::sync::{Arc, atomic::AtomicBool};
 use ahash::{AHashMap, AHashSet};
 
 use super::System;
-use super::build::{BuildID, Step, StepState};
+use super::build::{BuildID, Step};
 
 type Counter = std::sync::atomic::AtomicU64;
 
@@ -23,7 +23,7 @@ pub struct StepInfo {
 
 impl PartialEq for StepInfo {
     fn eq(&self, other: &Self) -> bool {
-        self.step == other.step
+        self.step.get_drv_path() == other.step.get_drv_path()
     }
 }
 
@@ -31,23 +31,28 @@ impl Eq for StepInfo {}
 
 impl std::hash::Hash for StepInfo {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.step.hash(state);
+        self.step.get_drv_path().hash(state);
     }
 }
 
 impl StepInfo {
-    pub fn new(step: Arc<Step>, state: &StepState) -> Self {
-        let lowest_share_used = state
-            .jobsets
-            .iter()
-            .map(|v| v.share_used())
-            .min_by(f64::total_cmp)
-            .unwrap_or(1e9);
+    pub fn new(step: Arc<Step>) -> Self {
+        let (lowest_share_used, runnable_since) = {
+            let state = step.state.read();
+
+            let lowest_share_used = state
+                .jobsets
+                .iter()
+                .map(|v| v.share_used())
+                .min_by(f64::total_cmp)
+                .unwrap_or(1e9);
+            (lowest_share_used, state.runnable_since)
+        };
 
         Self {
             already_scheduled: false.into(),
             cancelled: false.into(),
-            runnable_since: state.runnable_since,
+            runnable_since,
             lowest_share_used,
             highest_global_priority: step
                 .atomic_state
@@ -103,23 +108,32 @@ impl BuildQueue {
         }
     }
 
-    pub fn incr_active(&self) {
+    fn incr_active(&self) {
         self.active_runnable.fetch_add(1, Ordering::SeqCst);
     }
 
-    pub fn decr_active(&self) {
+    fn decr_active(&self) {
         self.active_runnable.fetch_sub(1, Ordering::SeqCst);
     }
 
     #[tracing::instrument(skip(self, jobs))]
-    pub fn insert_new_jobs(&self, jobs: Vec<Weak<StepInfo>>, now: &chrono::DateTime<chrono::Utc>) {
+    fn insert_new_jobs(&self, jobs: Vec<Weak<StepInfo>>, now: &chrono::DateTime<chrono::Utc>) {
         let mut current_jobs = self.jobs.write();
         let mut wait_time = 0u64;
 
-        // this ensures we only ever have each step once
-        // so ensure that current_jobs is never written anywhere else
         for j in jobs {
             if let Some(owned) = j.upgrade() {
+                // this ensures we only ever have each step once
+                // so ensure that current_jobs is never written anywhere else
+                // this should never continue as jobs, should already exclude duplicates
+                if current_jobs
+                    .iter()
+                    .filter_map(std::sync::Weak::upgrade)
+                    .any(|v| v.step.get_drv_path() == owned.step.get_drv_path())
+                {
+                    continue;
+                }
+
                 // runnable since is always > now
                 wait_time += (*now - owned.runnable_since).num_seconds().unsigned_abs();
                 current_jobs.push(j);
@@ -128,10 +142,14 @@ impl BuildQueue {
         self.wait_time.fetch_add(wait_time, Ordering::SeqCst);
 
         // only keep valid pointers
-        current_jobs.retain(|v| v.upgrade().is_some());
-        self.total_runnable
-            .store(current_jobs.len() as u64, Ordering::SeqCst);
+        drop(current_jobs);
+        self.scrube_jobs();
+        self.sort_jobs();
+    }
 
+    #[tracing::instrument(skip(self))]
+    pub fn sort_jobs(&self) {
+        let mut current_jobs = self.jobs.write();
         let delta = 0.00001;
         current_jobs.sort_by(|a, b| {
             let a = a.upgrade();
