@@ -32,6 +32,24 @@ in
         default = 1;
       };
 
+      maxJobs = lib.mkOption {
+        description = "Maximum allowed of jobs. This only is used if the queue runner uses this metrics for determining free machines.";
+        type = lib.types.ints.positive;
+        default = 4;
+      };
+
+      supportedFeatures = lib.mkOption {
+        description = "Pass supported features to the builder. If none are passed, system features will be used.";
+        type = lib.types.listOf lib.types.singleLineStr;
+        default = [ ];
+      };
+
+      mandatoryFeatures = lib.mkOption {
+        description = "Pass mandatory features to the builder.";
+        type = lib.types.listOf lib.types.singleLineStr;
+        default = [ ];
+      };
+
       mtls = lib.mkOption {
         description = "mtls options";
         default = null;
@@ -99,7 +117,17 @@ in
             cfg.pingInterval
             "--speed-factor"
             cfg.speedFactor
+            "--max-jobs"
+            cfg.maxJobs
           ]
+          ++ (builtins.concatMap (v: [
+            "--supported-features"
+            v
+          ]) cfg.supportedFeatures)
+          ++ (builtins.concatMap (v: [
+            "--mandatory-features"
+            v
+          ]) cfg.mandatoryFeatures)
           ++ lib.optionals (cfg.mtls != null) [
             "--server-root-ca-cert-path"
             cfg.mtls.serverRootCaCertPath

@@ -181,7 +181,10 @@ impl State {
         system: &System,
     ) -> anyhow::Result<Option<Arc<Machine>>> {
         let drv = step.get_drv_path();
-        let Some(machine) = self.machines.get_machine_for_system(system) else {
+        let Some(machine) = self
+            .machines
+            .get_machine_for_system(system, &step.get_required_features())
+        else {
             log::debug!("No free machine found for system={system} drv={drv}");
             return Ok(None);
         };

@@ -15,12 +15,19 @@ where
 #[derive(Debug, serde::Deserialize)]
 pub struct OutputPath {
     path: Option<String>,
+    method: Option<String>,
+    hash: Option<String>,
+    #[serde(rename = "hashAlgo")]
+    hash_algo: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Output {
     pub name: String,
     pub path: Option<StorePath>,
+    pub method: Option<String>,
+    pub hash: Option<String>,
+    pub hash_algo: Option<String>,
 }
 
 fn deserialize_outputs<'de, D>(deserializer: D) -> Result<Vec<Output>, D::Error>
@@ -32,8 +39,36 @@ where
         .map(|(k, v)| Output {
             name: k,
             path: v.path.map(|v| StorePath::new(&v)),
+            method: v.method,
+            hash: v.hash,
+            hash_algo: v.hash_algo,
         })
         .collect())
+}
+
+fn deserialize_system_features<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let x: Option<String> = serde::Deserialize::deserialize(deserializer)?;
+    Ok(x.map(|v| v.split(' ').map(ToOwned::to_owned).collect())
+        .unwrap_or_default())
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct DerivationOptions {
+    #[serde(
+        rename = "requiredSystemFeatures",
+        deserialize_with = "deserialize_system_features",
+        default
+    )]
+    pub required_system_features: Vec<String>,
+
+    #[serde(rename = "outputHash", default)]
+    pub output_hash: Option<String>,
+
+    #[serde(rename = "outputHashMode", default)]
+    pub output_hash_mode: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -41,6 +76,7 @@ pub struct Derivation {
     // Missing `args`, `builder`, `inputSrcs`,
     // we dont need env right now, so we dont need to extract it and keep it in memory
     // pub env: AHashMap<String, String>,
+    pub env: DerivationOptions,
     #[serde(rename = "inputDrvs", deserialize_with = "deserialize_input_drvs")]
     pub input_drvs: Vec<String>,
     #[serde(deserialize_with = "deserialize_outputs")]

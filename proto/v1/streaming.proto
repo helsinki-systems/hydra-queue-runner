@@ -34,10 +34,9 @@ message JoinMessage {
   float speed_factor = 6;
   uint32 max_jobs = 7;
   uint64 total_mem = 8;
-  repeated string system_features = 9;
-  repeated string supported_features = 10;
-  repeated string mandatory_features = 11;
-  bool cgroups = 12;
+  repeated string supported_features = 9;
+  repeated string mandatory_features = 10;
+  bool cgroups = 11;
 }
 
 message Pressure {

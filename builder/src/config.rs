@@ -40,7 +40,7 @@ pub struct Args {
     #[clap(long)]
     pub domain_name: Option<String>,
 
-    /// List of supported features
+    /// List of supported features, defaults to configured system features
     #[clap(long, default_value = None)]
     pub supported_features: Option<Vec<String>>,
 

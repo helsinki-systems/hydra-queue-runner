@@ -285,6 +285,13 @@ impl Step {
         drv.as_ref().map(|drv| drv.outputs.clone())
     }
 
+    pub fn get_required_features(&self) -> Vec<String> {
+        let drv = self.drv.load_full();
+        drv.as_ref()
+            .map(|drv| drv.env.required_system_features.clone())
+            .unwrap_or_default()
+    }
+
     #[tracing::instrument(skip(self, builds, steps))]
     pub fn get_dependents(
         self: &Arc<Self>,

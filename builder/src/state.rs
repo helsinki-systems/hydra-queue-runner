@@ -101,7 +101,6 @@ impl State {
             speed_factor: self.config.speed_factor,
             max_jobs: self.config.max_jobs,
             total_mem: sys.total_memory,
-            system_features: nix_config.system_features.clone(),
             supported_features: if let Some(s) = &self.config.supported_features {
                 s.clone()
             } else {

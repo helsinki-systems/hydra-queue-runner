@@ -278,19 +278,25 @@ impl Machines {
     }
 
     #[tracing::instrument(skip(self, system))]
-    pub fn get_machine_for_system(&self, system: &str) -> Option<Arc<Machine>> {
+    pub fn get_machine_for_system(
+        &self,
+        system: &str,
+        required_features: &[String],
+    ) -> Option<Arc<Machine>> {
         let inner = self.inner.read();
         if system == "builtin" {
             inner
                 .by_uuid
                 .values()
-                .find(|m| m.stats.get_current_jobs() < 4)
+                .find(|m| m.machine_has_capacity() && m.supports_all_features(required_features))
                 .cloned()
         } else {
             inner.by_system.get(system).and_then(|machines| {
                 machines
                     .iter()
-                    .find(|m| m.stats.get_current_jobs() < 4)
+                    .find(|m| {
+                        m.machine_has_capacity() && m.supports_all_features(required_features)
+                    })
                     .cloned()
             })
         }
@@ -347,7 +353,6 @@ pub struct Machine {
     pub speed_factor: f32,
     pub max_jobs: u32,
     pub total_mem: u64,
-    pub system_features: Vec<String>,
     pub supported_features: Vec<String>,
     pub mandatory_features: Vec<String>,
     pub cgroups: bool,
@@ -391,7 +396,6 @@ impl Machine {
             speed_factor: msg.speed_factor,
             max_jobs: msg.max_jobs,
             total_mem: msg.total_mem,
-            system_features: msg.system_features,
             supported_features: msg.supported_features,
             mandatory_features: msg.mandatory_features,
             cgroups: msg.cgroups,
@@ -437,6 +441,14 @@ impl Machine {
         }
 
         self.remove_job(drv);
+    }
+
+    pub fn machine_has_capacity(&self) -> bool {
+        self.stats.get_current_jobs() < u64::from(self.max_jobs)
+    }
+
+    pub fn supports_all_features(&self, features: &[String]) -> bool {
+        features.iter().all(|f| self.supported_features.contains(f))
     }
 
     #[tracing::instrument(skip(self, sort_fn))]
