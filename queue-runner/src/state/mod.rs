@@ -885,6 +885,7 @@ impl State {
             machine
                 .stats
                 .add_to_total_build_step_time(output.build_elapsed.as_secs());
+            machine.stats.reset_consecutive_failures();
             self.metrics.add_to_total_step_time(total_step_time);
             self.metrics
                 .add_to_total_build_step_time(output.build_elapsed.as_secs());

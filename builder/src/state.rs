@@ -19,7 +19,10 @@ impl BuildInfo {
 pub struct Config {
     pub ping_interval: u64,
     pub speed_factor: f32,
+    pub max_jobs: u32,
     pub gcroots: std::path::PathBuf,
+    pub supported_features: Option<Vec<String>>,
+    pub mandatory_features: Option<Vec<String>>,
 }
 
 pub struct State {
@@ -57,7 +60,7 @@ impl Drop for Gcroot {
 }
 
 impl State {
-    pub fn new(ping_interval: u64, speed_factor: f32) -> Arc<Self> {
+    pub fn new(args: super::config::Args) -> Arc<Self> {
         let logname = std::env::var("LOGNAME").expect("LOGNAME not set");
 
         let nix_state_dir = std::env::var("NIX_STATE_DIR").unwrap_or("/nix/var/nix/".to_owned());
@@ -70,9 +73,12 @@ impl State {
             id: uuid::Uuid::new_v4(),
             active_builds: parking_lot::RwLock::new(AHashMap::new()),
             config: Config {
-                ping_interval,
-                speed_factor,
+                ping_interval: args.ping_interval,
+                speed_factor: args.speed_factor,
+                max_jobs: args.max_jobs,
                 gcroots,
+                supported_features: args.supported_features,
+                mandatory_features: args.mandatory_features,
             },
         })
     }
@@ -93,8 +99,15 @@ impl State {
             cpu_count: u32::try_from(sys.cpu_count)?,
             bogomips: sys.bogomips,
             speed_factor: self.config.speed_factor,
+            max_jobs: self.config.max_jobs,
             total_mem: sys.total_memory,
-            features: nix_config.system_features,
+            system_features: nix_config.system_features.clone(),
+            supported_features: if let Some(s) = &self.config.supported_features {
+                s.clone()
+            } else {
+                nix_config.system_features.clone()
+            },
+            mandatory_features: self.config.mandatory_features.clone().unwrap_or_default(),
             cgroups: nix_config.cgroups,
         })
     }

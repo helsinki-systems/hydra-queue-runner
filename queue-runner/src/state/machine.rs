@@ -155,6 +155,7 @@ impl Stats {
     pub fn store_last_failure_now(&self) {
         self.last_failure
             .store(chrono::Utc::now().timestamp(), Ordering::SeqCst);
+        self.consecutive_failures.fetch_add(1, Ordering::SeqCst);
     }
 
     pub fn get_disabled_until(&self) -> i64 {
@@ -163,6 +164,10 @@ impl Stats {
 
     pub fn get_consecutive_failures(&self) -> u64 {
         self.consecutive_failures.load(Ordering::SeqCst)
+    }
+
+    pub fn reset_consecutive_failures(&self) {
+        self.consecutive_failures.store(0, Ordering::SeqCst);
     }
 
     pub fn get_last_ping(&self) -> i64 {
@@ -340,8 +345,11 @@ pub struct Machine {
     pub cpu_count: u32,
     pub bogomips: f32,
     pub speed_factor: f32,
+    pub max_jobs: u32,
     pub total_mem: u64,
-    pub features: Vec<String>,
+    pub system_features: Vec<String>,
+    pub supported_features: Vec<String>,
+    pub mandatory_features: Vec<String>,
     pub cgroups: bool,
     pub joined_at: chrono::DateTime<chrono::Utc>,
 
@@ -354,14 +362,15 @@ impl std::fmt::Display for Machine {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "Machine: [systems={:?} hostname={} cpu_count={} bogomips={:.2} speed_factor={:.2} total_mem={:.2} features={:?} cgroups={} joined_at={}]",
+            "Machine: [systems={:?} hostname={} cpu_count={} bogomips={:.2} speed_factor={:.2} max_jobs={} total_mem={:.2} supported_features={:?} cgroups={} joined_at={}]",
             self.systems,
             self.hostname,
             self.cpu_count,
             self.bogomips,
             self.speed_factor,
+            self.max_jobs,
             byte_unit::Byte::from_u64(self.total_mem).get_adjusted_unit(byte_unit::Unit::GB),
-            self.features,
+            self.supported_features,
             self.cgroups,
             self.joined_at,
         )
@@ -380,8 +389,11 @@ impl Machine {
             cpu_count: msg.cpu_count,
             bogomips: msg.bogomips,
             speed_factor: msg.speed_factor,
+            max_jobs: msg.max_jobs,
             total_mem: msg.total_mem,
-            features: msg.features,
+            system_features: msg.system_features,
+            supported_features: msg.supported_features,
+            mandatory_features: msg.mandatory_features,
             cgroups: msg.cgroups,
             msg_queue: tx,
             joined_at: chrono::Utc::now(),

@@ -20,6 +20,10 @@ pub struct Args {
     #[clap(short, long, default_value_t = 1.0)]
     pub speed_factor: f32,
 
+    /// Maximum number of allowed jobs
+    #[clap(long, default_value_t = 4)]
+    pub max_jobs: u32,
+
     /// Path to Server root ca cert
     #[clap(long)]
     pub server_root_ca_cert_path: Option<std::path::PathBuf>,
@@ -35,6 +39,14 @@ pub struct Args {
     /// Domain name for mtls
     #[clap(long)]
     pub domain_name: Option<String>,
+
+    /// List of supported features
+    #[clap(long, default_value = None)]
+    pub supported_features: Option<Vec<String>>,
+
+    /// List of mandatory features
+    #[clap(long, default_value = None)]
+    pub mandatory_features: Option<Vec<String>>,
 }
 
 impl Args {

@@ -32,9 +32,12 @@ message JoinMessage {
   uint32 cpu_count = 4;
   float bogomips = 5;
   float speed_factor = 6;
-  uint64 total_mem = 7;
-  repeated string features = 8;
-  bool cgroups = 9;
+  uint32 max_jobs = 7;
+  uint64 total_mem = 8;
+  repeated string system_features = 9;
+  repeated string supported_features = 10;
+  repeated string mandatory_features = 11;
+  bool cgroups = 12;
 }
 
 message Pressure {

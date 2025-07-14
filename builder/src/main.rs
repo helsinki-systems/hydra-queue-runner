@@ -150,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
             .await?
     };
 
-    let state = State::new(args.ping_interval, args.speed_factor);
+    let state = State::new(args);
     let mut client = RunnerServiceClient::new(channel)
         .send_compressed(tonic::codec::CompressionEncoding::Zstd)
         .accept_compressed(tonic::codec::CompressionEncoding::Zstd);
