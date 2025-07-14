@@ -40,7 +40,7 @@ pub struct PromMetrics {
     pub dispatch_time_ms: prometheus::IntGauge, // hydra_queue_dispatch_time
     pub machines_total: prometheus::IntGauge, // hydra_queue_machines_total
     pub machines_in_use: prometheus::IntGauge, // hydra_queue_machines_in_use
-    pub runnables_per_machine_type: prometheus::IntGaugeVec, // hydra_queue_machines_runnable
+    pub runnable_per_machine_type: prometheus::IntGaugeVec, // hydra_queue_machines_runnable
     pub running_per_machine_type: prometheus::IntGaugeVec, // hydra_queue_machines_running
 }
 
@@ -176,7 +176,7 @@ impl PromMetrics {
             "hydra_queue_machines_in_use",
             "hydra_queue_machines_in_use",
         ))?;
-        let runnables_per_machine_type = prometheus::IntGaugeVec::new(
+        let runnable_per_machine_type = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydra_queue_machines_runnable",
                 "hydra_queue_machines_runnable",
@@ -225,7 +225,7 @@ impl PromMetrics {
         r.register(Box::new(dispatch_time_ms.clone()))?;
         r.register(Box::new(machines_total.clone()))?;
         r.register(Box::new(machines_in_use.clone()))?;
-        r.register(Box::new(runnables_per_machine_type.clone()))?;
+        r.register(Box::new(runnable_per_machine_type.clone()))?;
         r.register(Box::new(running_per_machine_type.clone()))?;
 
         Ok(Self {
@@ -261,7 +261,7 @@ impl PromMetrics {
             dispatch_time_ms,
             machines_total,
             machines_in_use,
-            runnables_per_machine_type,
+            runnable_per_machine_type,
             running_per_machine_type,
         })
     }
@@ -281,7 +281,7 @@ impl PromMetrics {
         if let Ok(v) = i64::try_from(state.get_nr_steps_unfinished()) {
             self.nr_steps_unfinished.set(v);
         }
-        if let Ok(v) = i64::try_from(state.get_nr_runnables()) {
+        if let Ok(v) = i64::try_from(state.get_nr_runnable()) {
             self.nr_steps_runnable.set(v);
         }
         if let Ok(v) = i64::try_from(state.machines.get_machine_count()) {
@@ -293,11 +293,11 @@ impl PromMetrics {
 
         {
             let queue_stats = state.queues.read().await.get_stats_per_queue();
-            self.runnables_per_machine_type.reset();
+            self.runnable_per_machine_type.reset();
             self.running_per_machine_type.reset();
             for (t, s) in queue_stats {
                 if let Ok(v) = i64::try_from(s.total_runnable) {
-                    self.runnables_per_machine_type
+                    self.runnable_per_machine_type
                         .with_label_values(&[t.clone()])
                         .set(v);
                 }

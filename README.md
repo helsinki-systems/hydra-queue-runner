@@ -35,7 +35,10 @@ Message workflow (see: `proto/v1/streaming.proto`)
 - `GET /status/jobsets`
 - `GET /status/builds`
 - `GET /status/steps`
+- `GET /status/runnable`
 - `GET /status/queues`
+- `GET /status/queues/jobs`
+- `GET /status/queues/scheduled`
 - `PUT /build --json {"jobset_id": 1, "drv": "/nix/store/7ayly6qqhzk2x5ww3i3ibaxl69i5mqkg-hdf5-cpp-1.14.6.drv"}`
 - `GET /metrics`
 

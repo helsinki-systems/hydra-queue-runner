@@ -314,4 +314,13 @@ impl Queues {
             .map(|(k, v)| (k.clone(), v.get_stats()))
             .collect()
     }
+
+    pub fn get_jobs(&self) -> Vec<Arc<StepInfo>> {
+        self.jobs.iter().map(Clone::clone).collect()
+    }
+
+    pub fn get_scheduled(&self) -> Vec<Arc<StepInfo>> {
+        let s = self.scheduled.read();
+        s.iter().map(|(_, (s, _, _))| s.clone()).collect()
+    }
 }

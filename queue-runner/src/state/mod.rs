@@ -129,7 +129,7 @@ impl State {
         steps.len()
     }
 
-    pub fn get_nr_runnables(&self) -> usize {
+    pub fn get_nr_runnable(&self) -> usize {
         let mut steps = self.steps.write();
         steps.retain(|_, s| s.upgrade().is_some());
         steps

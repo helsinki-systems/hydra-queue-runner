@@ -242,7 +242,7 @@ impl QueueRunnerStats {
         let build_count = state.get_nr_builds_unfinished();
         let jobset_count = { state.jobsets.read().len() };
         let step_count = state.get_nr_steps_unfinished();
-        let runnable_count = state.get_nr_runnables();
+        let runnable_count = state.get_nr_runnable();
         let queue_stats = {
             let queues = state.queues.read().await;
             queues
@@ -486,5 +486,20 @@ pub struct QueueResponse {
 impl QueueResponse {
     pub fn new(queues: AHashMap<String, Vec<StepInfo>>) -> Self {
         Self { queues }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct StepInfoResponse {
+    steps: Vec<StepInfo>,
+    step_count: usize,
+}
+
+impl StepInfoResponse {
+    pub fn new(steps: Vec<StepInfo>) -> Self {
+        Self {
+            step_count: steps.len(),
+            steps,
+        }
     }
 }

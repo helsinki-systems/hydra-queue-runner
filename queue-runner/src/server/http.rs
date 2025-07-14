@@ -130,8 +130,14 @@ async fn router(
             (&hyper::Method::GET, "/status/jobsets") => handler::status::jobsets(req, state),
             (&hyper::Method::GET, "/status/builds") => handler::status::builds(req, state),
             (&hyper::Method::GET, "/status/steps") => handler::status::steps(req, state),
-            (&hyper::Method::GET, "/status/runnables") => handler::status::runnables(req, state),
+            (&hyper::Method::GET, "/status/runnable") => handler::status::runnable(req, state),
             (&hyper::Method::GET, "/status/queues") => handler::status::queues(req, state).await,
+            (&hyper::Method::GET, "/status/queues/jobs") => {
+                handler::status::queue_jobs(req, state).await
+            }
+            (&hyper::Method::GET, "/status/queues/scheduled") => {
+                handler::status::queue_scheduled(req, state).await
+            }
             (&hyper::Method::POST, "/dump_status") => handler::dump_status::post(req, state).await,
             (&hyper::Method::PUT, "/build") => handler::build::put(req, state).await,
             (&hyper::Method::GET, "/metrics") => handler::metrics::get(req, state).await,
@@ -229,7 +235,7 @@ mod handler {
 
         #[allow(clippy::no_effect_underscore_binding)]
         #[tracing::instrument(skip(_req, state), err)]
-        pub fn runnables(
+        pub fn runnable(
             _req: hyper::Request<hyper::body::Incoming>,
             state: std::sync::Arc<State>,
         ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
@@ -268,6 +274,40 @@ mod handler {
                 })
                 .collect();
             construct_json_ok_response(&io::QueueResponse::new(queues))
+        }
+
+        #[allow(clippy::no_effect_underscore_binding)]
+        #[tracing::instrument(skip(_req, state), err)]
+        pub async fn queue_jobs(
+            _req: hyper::Request<hyper::body::Incoming>,
+            state: std::sync::Arc<State>,
+        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+            let stepinfos = state
+                .queues
+                .read()
+                .await
+                .get_jobs()
+                .into_iter()
+                .map(|s| s.into())
+                .collect();
+            construct_json_ok_response(&io::StepInfoResponse::new(stepinfos))
+        }
+
+        #[allow(clippy::no_effect_underscore_binding)]
+        #[tracing::instrument(skip(_req, state), err)]
+        pub async fn queue_scheduled(
+            _req: hyper::Request<hyper::body::Incoming>,
+            state: std::sync::Arc<State>,
+        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+            let stepinfos = state
+                .queues
+                .read()
+                .await
+                .get_scheduled()
+                .into_iter()
+                .map(|s| s.into())
+                .collect();
+            construct_json_ok_response(&io::StepInfoResponse::new(stepinfos))
         }
     }
 
