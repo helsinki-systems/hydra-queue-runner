@@ -452,10 +452,13 @@ impl StepsResponse {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, serde::Serialize)]
 pub struct StepInfo {
     drv_path: nix_utils::StorePath,
     already_scheduled: bool,
+    runnable: bool,
+    finished: bool,
     cancelled: bool,
     runnable_since: chrono::DateTime<chrono::Utc>,
 
@@ -470,6 +473,8 @@ impl From<std::sync::Arc<crate::state::StepInfo>> for StepInfo {
         Self {
             drv_path: item.step.get_drv_path().clone(),
             already_scheduled: item.get_already_scheduled(),
+            runnable: item.step.get_runnable(),
+            finished: item.step.get_finished(),
             cancelled: item.get_cancelled(),
             runnable_since: item.runnable_since,
             lowest_share_used: item.lowest_share_used,
