@@ -495,18 +495,36 @@ impl State {
                 .inc_by(before_work.elapsed().as_micros() as u64);
 
             let before_sleep = Instant::now();
-            let notification = match listener.try_next().await {
-                Ok(Some(v)) => v,
-                Ok(None) => continue,
-                Err(e) => {
-                    log::warn!("PgListener failed with e={e}");
-                    continue;
+            let queue_trigger_timer = {
+                let config = self.config.read();
+                config.queue_trigger_timer
+            };
+            let notification = if let Some(timer) = queue_trigger_timer {
+                tokio::select! {
+                    () = tokio::time::sleep(timer) => {"timer_reached".into()},
+                    v = listener.try_next() => match v {
+                        Ok(Some(v)) => v.channel().to_owned(),
+                        Ok(None) => continue,
+                        Err(e) => {
+                            log::warn!("PgListener failed with e={e}");
+                            continue;
+                        }
+                    },
+                }
+            } else {
+                match listener.try_next().await {
+                    Ok(Some(v)) => v.channel().to_owned(),
+                    Ok(None) => continue,
+                    Err(e) => {
+                        log::warn!("PgListener failed with e={e}");
+                        continue;
+                    }
                 }
             };
             self.metrics.nr_queue_wakeups.add(1);
             log::trace!("New notification from PgListener. notification={notification:?}");
 
-            match notification.channel() {
+            match notification.as_ref() {
                 "builds_added" => log::debug!("got notification: new builds added to the queue"),
                 "builds_restarted" => log::debug!("got notification: builds restarted"),
                 "builds_cancelled" | "builds_deleted" | "builds_bumped" => {
@@ -710,6 +728,7 @@ impl State {
             for (system, jobs) in new_queues {
                 queues.insert_new_jobs(system, jobs, &now);
             }
+            queues.remove_all_weak_pointer();
         }
 
         {

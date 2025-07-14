@@ -47,6 +47,7 @@ dbUrl = "postgres://hydra@%2Frun%2Fpostgresql:5432/hydra"
 maxDbConnections = 128
 # valid options: SpeedFactorOnly, CpuCoreCountWithSpeedFactor, BogomipsWithSpeedFactor
 dispatchTriggerTimerInS = 120
+queueTriggerTimerInS = -1
 machineSortFn = "SpeedFactorOnly"
 remoteStoreAddr = "s3://my-bucket?region=eu-west-1"
 signingKeyPath = "/run/secrets/hydra/signing_key"
@@ -55,7 +56,7 @@ useSubstitutes = false
 maxRetries = 5
 retryInterval = 60
 retryBackoff = 3.0
-stopQueueRunAfter = 60
+stopQueueRunAfter = 120
 ```
 
 ## TODO list

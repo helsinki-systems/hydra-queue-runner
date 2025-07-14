@@ -47,6 +47,11 @@ in
               type = lib.types.int;
               default = 120;
             };
+            queueTriggerTimerInS = lib.mkOption {
+              description = "Timer for triggering queue in an interval in seconds. Setting this to a value <= 0 will disable this timer and only trigger via pg notifications.";
+              type = lib.types.int;
+              default = -1;
+            };
             remoteStoreAddr = lib.mkOption {
               description = "Remote store address";
               type = lib.types.nullOr lib.types.singleLineStr;
@@ -85,7 +90,7 @@ in
             stopQueueRunAfter = lib.mkOption {
               description = "Seconds after which the queue run should be interupted early";
               type = lib.types.ints.positive;
-              default = 60;
+              default = 120;
             };
           };
         };

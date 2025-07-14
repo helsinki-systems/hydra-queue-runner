@@ -220,6 +220,13 @@ impl Queues {
         queue.insert_new_jobs(submit_jobs, now);
     }
 
+    #[tracing::instrument(skip(self))]
+    pub fn remove_all_weak_pointer(&mut self) {
+        for queue in self.inner.values() {
+            queue.scrube_jobs();
+        }
+    }
+
     pub fn iter(&self) -> std::collections::hash_map::Iter<'_, System, Arc<BuildQueue>> {
         self.inner.iter()
     }
@@ -269,7 +276,9 @@ impl Queues {
         };
 
         self.jobs.remove(&stepinfo);
+        drop(stepinfo);
         queue.decr_active();
+        queue.scrube_jobs();
     }
 
     #[tracing::instrument(skip(self))]
