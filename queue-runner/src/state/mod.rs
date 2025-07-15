@@ -744,18 +744,17 @@ impl State {
             for (system, queue) in queues.iter() {
                 for job in queue.clone_inner() {
                     let Some(job) = job.upgrade() else {
-                        log::warn!("Found weak point job in system={system}");
                         continue;
                     };
                     if job.get_already_scheduled() {
-                        log::warn!(
+                        log::debug!(
                             "Can't schedule job because job is already scheduled system={system} drv={}",
                             job.step.get_drv_path()
                         );
                         continue;
                     }
                     if job.step.get_finished() {
-                        log::warn!(
+                        log::debug!(
                             "Can't schedule job because job is already finished system={system} drv={}",
                             job.step.get_drv_path()
                         );
@@ -764,7 +763,7 @@ impl State {
                     {
                         let state = job.step.state.read();
                         if state.after > now {
-                            log::warn!(
+                            log::debug!(
                                 "Can't schedule job because job is not yet ready system={system} drv={} after={}",
                                 job.step.get_drv_path(),
                                 state.after,
@@ -779,7 +778,7 @@ impl State {
                     {
                         Ok(Some(m)) => queues.add_job_to_scheduled(&job, queue, m),
                         Ok(_) => {
-                            log::warn!(
+                            log::debug!(
                                 "Waiting for job to schedule because no builder is ready system={system} drv={}",
                                 job.step.get_drv_path(),
                             );
