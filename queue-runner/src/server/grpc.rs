@@ -2,6 +2,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::Context as _;
 use tokio::{io::AsyncWriteExt, sync::mpsc};
+use tracing::Instrument as _;
 
 use crate::{
     server::grpc::runner_v1::StepUpdate,
@@ -272,18 +273,22 @@ impl RunnerService for Server {
         let machine_id = uuid::Uuid::parse_str(&req.machine_id);
         let step_status = crate::db::models::StepStatus::from(req.step_status());
 
-        if let Err(e) = state
-            .update_build_step(
-                machine_id.ok(),
-                &nix_utils::StorePath::new(&drv),
-                step_status,
-            )
-            .await
-        {
-            log::error!(
-                "Failed to update build step with drv={drv} step_status={step_status:?}: {e}"
-            );
-        }
+        tokio::spawn({
+            async move {
+                if let Err(e) = state
+                    .update_build_step(
+                        machine_id.ok(),
+                        &nix_utils::StorePath::new(&drv),
+                        step_status,
+                    )
+                    .await
+                {
+                    log::error!(
+                        "Failed to update build step with drv={drv} step_status={step_status:?}: {e}"
+                    );
+                }
+            }.in_current_span()
+        });
 
         Ok(tonic::Response::new(runner_v1::Empty {}))
     }
@@ -299,17 +304,22 @@ impl RunnerService for Server {
         let drv = req.drv.clone();
         let machine_id = uuid::Uuid::parse_str(&req.machine_id);
 
-        let build_output = crate::state::BuildOutput::from(req);
-        if let Err(e) = state
-            .succeed_step(
-                machine_id.ok(),
-                &nix_utils::StorePath::new(&drv),
-                build_output,
-            )
-            .await
-        {
-            log::error!("Failed to mark step with drv={drv} as done: {e}");
-        }
+        tokio::spawn({
+            async move {
+                let build_output = crate::state::BuildOutput::from(req);
+                if let Err(e) = state
+                    .succeed_step(
+                        machine_id.ok(),
+                        &nix_utils::StorePath::new(&drv),
+                        build_output,
+                    )
+                    .await
+                {
+                    log::error!("Failed to mark step with drv={drv} as done: {e}");
+                }
+            }
+            .in_current_span()
+        });
 
         Ok(tonic::Response::new(runner_v1::Empty {}))
     }
@@ -325,16 +335,21 @@ impl RunnerService for Server {
         let drv = req.drv;
         let machine_id = uuid::Uuid::parse_str(&req.machine_id);
 
-        if let Err(e) = state
-            .fail_step(
-                machine_id.ok(),
-                &nix_utils::StorePath::new(&drv),
-                std::time::Duration::from_millis(req.build_time_ms),
-            )
-            .await
-        {
-            log::error!("Failed to fail step with drv={drv}: {e}");
-        }
+        tokio::spawn({
+            async move {
+                if let Err(e) = state
+                    .fail_step(
+                        machine_id.ok(),
+                        &nix_utils::StorePath::new(&drv),
+                        std::time::Duration::from_millis(req.build_time_ms),
+                    )
+                    .await
+                {
+                    log::error!("Failed to fail step with drv={drv}: {e}");
+                }
+            }
+            .in_current_span()
+        });
 
         Ok(tonic::Response::new(runner_v1::Empty {}))
     }
