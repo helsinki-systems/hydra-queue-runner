@@ -11,15 +11,15 @@ pub async fn finish_build_step(
     res: &RemoteBuild,
     machine: Option<String>,
 ) -> anyhow::Result<()> {
-    debug_assert!(res.start_time != 0);
-    debug_assert!(res.stop_time != 0);
+    debug_assert!(res.start_time.is_some());
+    debug_assert!(res.stop_time.is_some());
     tx.update_build_step_in_finish(crate::db::models::UpdateBuildStepInFinish {
         build_id,
         step_nr,
         status: res.step_status,
         error_msg: res.error_msg.as_deref(),
-        start_time: i32::try_from(res.start_time)?,
-        stop_time: i32::try_from(res.stop_time)?,
+        start_time: i32::try_from(res.start_time.map(|s| s.timestamp()).unwrap_or_default())?,
+        stop_time: i32::try_from(res.stop_time.map(|s| s.timestamp()).unwrap_or_default())?,
         machine: machine.as_deref(),
         overhead: if res.overhead != 0 {
             Some(res.overhead)

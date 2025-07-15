@@ -221,7 +221,7 @@ impl State {
         };
 
         let mut job = machine::Job::new(build_id, drv.to_owned());
-        job.result.start_time = chrono::Utc::now().timestamp();
+        job.result.start_time = Some(chrono::Utc::now());
         if self.check_cached_failure(step.clone()).await {
             job.result.step_status = BuildStatus::CachedFailure;
             self.inner_fail_job(drv, None, job, step.clone()).await?;
@@ -239,7 +239,7 @@ impl State {
 
             let step_nr = tx
                 .create_build_step(
-                    Some(job.result.start_time),
+                    job.result.start_time.map(|s| s.timestamp()),
                     build_id,
                     step.clone(),
                     machine.hostname.clone(),
@@ -868,17 +868,20 @@ impl State {
         }
 
         job.result.step_status = BuildStatus::Success;
-        job.result.stop_time = chrono::Utc::now().timestamp();
+        job.result.stop_time = Some(chrono::Utc::now());
         {
-            let total_step_time = job.result.get_total_step_time();
-            machine.stats.add_to_total_step_time(total_step_time);
+            let total_step_time = job.result.get_total_step_time_ms();
             machine
                 .stats
-                .add_to_total_build_step_time(output.build_elapsed.as_secs());
+                .add_to_total_step_time_ms(u128::from(total_step_time));
+            machine
+                .stats
+                .add_to_total_build_step_time_ms(output.build_elapsed.as_millis());
             machine.stats.reset_consecutive_failures();
-            self.metrics.add_to_total_step_time(total_step_time);
             self.metrics
-                .add_to_total_build_step_time(output.build_elapsed.as_secs());
+                .add_to_total_step_time_ms(u128::from(total_step_time));
+            self.metrics
+                .add_to_total_build_step_time_ms(output.build_elapsed.as_millis());
         }
 
         {
@@ -952,8 +955,18 @@ impl State {
                     b.clone(),
                     &output,
                     is_cached,
-                    i32::try_from(job.result.start_time)?,
-                    i32::try_from(job.result.stop_time)?,
+                    i32::try_from(
+                        job.result
+                            .start_time
+                            .map(|s| s.timestamp())
+                            .unwrap_or_default(),
+                    )?, // TODO
+                    i32::try_from(
+                        job.result
+                            .stop_time
+                            .map(|s| s.timestamp())
+                            .unwrap_or_default(),
+                    )?, // TODO
                 )
                 .await?;
                 self.metrics.nr_builds_done.add(1);
@@ -1063,10 +1076,10 @@ impl State {
         if tries < max_retries {
             // retry step
             // TODO: update metrics:
-            // - build_step_time,
-            // - total_step_time,
-            // - maschine.build_step_time,
-            // - maschine.total_step_time,
+            // - build_step_time_ms,
+            // - total_step_time_ms,
+            // - maschine.build_step_time_ms,
+            // - maschine.total_step_time_ms,
             // - maschine.last_failure
             self.metrics.nr_retries.add(1);
             #[allow(clippy::cast_precision_loss)]
@@ -1095,9 +1108,9 @@ impl State {
         job.result.step_status = BuildStatus::Failed;
         machine
             .stats
-            .add_to_total_build_step_time(build_elapsed.as_secs());
+            .add_to_total_build_step_time_ms(build_elapsed.as_millis());
         self.metrics
-            .add_to_total_build_step_time(build_elapsed.as_secs());
+            .add_to_total_build_step_time_ms(build_elapsed.as_millis());
 
         self.inner_fail_job(drv_path, Some(machine), job, step_info.step.clone())
             .await
@@ -1112,12 +1125,15 @@ impl State {
         mut job: machine::Job,
         step: Arc<Step>,
     ) -> anyhow::Result<()> {
-        job.result.stop_time = chrono::Utc::now().timestamp();
+        job.result.stop_time = Some(chrono::Utc::now());
         {
-            let total_step_time = job.result.get_total_step_time();
-            self.metrics.add_to_total_step_time(total_step_time);
+            let total_step_time = job.result.get_total_step_time_ms();
+            self.metrics
+                .add_to_total_step_time_ms(u128::from(total_step_time));
             if let Some(machine) = &machine {
-                machine.stats.add_to_total_step_time(total_step_time);
+                machine
+                    .stats
+                    .add_to_total_step_time_ms(u128::from(total_step_time));
                 machine.stats.store_last_failure_now();
             }
         }
@@ -1183,8 +1199,18 @@ impl State {
                         } else {
                             job.result.step_status
                         },
-                        i32::try_from(job.result.start_time)?,
-                        i32::try_from(job.result.stop_time)?,
+                        i32::try_from(
+                            job.result
+                                .start_time
+                                .map(|s| s.timestamp())
+                                .unwrap_or_default(),
+                        )?, // TODO
+                        i32::try_from(
+                            job.result
+                                .stop_time
+                                .map(|s| s.timestamp())
+                                .unwrap_or_default(),
+                        )?, // TODO
                         job.result.step_status == BuildStatus::CachedFailure,
                     )
                     .await?;

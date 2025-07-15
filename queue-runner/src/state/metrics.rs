@@ -31,10 +31,10 @@ pub struct PromMetrics {
     pub nr_unsupported_steps: prometheus::IntGauge, // hydra_queue_steps_unsupported
     pub nr_retries: prometheus::IntGauge,     // hydra_queue_steps_retries
     pub max_nr_retries: prometheus::IntGauge, // hydra_queue_steps_max_retries
-    pub avg_step_time: prometheus::IntGauge,  // hydra_queue_steps_avg_total_time
-    pub avg_step_build_time: prometheus::IntGauge, // hydra_queue_steps_avg_build_time
-    pub total_step_time: prometheus::IntGauge, // hydra_queue_steps_total_time
-    pub total_step_build_time: prometheus::IntGauge, // hydra_queue_steps_total_build_time
+    pub avg_step_time_ms: prometheus::IntGauge, // hydra_queue_steps_avg_total_time
+    pub avg_step_build_time_ms: prometheus::IntGauge, // hydra_queue_steps_avg_build_time
+    pub total_step_time_ms: prometheus::IntGauge, // hydra_queue_steps_total_time
+    pub total_step_build_time_ms: prometheus::IntGauge, // hydra_queue_steps_total_build_time
     pub nr_queue_wakeups: prometheus::IntGauge, //hydra_queue_checks
     pub nr_dispatcher_wakeups: prometheus::IntGauge, // hydra_queue_dispatch_wakeup
     pub dispatch_time_ms: prometheus::IntGauge, // hydra_queue_dispatch_time
@@ -140,21 +140,21 @@ impl PromMetrics {
             "hydra_queue_steps_max_retries",
             "hydra_queue_steps_max_retries",
         ))?;
-        let avg_step_time = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_avg_time",
-            "hydra_queue_steps_avg_time",
+        let avg_step_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_steps_avg_time_ms",
+            "hydra_queue_steps_avg_time_ms",
         ))?;
-        let avg_step_build_time = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_avg_build_time",
-            "hydra_queue_steps_avg_build_time",
+        let avg_step_build_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_steps_avg_build_time_ms",
+            "hydra_queue_steps_avg_build_time_ms",
         ))?;
-        let total_step_time = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_total_time",
-            "hydra_queue_steps_total_time",
+        let total_step_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_steps_total_time_ms",
+            "hydra_queue_steps_total_time_ms",
         ))?;
-        let total_step_build_time = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_total_build_time",
-            "hydra_queue_steps_total_build_time",
+        let total_step_build_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_steps_total_build_time_ms",
+            "hydra_queue_steps_total_build_time_ms",
         ))?;
         let nr_queue_wakeups = prometheus::IntGauge::with_opts(prometheus::Opts::new(
             "hydra_queue_checks",
@@ -216,10 +216,10 @@ impl PromMetrics {
         r.register(Box::new(nr_unsupported_steps.clone()))?;
         r.register(Box::new(nr_retries.clone()))?;
         r.register(Box::new(max_nr_retries.clone()))?;
-        r.register(Box::new(avg_step_time.clone()))?;
-        r.register(Box::new(avg_step_build_time.clone()))?;
-        r.register(Box::new(total_step_time.clone()))?;
-        r.register(Box::new(total_step_build_time.clone()))?;
+        r.register(Box::new(avg_step_time_ms.clone()))?;
+        r.register(Box::new(avg_step_build_time_ms.clone()))?;
+        r.register(Box::new(total_step_time_ms.clone()))?;
+        r.register(Box::new(total_step_build_time_ms.clone()))?;
         r.register(Box::new(nr_queue_wakeups.clone()))?;
         r.register(Box::new(nr_dispatcher_wakeups.clone()))?;
         r.register(Box::new(dispatch_time_ms.clone()))?;
@@ -252,10 +252,10 @@ impl PromMetrics {
             nr_unsupported_steps,
             nr_retries,
             max_nr_retries,
-            avg_step_time,
-            avg_step_build_time,
-            total_step_time,
-            total_step_build_time,
+            avg_step_time_ms,
+            avg_step_build_time_ms,
+            total_step_time_ms,
+            total_step_build_time_ms,
             nr_queue_wakeups,
             nr_dispatcher_wakeups,
             dispatch_time_ms,
@@ -269,10 +269,10 @@ impl PromMetrics {
     pub async fn refresh_dynamic_metrics(&self, state: &Arc<super::State>) {
         let nr_steps_done = self.nr_steps_done.get();
         if nr_steps_done > 0 {
-            self.avg_step_time
-                .set(self.total_step_time.get() / nr_steps_done);
-            self.avg_step_build_time
-                .set(self.total_step_build_time.get() / nr_steps_done);
+            self.avg_step_time_ms
+                .set(self.total_step_time_ms.get() / nr_steps_done);
+            self.avg_step_build_time_ms
+                .set(self.total_step_build_time_ms.get() / nr_steps_done);
         }
 
         if let Ok(v) = i64::try_from(state.get_nr_builds_unfinished()) {
@@ -319,15 +319,15 @@ impl PromMetrics {
         Ok(buffer)
     }
 
-    pub fn add_to_total_step_time(&self, v: u64) {
+    pub fn add_to_total_step_time_ms(&self, v: u128) {
         if let Ok(v) = i64::try_from(v) {
-            self.total_step_time.add(v);
+            self.total_step_time_ms.add(v);
         }
     }
 
-    pub fn add_to_total_build_step_time(&self, v: u64) {
+    pub fn add_to_total_build_step_time_ms(&self, v: u128) {
         if let Ok(v) = i64::try_from(v) {
-            self.total_step_build_time.add(v);
+            self.total_step_build_time_ms.add(v);
         }
     }
 }

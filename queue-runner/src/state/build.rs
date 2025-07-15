@@ -348,8 +348,8 @@ pub struct RemoteBuild {
     pub times_build: i32,
     pub is_non_deterministic: bool,
 
-    pub start_time: i64,
-    pub stop_time: i64,
+    pub start_time: Option<chrono::DateTime<chrono::Utc>>,
+    pub stop_time: Option<chrono::DateTime<chrono::Utc>>,
 
     pub overhead: i32,
     pub log_file: String,
@@ -365,18 +365,19 @@ impl RemoteBuild {
             error_msg: None,
             times_build: 0,
             is_non_deterministic: false,
-            start_time: 0,
-            stop_time: 0,
+            start_time: None,
+            stop_time: None,
             overhead: 0,
             log_file: String::new(),
         }
     }
 
-    pub fn get_total_step_time(&self) -> u64 {
-        if self.start_time < 0 {
-            return 0;
+    pub fn get_total_step_time_ms(&self) -> u64 {
+        if let (Some(start_time), Some(stop_time)) = (self.start_time, self.stop_time) {
+            u64::try_from((stop_time - start_time).num_milliseconds()).unwrap_or_default()
+        } else {
+            0
         }
-        u64::try_from(self.stop_time - self.start_time).unwrap_or_default()
     }
 }
 

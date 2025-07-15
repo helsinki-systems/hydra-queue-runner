@@ -59,8 +59,8 @@ impl Pressure {
 pub struct Stats {
     current_jobs: Counter,
     nr_steps_done: Counter,
-    total_step_time: Counter,
-    total_step_build_time: Counter,
+    total_step_time_ms: Counter,
+    total_step_build_time_ms: Counter,
     idle_since: std::sync::atomic::AtomicI64,
 
     last_failure: std::sync::atomic::AtomicI64,
@@ -84,8 +84,8 @@ impl Stats {
         Self {
             current_jobs: 0.into(),
             nr_steps_done: 0.into(),
-            total_step_time: 0.into(),
-            total_step_build_time: 0.into(),
+            total_step_time_ms: 0.into(),
+            total_step_build_time_ms: 0.into(),
             idle_since: (chrono::Utc::now().timestamp()).into(),
             last_failure: 0.into(),
             disabled_until: 0.into(),
@@ -128,20 +128,24 @@ impl Stats {
         self.nr_steps_done.fetch_add(1, Ordering::SeqCst);
     }
 
-    pub fn get_total_step_time(&self) -> u64 {
-        self.total_step_time.load(Ordering::SeqCst)
+    pub fn get_total_step_time_ms(&self) -> u64 {
+        self.total_step_time_ms.load(Ordering::SeqCst)
     }
 
-    pub fn add_to_total_step_time(&self, v: u64) {
-        self.total_step_time.fetch_add(v, Ordering::SeqCst);
+    pub fn add_to_total_step_time_ms(&self, v: u128) {
+        if let Ok(v) = u64::try_from(v) {
+            self.total_step_time_ms.fetch_add(v, Ordering::SeqCst);
+        }
     }
 
-    pub fn get_total_step_build_time(&self) -> u64 {
-        self.total_step_build_time.load(Ordering::SeqCst)
+    pub fn get_total_step_build_time_ms(&self) -> u64 {
+        self.total_step_build_time_ms.load(Ordering::SeqCst)
     }
 
-    pub fn add_to_total_build_step_time(&self, v: u64) {
-        self.total_step_build_time.fetch_add(v, Ordering::SeqCst);
+    pub fn add_to_total_build_step_time_ms(&self, v: u128) {
+        if let Ok(v) = u64::try_from(v) {
+            self.total_step_build_time_ms.fetch_add(v, Ordering::SeqCst);
+        }
     }
 
     pub fn get_idle_since(&self) -> i64 {

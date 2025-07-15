@@ -39,10 +39,10 @@ impl From<&crate::state::Pressure> for Pressure {
 pub struct MachineStats {
     current_jobs: u64,
     nr_steps_done: u64,
-    avg_step_time: u64,
-    avg_step_build_time: u64,
-    total_step_time: u64,
-    total_step_build_time: u64,
+    avg_step_time_ms: u64,
+    avg_step_build_time_ms: u64,
+    total_step_time_ms: u64,
+    total_step_build_time_ms: u64,
     idle_since: i64,
 
     last_failure: i64,
@@ -67,12 +67,12 @@ impl MachineStats {
         let last_ping = item.get_last_ping();
 
         let nr_steps_done = item.get_nr_steps_done();
-        let total_step_time = item.get_total_step_time();
-        let total_step_build_time = item.get_total_step_build_time();
-        let (avg_step_time, avg_step_build_time) = if nr_steps_done > 0 {
+        let total_step_time_ms = item.get_total_step_time_ms();
+        let total_step_build_time_ms = item.get_total_step_build_time_ms();
+        let (avg_step_time_ms, avg_step_build_time_ms) = if nr_steps_done > 0 {
             (
-                total_step_time / nr_steps_done,
-                total_step_build_time / nr_steps_done,
+                total_step_time_ms / nr_steps_done,
+                total_step_build_time_ms / nr_steps_done,
             )
         } else {
             (0, 0)
@@ -81,10 +81,10 @@ impl MachineStats {
         Self {
             current_jobs: item.get_current_jobs(),
             nr_steps_done,
-            avg_step_time,
-            avg_step_build_time,
-            total_step_time,
-            total_step_build_time,
+            avg_step_time_ms,
+            avg_step_build_time_ms,
+            total_step_time_ms,
+            total_step_build_time_ms,
             idle_since: item.get_idle_since(),
             last_failure: item.get_last_failure(),
             disabled_until: item.get_disabled_until(),
@@ -228,10 +228,10 @@ pub struct QueueRunnerStats {
     nr_unsupported_steps: i64,
     nr_retries: i64,
     max_nr_retries: i64,
-    avg_step_time: i64,
-    avg_step_build_time: i64,
-    total_step_time: i64,
-    total_step_build_time: i64,
+    avg_step_time_ms: i64,
+    avg_step_build_time_ms: i64,
+    total_step_time_ms: i64,
+    total_step_build_time_ms: i64,
     nr_queue_wakeups: i64,
     nr_dispatcher_wakeups: i64,
     dispatch_time_ms: i64,
@@ -291,10 +291,10 @@ impl QueueRunnerStats {
             nr_unsupported_steps: state.metrics.nr_unsupported_steps.get(),
             nr_retries: state.metrics.nr_retries.get(),
             max_nr_retries: state.metrics.max_nr_retries.get(),
-            avg_step_time: state.metrics.avg_step_time.get(),
-            avg_step_build_time: state.metrics.avg_step_build_time.get(),
-            total_step_time: state.metrics.total_step_time.get(),
-            total_step_build_time: state.metrics.total_step_build_time.get(),
+            avg_step_time_ms: state.metrics.avg_step_time_ms.get(),
+            avg_step_build_time_ms: state.metrics.avg_step_build_time_ms.get(),
+            total_step_time_ms: state.metrics.total_step_time_ms.get(),
+            total_step_build_time_ms: state.metrics.total_step_build_time_ms.get(),
             nr_queue_wakeups: state.metrics.nr_queue_wakeups.get(),
             nr_dispatcher_wakeups: state.metrics.nr_dispatcher_wakeups.get(),
             dispatch_time_ms: state.metrics.dispatch_time_ms.get(),
