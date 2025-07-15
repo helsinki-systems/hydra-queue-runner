@@ -40,8 +40,10 @@ pub struct MachineStats {
     current_jobs: u64,
     nr_steps_done: u64,
     avg_step_time_ms: u64,
+    avg_step_import_time_ms: u64,
     avg_step_build_time_ms: u64,
     total_step_time_ms: u64,
+    total_step_import_time_ms: u64,
     total_step_build_time_ms: u64,
     idle_since: i64,
 
@@ -68,22 +70,27 @@ impl MachineStats {
 
         let nr_steps_done = item.get_nr_steps_done();
         let total_step_time_ms = item.get_total_step_time_ms();
+        let total_step_import_time_ms = item.get_total_step_import_time_ms();
         let total_step_build_time_ms = item.get_total_step_build_time_ms();
-        let (avg_step_time_ms, avg_step_build_time_ms) = if nr_steps_done > 0 {
-            (
-                total_step_time_ms / nr_steps_done,
-                total_step_build_time_ms / nr_steps_done,
-            )
-        } else {
-            (0, 0)
-        };
+        let (avg_step_time_ms, avg_step_import_time_ms, avg_step_build_time_ms) =
+            if nr_steps_done > 0 {
+                (
+                    total_step_time_ms / nr_steps_done,
+                    total_step_import_time_ms / nr_steps_done,
+                    total_step_build_time_ms / nr_steps_done,
+                )
+            } else {
+                (0, 0, 0)
+            };
 
         Self {
             current_jobs: item.get_current_jobs(),
             nr_steps_done,
             avg_step_time_ms,
+            avg_step_import_time_ms,
             avg_step_build_time_ms,
             total_step_time_ms,
+            total_step_import_time_ms,
             total_step_build_time_ms,
             idle_since: item.get_idle_since(),
             last_failure: item.get_last_failure(),
@@ -229,8 +236,10 @@ pub struct QueueRunnerStats {
     nr_retries: i64,
     max_nr_retries: i64,
     avg_step_time_ms: i64,
+    avg_step_import_time_ms: i64,
     avg_step_build_time_ms: i64,
     total_step_time_ms: i64,
+    total_step_import_time_ms: i64,
     total_step_build_time_ms: i64,
     nr_queue_wakeups: i64,
     nr_dispatcher_wakeups: i64,
@@ -292,8 +301,10 @@ impl QueueRunnerStats {
             nr_retries: state.metrics.nr_retries.get(),
             max_nr_retries: state.metrics.max_nr_retries.get(),
             avg_step_time_ms: state.metrics.avg_step_time_ms.get(),
+            avg_step_import_time_ms: state.metrics.avg_step_import_time_ms.get(),
             avg_step_build_time_ms: state.metrics.avg_step_build_time_ms.get(),
             total_step_time_ms: state.metrics.total_step_time_ms.get(),
+            total_step_import_time_ms: state.metrics.total_step_import_time_ms.get(),
             total_step_build_time_ms: state.metrics.total_step_build_time_ms.get(),
             nr_queue_wakeups: state.metrics.nr_queue_wakeups.get(),
             nr_dispatcher_wakeups: state.metrics.nr_dispatcher_wakeups.get(),

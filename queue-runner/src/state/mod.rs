@@ -162,6 +162,7 @@ impl State {
                         Some(machine_id),
                         &job.path,
                         std::time::Duration::from_secs(0),
+                        std::time::Duration::from_secs(0),
                     )
                     .await
                 {
@@ -876,12 +877,17 @@ impl State {
                 .add_to_total_step_time_ms(u128::from(total_step_time));
             machine
                 .stats
-                .add_to_total_build_step_time_ms(output.build_elapsed.as_millis());
+                .add_to_total_step_import_time_ms(output.import_elapsed.as_millis());
+            machine
+                .stats
+                .add_to_total_step_build_time_ms(output.build_elapsed.as_millis());
             machine.stats.reset_consecutive_failures();
             self.metrics
                 .add_to_total_step_time_ms(u128::from(total_step_time));
             self.metrics
-                .add_to_total_build_step_time_ms(output.build_elapsed.as_millis());
+                .add_to_total_step_import_time_ms(output.import_elapsed.as_millis());
+            self.metrics
+                .add_to_total_step_build_time_ms(output.build_elapsed.as_millis());
         }
 
         {
@@ -1033,6 +1039,7 @@ impl State {
         &self,
         machine_id: Option<uuid::Uuid>,
         drv_path: &nix_utils::StorePath,
+        import_elapsed: std::time::Duration,
         build_elapsed: std::time::Duration,
     ) -> anyhow::Result<()> {
         log::info!("removing job from running in system queue: drv_path={drv_path}");
@@ -1108,9 +1115,14 @@ impl State {
         job.result.step_status = BuildStatus::Failed;
         machine
             .stats
-            .add_to_total_build_step_time_ms(build_elapsed.as_millis());
+            .add_to_total_step_build_time_ms(build_elapsed.as_millis());
+        machine
+            .stats
+            .add_to_total_step_import_time_ms(import_elapsed.as_millis());
         self.metrics
-            .add_to_total_build_step_time_ms(build_elapsed.as_millis());
+            .add_to_total_step_build_time_ms(build_elapsed.as_millis());
+        self.metrics
+            .add_to_total_step_import_time_ms(import_elapsed.as_millis());
 
         self.inner_fail_job(drv_path, Some(machine), job, step_info.step.clone())
             .await

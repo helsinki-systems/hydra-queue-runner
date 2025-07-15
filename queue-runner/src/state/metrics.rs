@@ -32,8 +32,10 @@ pub struct PromMetrics {
     pub nr_retries: prometheus::IntGauge,     // hydra_queue_steps_retries
     pub max_nr_retries: prometheus::IntGauge, // hydra_queue_steps_max_retries
     pub avg_step_time_ms: prometheus::IntGauge, // hydra_queue_steps_avg_total_time
+    pub avg_step_import_time_ms: prometheus::IntGauge, // hydra_queue_steps_avg_import_time
     pub avg_step_build_time_ms: prometheus::IntGauge, // hydra_queue_steps_avg_build_time
     pub total_step_time_ms: prometheus::IntGauge, // hydra_queue_steps_total_time
+    pub total_step_import_time_ms: prometheus::IntGauge, // hydra_queue_steps_total_import_time
     pub total_step_build_time_ms: prometheus::IntGauge, // hydra_queue_steps_total_build_time
     pub nr_queue_wakeups: prometheus::IntGauge, //hydra_queue_checks
     pub nr_dispatcher_wakeups: prometheus::IntGauge, // hydra_queue_dispatch_wakeup
@@ -144,6 +146,10 @@ impl PromMetrics {
             "hydra_queue_steps_avg_time_ms",
             "hydra_queue_steps_avg_time_ms",
         ))?;
+        let avg_step_import_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_steps_avg_import_time_ms",
+            "hydra_queue_steps_avg_import_time_ms",
+        ))?;
         let avg_step_build_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
             "hydra_queue_steps_avg_build_time_ms",
             "hydra_queue_steps_avg_build_time_ms",
@@ -151,6 +157,10 @@ impl PromMetrics {
         let total_step_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
             "hydra_queue_steps_total_time_ms",
             "hydra_queue_steps_total_time_ms",
+        ))?;
+        let total_step_import_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_steps_total_import_time_ms",
+            "hydra_queue_steps_total_import_time_ms",
         ))?;
         let total_step_build_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
             "hydra_queue_steps_total_build_time_ms",
@@ -217,8 +227,10 @@ impl PromMetrics {
         r.register(Box::new(nr_retries.clone()))?;
         r.register(Box::new(max_nr_retries.clone()))?;
         r.register(Box::new(avg_step_time_ms.clone()))?;
+        r.register(Box::new(avg_step_import_time_ms.clone()))?;
         r.register(Box::new(avg_step_build_time_ms.clone()))?;
         r.register(Box::new(total_step_time_ms.clone()))?;
+        r.register(Box::new(total_step_import_time_ms.clone()))?;
         r.register(Box::new(total_step_build_time_ms.clone()))?;
         r.register(Box::new(nr_queue_wakeups.clone()))?;
         r.register(Box::new(nr_dispatcher_wakeups.clone()))?;
@@ -253,8 +265,10 @@ impl PromMetrics {
             nr_retries,
             max_nr_retries,
             avg_step_time_ms,
+            avg_step_import_time_ms,
             avg_step_build_time_ms,
             total_step_time_ms,
+            total_step_import_time_ms,
             total_step_build_time_ms,
             nr_queue_wakeups,
             nr_dispatcher_wakeups,
@@ -271,6 +285,8 @@ impl PromMetrics {
         if nr_steps_done > 0 {
             self.avg_step_time_ms
                 .set(self.total_step_time_ms.get() / nr_steps_done);
+            self.avg_step_import_time_ms
+                .set(self.total_step_import_time_ms.get() / nr_steps_done);
             self.avg_step_build_time_ms
                 .set(self.total_step_build_time_ms.get() / nr_steps_done);
         }
@@ -325,7 +341,13 @@ impl PromMetrics {
         }
     }
 
-    pub fn add_to_total_build_step_time_ms(&self, v: u128) {
+    pub fn add_to_total_step_import_time_ms(&self, v: u128) {
+        if let Ok(v) = i64::try_from(v) {
+            self.total_step_build_time_ms.add(v);
+        }
+    }
+
+    pub fn add_to_total_step_build_time_ms(&self, v: u128) {
         if let Ok(v) = i64::try_from(v) {
             self.total_step_build_time_ms.add(v);
         }
