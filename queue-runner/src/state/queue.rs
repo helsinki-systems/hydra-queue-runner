@@ -21,20 +21,6 @@ pub struct StepInfo {
     pub lowest_build_id: BuildID,
 }
 
-impl PartialEq for StepInfo {
-    fn eq(&self, other: &Self) -> bool {
-        self.step.get_drv_path() == other.step.get_drv_path()
-    }
-}
-
-impl Eq for StepInfo {}
-
-impl std::hash::Hash for StepInfo {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.step.get_drv_path().hash(state);
-    }
-}
-
 impl StepInfo {
     pub fn new(step: Arc<Step>) -> Self {
         let (lowest_share_used, runnable_since) = {
@@ -197,7 +183,7 @@ impl BuildQueue {
 
 pub struct Queues {
     // flat list of all step infos in queues, owning those steps inner queue dont own them
-    jobs: AHashSet<Arc<StepInfo>>,
+    jobs: AHashMap<nix_utils::StorePath, Arc<StepInfo>>,
     inner: AHashMap<System, Arc<BuildQueue>>,
     #[allow(clippy::type_complexity)]
     scheduled: parking_lot::RwLock<
@@ -208,7 +194,7 @@ pub struct Queues {
 impl Queues {
     pub fn new() -> Self {
         Self {
-            jobs: AHashSet::new(),
+            jobs: AHashMap::new(),
             inner: AHashMap::new(),
             scheduled: parking_lot::RwLock::new(AHashMap::new()),
         }
@@ -224,8 +210,9 @@ impl Queues {
         let mut submit_jobs: Vec<Weak<StepInfo>> = Vec::new();
         for j in jobs {
             let j = Arc::new(j);
-            if !self.jobs.contains(&j) {
-                self.jobs.insert(j.clone());
+            if !self.jobs.contains_key(j.step.get_drv_path()) {
+                self.jobs
+                    .insert(j.step.get_drv_path().to_owned(), j.clone());
                 submit_jobs.push(Arc::downgrade(&j));
             }
         }
@@ -279,7 +266,12 @@ impl Queues {
 
     #[tracing::instrument(skip(self, stepinfo, queue))]
     pub fn remove_job(&mut self, stepinfo: &Arc<StepInfo>, queue: &Arc<BuildQueue>) {
-        self.jobs.remove(stepinfo);
+        if self.jobs.remove(stepinfo.step.get_drv_path()).is_none() {
+            log::error!(
+                "Failed to remove stepinfo drv={} from jobs!",
+                stepinfo.step.get_drv_path(),
+            );
+        }
         // active should be removed
         queue.scrube_jobs();
     }
@@ -319,7 +311,7 @@ impl Queues {
     }
 
     pub fn get_jobs(&self) -> Vec<Arc<StepInfo>> {
-        self.jobs.iter().map(Clone::clone).collect()
+        self.jobs.values().map(Clone::clone).collect()
     }
 
     pub fn get_scheduled(&self) -> Vec<Arc<StepInfo>> {
