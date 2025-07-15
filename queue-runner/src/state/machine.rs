@@ -1,6 +1,6 @@
 use std::sync::{Arc, atomic::Ordering};
 
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 use tokio::sync::mpsc;
 
 use super::System;
@@ -240,6 +240,7 @@ impl MachinesInner {
 
 pub struct Machines {
     inner: parking_lot::RwLock<MachinesInner>,
+    supported_features: parking_lot::RwLock<AHashSet<String>>,
 }
 
 impl Machines {
@@ -249,6 +250,7 @@ impl Machines {
                 by_uuid: AHashMap::new(),
                 by_system: AHashMap::new(),
             }),
+            supported_features: parking_lot::RwLock::new(AHashSet::new()),
         }
     }
 
@@ -257,35 +259,72 @@ impl Machines {
         inner.sort(sort_fn);
     }
 
+    pub fn get_supported_features(&self) -> Vec<String> {
+        let supported_features = self.supported_features.read();
+        supported_features.iter().cloned().collect()
+    }
+
+    #[allow(dead_code)]
+    fn has_supported_features(&self, required_features: &[String]) -> bool {
+        let supported_features = self.supported_features.read();
+        required_features
+            .iter()
+            .all(|f| supported_features.contains(f))
+    }
+
+    fn reconstruct_supported_features(&self) {
+        let all_supported_features = {
+            let inner = self.inner.read();
+            inner
+                .by_uuid
+                .values()
+                .flat_map(|m| m.supported_features.clone())
+                .collect::<AHashSet<_>>()
+        };
+
+        {
+            let mut supported_features = self.supported_features.write();
+            *supported_features = all_supported_features;
+        }
+    }
+
     #[tracing::instrument(skip(self, machine, sort_fn))]
     pub fn insert_machine(&self, machine: Machine, sort_fn: MachineSortFn) -> uuid::Uuid {
         let machine_id = machine.id;
-        let mut inner = self.inner.write();
-        let machine = Arc::new(machine);
-        inner.by_uuid.insert(machine_id, machine.clone());
         {
-            for system in &machine.systems {
-                let v = inner.by_system.entry(system.clone()).or_default();
-                v.push(machine.clone());
+            let mut inner = self.inner.write();
+            let machine = Arc::new(machine);
+
+            inner.by_uuid.insert(machine_id, machine.clone());
+            {
+                for system in &machine.systems {
+                    let v = inner.by_system.entry(system.clone()).or_default();
+                    v.push(machine.clone());
+                }
             }
+            inner.sort(sort_fn);
         }
-        inner.sort(sort_fn);
+        self.reconstruct_supported_features();
         machine_id
     }
 
     #[tracing::instrument(skip(self, machine_id))]
     pub fn remove_machine(&self, machine_id: uuid::Uuid) -> Option<Arc<Machine>> {
-        let mut inner = self.inner.write();
-        if let Some(m) = inner.by_uuid.remove(&machine_id) {
-            for system in &m.systems {
-                if let Some(v) = inner.by_system.get_mut(system) {
-                    v.retain(|o| o.id != machine_id);
+        let m = {
+            let mut inner = self.inner.write();
+            if let Some(m) = inner.by_uuid.remove(&machine_id) {
+                for system in &m.systems {
+                    if let Some(v) = inner.by_system.get_mut(system) {
+                        v.retain(|o| o.id != machine_id);
+                    }
                 }
+                Some(m)
+            } else {
+                None
             }
-            Some(m)
-        } else {
-            None
-        }
+        };
+        self.reconstruct_supported_features();
+        m
     }
 
     #[tracing::instrument(skip(self, machine_id))]

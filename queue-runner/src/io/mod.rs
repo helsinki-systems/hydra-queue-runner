@@ -203,6 +203,7 @@ pub struct QueueRunnerStats {
     time: chrono::DateTime<chrono::Utc>,
     uptime: f64,
     proc: Option<Process>,
+    supported_features: Vec<String>,
 
     build_count: usize,
     jobset_count: usize,
@@ -270,6 +271,7 @@ impl QueueRunnerStats {
             time,
             uptime: (time - state.started_at).as_seconds_f64(),
             proc: Process::new(),
+            supported_features: state.machines.get_supported_features(),
             build_count,
             jobset_count,
             step_count,
