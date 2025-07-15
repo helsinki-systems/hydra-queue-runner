@@ -53,7 +53,7 @@ jobs:
 
       - run: cargo build --all --tests --all-features
 
-  build:
+  test:
     name: Test
     runs-on: ubuntu-latest
     steps:
