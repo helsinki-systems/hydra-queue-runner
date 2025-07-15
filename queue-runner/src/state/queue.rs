@@ -301,7 +301,11 @@ impl Queues {
 
             {
                 step_info.cancelled.store(true, Ordering::SeqCst);
-                machine.abort_build(drv_path).await;
+                if let Err(e) = machine.abort_build(drv_path).await {
+                    log::error!("Failed to abort build drv_path={drv_path} e={e}");
+                    // continue; // TODO
+                }
+
                 // TODO fail job
             }
         }

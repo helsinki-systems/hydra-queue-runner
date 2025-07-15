@@ -273,7 +273,7 @@ impl State {
                 status: crate::db::models::StepStatus::Connecting,
             })
             .await?;
-        machine.build_drv(job, &build_options).await;
+        machine.build_drv(job, &build_options).await?;
         self.metrics.nr_steps_started.add(1);
         self.metrics.nr_steps_building.add(1);
         Ok(Some(machine))

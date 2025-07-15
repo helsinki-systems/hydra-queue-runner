@@ -477,11 +477,10 @@ impl Machine {
         })
     }
 
-    #[tracing::instrument(skip(self, job, opts))]
-    pub async fn build_drv(&self, job: Job, opts: &nix_utils::BuildOptions) {
+    #[tracing::instrument(skip(self, job, opts), err)]
+    pub async fn build_drv(&self, job: Job, opts: &nix_utils::BuildOptions) -> anyhow::Result<()> {
         let drv = job.path.clone();
-        if let Err(e) = self
-            .msg_queue
+        self.msg_queue
             .send(runner_request::Message::Build(BuildMessage {
                 requisites: nix_utils::topo_sort_drvs(&drv).await.unwrap_or_default(),
                 drv: drv.base_name().to_owned(),
@@ -489,11 +488,7 @@ impl Machine {
                 max_silent_time: opts.get_max_silent_time(),
                 build_timeout: opts.get_build_timeout(),
             }))
-            .await
-        {
-            log::error!("Failed to write msg to build queue! e={e}");
-            return;
-        }
+            .await?;
 
         if self.stats.jobs_in_last_30s_count.load(Ordering::SeqCst) == 0 {
             self.stats
@@ -505,22 +500,19 @@ impl Machine {
             .fetch_add(1, Ordering::SeqCst);
 
         self.insert_job(job);
+        Ok(())
     }
 
-    #[tracing::instrument(skip(self), fields(%drv))]
-    pub async fn abort_build(&self, drv: &nix_utils::StorePath) {
-        if let Err(e) = self
-            .msg_queue
+    #[tracing::instrument(skip(self), fields(%drv), err)]
+    pub async fn abort_build(&self, drv: &nix_utils::StorePath) -> anyhow::Result<()> {
+        self.msg_queue
             .send(runner_request::Message::Abort(AbortMessage {
                 drv: drv.base_name().to_owned(),
             }))
-            .await
-        {
-            log::error!("Failed to write msg to build queue! e={e}");
-            return;
-        }
+            .await?;
 
         self.remove_job(drv);
+        Ok(())
     }
 
     pub fn machine_has_capacity(&self, free_fn: MachineFreeFn) -> bool {
