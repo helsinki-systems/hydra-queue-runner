@@ -182,9 +182,14 @@ impl State {
         system: &System,
     ) -> anyhow::Result<Option<Arc<Machine>>> {
         let drv = step.get_drv_path();
-        let Some(machine) = self
-            .machines
-            .get_machine_for_system(system, &step.get_required_features())
+        let free_fn = {
+            let config = self.config.read();
+            config.machine_free_fn
+        };
+
+        let Some(machine) =
+            self.machines
+                .get_machine_for_system(system, &step.get_required_features(), free_fn)
         else {
             log::debug!("No free machine found for system={system} drv={drv}");
             return Ok(None);

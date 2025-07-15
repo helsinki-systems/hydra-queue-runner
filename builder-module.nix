@@ -38,6 +38,24 @@ in
         default = 4;
       };
 
+      cpuPsiThreshold = lib.mkOption {
+        description = "Maximum CPU PSI in the last 10s before we stop scheduling jobs on that node";
+        type = lib.types.float;
+        default = 75.0;
+      };
+
+      memPsiThreshold = lib.mkOption {
+        description = "Maximum Memory PSI in the last 10s before we stop scheduling jobs on that node";
+        type = lib.types.float;
+        default = 80.0;
+      };
+
+      ioPsiThreshold = lib.mkOption {
+        description = "Maximum IO PSI in the last 10s before we stop scheduling jobs on that node. If null then this pressure check is disabled.";
+        type = lib.types.nullOr lib.types.float;
+        default = null;
+      };
+
       supportedFeatures = lib.mkOption {
         description = "Pass supported features to the builder. If none are passed, system features will be used.";
         type = lib.types.listOf lib.types.singleLineStr;
@@ -119,6 +137,14 @@ in
             cfg.speedFactor
             "--max-jobs"
             cfg.maxJobs
+            "--cpu-psi-threshold"
+            cfg.cpuPsiThreshold
+            "--mem-psi-threshold"
+            cfg.memPsiThreshold
+          ]
+          ++ lib.optionals (cfg.ioPsiThreshold != null) [
+            "--io-psi-threshold"
+            cfg.ioPsiThreshold
           ]
           ++ (builtins.concatMap (v: [
             "--supported-features"

@@ -33,10 +33,13 @@ message JoinMessage {
   float bogomips = 5;
   float speed_factor = 6;
   uint32 max_jobs = 7;
-  uint64 total_mem = 8;
-  repeated string supported_features = 9;
-  repeated string mandatory_features = 10;
-  bool cgroups = 11;
+  float cpu_psi_threshold = 8;
+  float mem_psi_threshold = 9;
+  optional float io_psi_threshold = 10;
+  uint64 total_mem = 11;
+  repeated string supported_features = 12;
+  repeated string mandatory_features = 13;
+  bool cgroups = 14;
 }
 
 message Pressure {

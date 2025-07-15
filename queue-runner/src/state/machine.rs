@@ -5,19 +5,18 @@ use tokio::sync::mpsc;
 
 use super::System;
 use super::build::{BuildID, RemoteBuild};
+use crate::config::MachineFreeFn;
 use crate::{
     config::MachineSortFn,
     server::grpc::runner_v1::{AbortMessage, BuildMessage, JoinMessage, runner_request},
 };
-
-type Counter = std::sync::atomic::AtomicU64;
 
 #[derive(Debug)]
 pub struct Pressure {
     pub avg10: atomic_float::AtomicF32,
     pub avg60: atomic_float::AtomicF32,
     pub avg300: atomic_float::AtomicF32,
-    pub total: Counter,
+    pub total: std::sync::atomic::AtomicU64,
 }
 
 impl Pressure {
@@ -57,27 +56,30 @@ impl Pressure {
 
 #[derive(Debug)]
 pub struct Stats {
-    current_jobs: Counter,
-    nr_steps_done: Counter,
-    total_step_time_ms: Counter,
-    total_step_import_time_ms: Counter,
-    total_step_build_time_ms: Counter,
+    current_jobs: std::sync::atomic::AtomicU64,
+    nr_steps_done: std::sync::atomic::AtomicU64,
+    total_step_time_ms: std::sync::atomic::AtomicU64,
+    total_step_import_time_ms: std::sync::atomic::AtomicU64,
+    total_step_build_time_ms: std::sync::atomic::AtomicU64,
     idle_since: std::sync::atomic::AtomicI64,
 
     last_failure: std::sync::atomic::AtomicI64,
     disabled_until: std::sync::atomic::AtomicI64,
-    consecutive_failures: Counter,
+    consecutive_failures: std::sync::atomic::AtomicU64,
     last_ping: std::sync::atomic::AtomicI64,
 
     load1: atomic_float::AtomicF32,
     load5: atomic_float::AtomicF32,
     load15: atomic_float::AtomicF32,
-    mem_usage: Counter,
+    mem_usage: std::sync::atomic::AtomicU64,
     pub cpu_some_psi: Pressure,
     pub mem_some_psi: Pressure,
     pub mem_full_psi: Pressure,
     pub io_some_psi: Pressure,
     pub io_full_psi: Pressure,
+
+    jobs_in_last_30s_start: std::sync::atomic::AtomicI64,
+    jobs_in_last_30s_count: std::sync::atomic::AtomicU64,
 }
 
 impl Stats {
@@ -104,6 +106,9 @@ impl Stats {
             mem_full_psi: Pressure::new(),
             io_some_psi: Pressure::new(),
             io_full_psi: Pressure::new(),
+
+            jobs_in_last_30s_start: 0.into(),
+            jobs_in_last_30s_count: 0.into(),
         }
     }
 
@@ -338,20 +343,24 @@ impl Machines {
         &self,
         system: &str,
         required_features: &[String],
+        free_fn: MachineFreeFn,
     ) -> Option<Arc<Machine>> {
         let inner = self.inner.read();
         if system == "builtin" {
             inner
                 .by_uuid
                 .values()
-                .find(|m| m.machine_has_capacity() && m.supports_all_features(required_features))
+                .find(|m| {
+                    m.machine_has_capacity(free_fn) && m.supports_all_features(required_features)
+                })
                 .cloned()
         } else {
             inner.by_system.get(system).and_then(|machines| {
                 machines
                     .iter()
                     .find(|m| {
-                        m.machine_has_capacity() && m.supports_all_features(required_features)
+                        m.machine_has_capacity(free_fn)
+                            && m.supports_all_features(required_features)
                     })
                     .cloned()
             })
@@ -408,6 +417,9 @@ pub struct Machine {
     pub bogomips: f32,
     pub speed_factor: f32,
     pub max_jobs: u32,
+    pub cpu_psi_threshold: f32,
+    pub mem_psi_threshold: f32,        // If None, dont consider this value
+    pub io_psi_threshold: Option<f32>, // If None, dont consider this value
     pub total_mem: u64,
     pub supported_features: Vec<String>,
     pub mandatory_features: Vec<String>,
@@ -451,6 +463,9 @@ impl Machine {
             bogomips: msg.bogomips,
             speed_factor: msg.speed_factor,
             max_jobs: msg.max_jobs,
+            cpu_psi_threshold: msg.cpu_psi_threshold,
+            mem_psi_threshold: msg.mem_psi_threshold,
+            io_psi_threshold: msg.io_psi_threshold,
             total_mem: msg.total_mem,
             supported_features: msg.supported_features,
             mandatory_features: msg.mandatory_features,
@@ -480,6 +495,15 @@ impl Machine {
             return;
         }
 
+        if self.stats.jobs_in_last_30s_count.load(Ordering::SeqCst) == 0 {
+            self.stats
+                .jobs_in_last_30s_start
+                .store(chrono::Utc::now().timestamp(), Ordering::SeqCst);
+        }
+        self.stats
+            .jobs_in_last_30s_count
+            .fetch_add(1, Ordering::SeqCst);
+
         self.insert_job(job);
     }
 
@@ -499,8 +523,42 @@ impl Machine {
         self.remove_job(drv);
     }
 
-    pub fn machine_has_capacity(&self) -> bool {
-        self.stats.get_current_jobs() < u64::from(self.max_jobs)
+    pub fn machine_has_capacity(&self, free_fn: MachineFreeFn) -> bool {
+        let now = chrono::Utc::now().timestamp();
+        let jobs_in_last_30s_start = self.stats.jobs_in_last_30s_start.load(Ordering::SeqCst);
+        let jobs_in_last_30s_count = self.stats.jobs_in_last_30s_count.load(Ordering::SeqCst);
+
+        // ensure that we dont submit more than 4 jobs in 30s
+        if now < (jobs_in_last_30s_start + 30)
+            && jobs_in_last_30s_count >= 4
+            // if we already finished some of those jobs, then whatever
+            && self.stats.get_current_jobs() >= jobs_in_last_30s_count
+        {
+            return false;
+        } else if now > (jobs_in_last_30s_start + 30) {
+            // reset count
+            self.stats.jobs_in_last_30s_start.store(0, Ordering::SeqCst);
+            self.stats.jobs_in_last_30s_count.store(0, Ordering::SeqCst);
+        }
+
+        match free_fn {
+            MachineFreeFn::Dynamic => {
+                if self.stats.cpu_some_psi.get_avg10() > self.cpu_psi_threshold {
+                    return false;
+                }
+                if self.stats.mem_some_psi.get_avg10() > self.mem_psi_threshold {
+                    return false;
+                }
+                if let Some(threshold) = self.io_psi_threshold {
+                    if self.stats.io_some_psi.get_avg10() > threshold {
+                        return false;
+                    }
+                }
+
+                true
+            }
+            MachineFreeFn::Static => self.stats.get_current_jobs() < u64::from(self.max_jobs),
+        }
     }
 
     pub fn supports_all_features(&self, features: &[String]) -> bool {

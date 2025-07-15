@@ -24,6 +24,18 @@ pub struct Args {
     #[clap(long, default_value_t = 4)]
     pub max_jobs: u32,
 
+    /// CPU Pressure Threshold
+    #[clap(long, default_value_t = 75.)]
+    pub cpu_psi_threshold: f32,
+
+    /// Memory Pressure Threshold
+    #[clap(long, default_value_t = 80.)]
+    pub mem_psi_threshold: f32,
+
+    /// IO Pressure Threshold, null disables this pressure check
+    #[clap(long)]
+    pub io_psi_threshold: Option<f32>,
+
     /// Path to Server root ca cert
     #[clap(long)]
     pub server_root_ca_cert_path: Option<std::path::PathBuf>,
