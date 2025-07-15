@@ -210,7 +210,12 @@ impl Queues {
         let mut submit_jobs: Vec<Weak<StepInfo>> = Vec::new();
         for j in jobs {
             let j = Arc::new(j);
-            if !self.jobs.contains_key(j.step.get_drv_path()) {
+            // we need to check that get_finished is not true!
+            // the reason for this is that while a job is currently being proccessed for finished
+            // it can be resubmitted into the queues.
+            // to ensure that this does not block everything we need to ensure that it doesnt land
+            // here.
+            if !self.jobs.contains_key(j.step.get_drv_path()) && !j.step.get_finished() {
                 self.jobs
                     .insert(j.step.get_drv_path().to_owned(), j.clone());
                 submit_jobs.push(Arc::downgrade(&j));
