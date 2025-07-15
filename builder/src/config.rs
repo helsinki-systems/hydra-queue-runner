@@ -13,7 +13,7 @@ pub struct Args {
     pub gateway_endpoint: String,
 
     /// Ping interval in seconds
-    #[clap(short, long, default_value_t = 30)]
+    #[clap(short, long, default_value_t = 10)]
     pub ping_interval: u64,
 
     /// Speed factor that is used when joining the queue-runner

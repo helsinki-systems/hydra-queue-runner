@@ -20,6 +20,10 @@ type OpenTunnelResponseStream =
 type StreamFileResponseStream =
     std::pin::Pin<Box<dyn futures::Stream<Item = Result<NarData, tonic::Status>> + Send>>;
 
+// there is no reason to make this configurable, it only exists so we ensure the channel is not
+// closed. we dont use this to write any actual information.
+const BACKWARDS_PING_INTERVAL: u64 = 30;
+
 pub mod runner_v1 {
     // We need to allow pedantic here because of generated code
     #![allow(clippy::pedantic)]
@@ -152,7 +156,8 @@ impl RunnerService for Server {
             return Err(tonic::Status::internal("Failed to send join Response."));
         }
 
-        let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        let mut ping_interval =
+            tokio::time::interval(std::time::Duration::from_secs(BACKWARDS_PING_INTERVAL));
         tokio::spawn(async move {
             loop {
                 tokio::select! {

@@ -20,7 +20,7 @@ in
       pingInterval = lib.mkOption {
         description = "Interval in which pings are send to the runner";
         type = lib.types.ints.positive;
-        default = 30;
+        default = 10;
       };
 
       speedFactor = lib.mkOption {
