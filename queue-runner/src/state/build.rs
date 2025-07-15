@@ -30,7 +30,7 @@ pub struct Build {
     pub local_priority: i32,
     pub global_priority: AtomicI32,
 
-    pub toplevel: parking_lot::RwLock<Option<Arc<Step>>>,
+    toplevel: arc_swap::ArcSwapOption<Step>,
     pub jobset: Arc<Jobset>,
 
     pub finished_in_db: AtomicBool,
@@ -65,7 +65,7 @@ impl Build {
             timeout: i32::MAX,
             local_priority: 1000,
             global_priority: 1000.into(),
-            toplevel: parking_lot::RwLock::new(None),
+            toplevel: arc_swap::ArcSwapOption::from(None),
             jobset: Arc::new(Jobset::new(JobsetID::MAX, "debug", "debug")),
             finished_in_db: false.into(),
         })
@@ -86,7 +86,7 @@ impl Build {
             timeout: v.timeout.unwrap_or(36000),
             local_priority: v.priority,
             global_priority: v.globalpriority.into(),
-            toplevel: parking_lot::RwLock::new(None),
+            toplevel: arc_swap::ArcSwapOption::from(None),
             jobset,
             finished_in_db: false.into(),
         }))
@@ -101,15 +101,14 @@ impl Build {
 
     #[tracing::instrument(skip(self, step))]
     pub fn set_toplevel_step(&self, step: Arc<Step>) {
-        let mut toplevel = self.toplevel.write();
-        *toplevel = Some(step);
+        self.toplevel.store(Some(step));
     }
 
     pub fn propagate_priorities(&self) {
         let mut queued = AHashSet::new();
         let mut todo = std::collections::VecDeque::new();
         {
-            let toplevel = self.toplevel.read();
+            let toplevel = self.toplevel.load();
             if let Some(toplevel) = toplevel.as_ref() {
                 todo.push_back(toplevel.clone());
             }
