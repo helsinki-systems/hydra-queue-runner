@@ -118,6 +118,7 @@ impl Server {
 impl RunnerService for Server {
     type OpenTunnelStream = OpenTunnelResponseStream;
     type StreamFileStream = StreamFileResponseStream;
+    type StreamAllRequisitesStream = StreamFileResponseStream;
 
     #[tracing::instrument(skip(self, req), err)]
     async fn open_tunnel(
@@ -414,6 +415,49 @@ impl RunnerService for Server {
 
         Ok(tonic::Response::new(
             Box::pin(output) as Self::StreamFileStream
+        ))
+    }
+
+    #[tracing::instrument(skip(self, req), err)]
+    async fn stream_all_requisites(
+        &self,
+        req: tonic::Request<StorePath>,
+    ) -> BuilderResult<Self::StreamAllRequisitesStream> {
+        use tokio_stream::StreamExt as _;
+
+        let path = nix_utils::StorePath::new(&req.into_inner().path);
+        let requisites = nix_utils::topo_sort_drvs(&path)
+            .await
+            .map_err(|e| {
+                log::error!("failed to toposort drv e={e}");
+                tonic::Status::internal("failed to toposort drv.")
+            })?
+            .into_iter()
+            .map(|s| nix_utils::StorePath::new(&s))
+            .collect::<Vec<_>>();
+
+        let (mut child, mut bytes_stream) = nix_utils::export_nars(&requisites, false)
+            .await
+            .map_err(|_| tonic::Status::internal("failed to export paths"))?;
+
+        let output = async_stream::try_stream! {
+            while let Some(chunk) = bytes_stream.next().await {
+                let chunk = chunk?;
+                yield NarData {
+                    chunk: chunk.into()
+                }
+            }
+            nix_utils::validate_statuscode(
+                child
+                    .wait()
+                    .await
+                    .map_err(|_| tonic::Status::internal("failed to export paths"))?,
+            )
+            .map_err(|_| tonic::Status::internal("failed to export paths"))?;
+        };
+
+        Ok(tonic::Response::new(
+            Box::pin(output) as Self::StreamAllRequisitesStream
         ))
     }
 }

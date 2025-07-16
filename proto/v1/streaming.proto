@@ -15,6 +15,7 @@ service RunnerService {
   rpc CompleteBuildWithFailure(FailResultInfo) returns (Empty) {}
   rpc FetchDrvRequisites(StorePath) returns (DrvRequisitesMessage) {}
   rpc StreamFile(StorePath) returns (stream NarData) {}
+  rpc StreamAllRequisites(StorePath) returns (stream NarData) {}
 }
 
 message Empty {}

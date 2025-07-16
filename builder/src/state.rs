@@ -382,7 +382,7 @@ async fn import_path(
     if !nix_utils::check_if_storepath_exists(&path) {
         log::debug!("Importing {path}");
         let input_stream = client
-            .stream_file(crate::runner_v1::StorePath {
+            .stream_all_requisites(crate::runner_v1::StorePath {
                 path: path.base_name().to_owned(),
             })
             .await?
@@ -406,17 +406,10 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     drv: &nix_utils::StorePath,
     requisites: T,
 ) -> anyhow::Result<()> {
-    let (drvs, other): (Vec<_>, Vec<_>) = requisites
-        .into_iter()
-        .partition(nix_utils::StorePath::is_drv);
-
-    for o in other {
-        import_path(client.clone(), gcroot, o).await?;
-    }
-
-    // Do this drv by drv otherwise drvs get corrupted
-    for drv in drvs {
-        import_path(client.clone(), gcroot, drv).await?;
+    // TODO: figure out how to do this in parallel
+    import_path(client.clone(), gcroot, drv.to_owned()).await?;
+    for o in requisites {
+        nix_utils::add_root(&gcroot.root, &o);
     }
 
     Ok(())
