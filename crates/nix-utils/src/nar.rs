@@ -1,5 +1,6 @@
-use tokio::io::AsyncWriteExt as _;
+use tokio::io::{AsyncReadExt, AsyncWriteExt as _};
 use tokio_stream::StreamExt as _;
+use tracing::Instrument as _;
 
 use crate::StorePath;
 
@@ -62,23 +63,27 @@ where
         .spawn()?;
 
     let mut stdin = child.stdin.take().ok_or(crate::Error::Stream)?;
+    tokio::spawn(
+        {
+            async move {
+                while let Some(chunk) = input_stream.next().await {
+                    if let Err(e) = stdin.write_all(&chunk).await {
+                        log::error!("Error writing to stdin: {}", e);
+                        return Err(e);
+                    }
+                }
 
-    tokio::spawn(async move {
-        while let Some(chunk) = input_stream.next().await {
-            if let Err(e) = stdin.write_all(&chunk).await {
-                log::error!("Error writing to stdin: {}", e);
-                return Err(e);
+                if let Err(e) = stdin.shutdown().await {
+                    log::error!("Error closing stdin: {}", e);
+                    return Err(e);
+                }
+                drop(stdin);
+
+                Ok::<(), tokio::io::Error>(())
             }
         }
-
-        if let Err(e) = stdin.shutdown().await {
-            log::error!("Error closing stdin: {}", e);
-            return Err(e);
-        }
-        drop(stdin);
-
-        Ok::<(), tokio::io::Error>(())
-    })
+        .in_current_span(),
+    )
     .await??;
 
     let out = child.wait().await?;
