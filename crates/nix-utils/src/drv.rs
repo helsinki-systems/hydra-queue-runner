@@ -226,7 +226,10 @@ pub async fn realise_drv(
             "--option",
             "substitute",
             format_bool(opts.substitute),
-            &drv.get_full_path(),
+            "--option",
+            "builders",
+            "",
+            &drv.get_full_path()
         ])
         .kill_on_drop(kill_on_drop)
         .stdout(std::process::Stdio::piped())
