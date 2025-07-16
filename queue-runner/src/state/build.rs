@@ -382,7 +382,7 @@ impl RemoteBuild {
 
 pub struct BuildProduct {
     pub path: Option<nix_utils::StorePath>,
-    pub default_path: Option<nix_utils::StorePath>,
+    pub default_path: Option<String>,
 
     pub r#type: String,
     pub subtype: String,
@@ -398,7 +398,7 @@ impl From<crate::db::models::BuildProduct> for BuildProduct {
     fn from(v: crate::db::models::BuildProduct) -> Self {
         Self {
             path: v.path.map(|v| nix_utils::StorePath::new(&v)),
-            default_path: v.defaultpath.map(|v| nix_utils::StorePath::new(&v)),
+            default_path: v.defaultpath,
             r#type: v.r#type,
             subtype: v.subtype,
             name: v.name,
@@ -414,7 +414,7 @@ impl From<crate::server::grpc::runner_v1::BuildProduct> for BuildProduct {
     fn from(v: crate::server::grpc::runner_v1::BuildProduct) -> Self {
         Self {
             path: Some(nix_utils::StorePath::new(&v.path)),
-            default_path: Some(nix_utils::StorePath::new(&v.default_path)),
+            default_path: Some(v.default_path),
             r#type: v.r#type,
             subtype: v.subtype,
             name: v.name,
@@ -429,7 +429,7 @@ impl From<nix_utils::BuildProduct> for BuildProduct {
     fn from(v: nix_utils::BuildProduct) -> Self {
         Self {
             path: Some(nix_utils::StorePath::new(&v.path)),
-            default_path: Some(nix_utils::StorePath::new(&v.default_path)),
+            default_path: Some(v.default_path),
             r#type: v.r#type,
             subtype: v.subtype,
             name: v.name,

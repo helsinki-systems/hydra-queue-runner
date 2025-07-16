@@ -897,11 +897,7 @@ impl Transaction<'_> {
                     .map(nix_utils::StorePath::get_full_path)
                     .unwrap_or_default(),
                 name: p.name.clone(),
-                default_path: p
-                    .default_path
-                    .as_ref()
-                    .map(nix_utils::StorePath::get_full_path)
-                    .unwrap_or_default(),
+                default_path: p.default_path.clone().unwrap_or_default(),
             })
             .await?;
         }
