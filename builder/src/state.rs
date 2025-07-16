@@ -406,18 +406,12 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     drv: &nix_utils::StorePath,
     requisites: T,
 ) -> anyhow::Result<()> {
-    use futures::stream::StreamExt as _;
-
     let (drvs, other): (Vec<_>, Vec<_>) = requisites
         .into_iter()
         .partition(nix_utils::StorePath::is_drv);
 
-    let mut stream = futures::StreamExt::map(tokio_stream::iter(other), |p| {
-        import_path(client.clone(), gcroot, p)
-    })
-    .buffer_unordered(50);
-    while let Some(r) = tokio_stream::StreamExt::next(&mut stream).await {
-        r?;
+    for o in other {
+        import_path(client.clone(), gcroot, o).await?;
     }
 
     // Do this drv by drv otherwise drvs get corrupted
