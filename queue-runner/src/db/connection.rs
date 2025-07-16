@@ -157,9 +157,9 @@ impl Connection {
     pub async fn update_build_step(&mut self, step: UpdateBuildStep) -> sqlx::Result<()> {
         sqlx::query!(
             "UPDATE buildsteps SET busy = $1 WHERE build = $2 AND stepnr = $3 AND busy != 0 AND status IS NULL",
+            step.status as i32,
             step.build_id,
             step.step_nr,
-            step.status as i32,
         )
         .execute(&mut *self.conn)
         .await?;
