@@ -404,6 +404,42 @@ impl Job {
     }
 }
 
+pub enum Message {
+    BuildMessage {
+        drv: nix_utils::StorePath,
+        max_log_size: u64,
+        max_silent_time: i32,
+        build_timeout: i32,
+    },
+    AbortMessage {
+        drv: nix_utils::StorePath,
+    },
+}
+
+impl Message {
+    pub async fn into_request(self) -> crate::server::grpc::runner_v1::RunnerRequest {
+        let msg = match self {
+            Message::BuildMessage {
+                drv,
+                max_log_size,
+                max_silent_time,
+                build_timeout,
+            } => runner_request::Message::Build(BuildMessage {
+                requisites: nix_utils::topo_sort_drvs(&drv).await.unwrap_or_default(),
+                drv: drv.base_name().to_owned(),
+                max_log_size,
+                max_silent_time,
+                build_timeout,
+            }),
+            Message::AbortMessage { drv } => runner_request::Message::Abort(AbortMessage {
+                drv: drv.base_name().to_owned(),
+            }),
+        };
+
+        crate::server::grpc::runner_v1::RunnerRequest { message: Some(msg) }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Machine {
     pub id: uuid::Uuid,
@@ -422,7 +458,7 @@ pub struct Machine {
     pub cgroups: bool,
     pub joined_at: chrono::DateTime<chrono::Utc>,
 
-    msg_queue: mpsc::Sender<runner_request::Message>,
+    msg_queue: mpsc::Sender<Message>,
     pub stats: Arc<Stats>,
     pub jobs: Arc<parking_lot::RwLock<Vec<Job>>>,
 }
@@ -447,10 +483,7 @@ impl std::fmt::Display for Machine {
 }
 
 impl Machine {
-    pub fn new(
-        msg: JoinMessage,
-        tx: mpsc::Sender<runner_request::Message>,
-    ) -> anyhow::Result<Self> {
+    pub fn new(msg: JoinMessage, tx: mpsc::Sender<Message>) -> anyhow::Result<Self> {
         Ok(Self {
             id: msg.machine_id.parse()?,
             systems: msg.systems,
@@ -477,13 +510,12 @@ impl Machine {
     pub async fn build_drv(&self, job: Job, opts: &nix_utils::BuildOptions) -> anyhow::Result<()> {
         let drv = job.path.clone();
         self.msg_queue
-            .send(runner_request::Message::Build(BuildMessage {
-                requisites: nix_utils::topo_sort_drvs(&drv).await.unwrap_or_default(),
-                drv: drv.base_name().to_owned(),
+            .send(Message::BuildMessage {
+                drv,
                 max_log_size: opts.get_max_log_size(),
                 max_silent_time: opts.get_max_silent_time(),
                 build_timeout: opts.get_build_timeout(),
-            }))
+            })
             .await?;
 
         if self.stats.jobs_in_last_30s_count.load(Ordering::Relaxed) == 0 {
@@ -491,20 +523,21 @@ impl Machine {
                 .jobs_in_last_30s_start
                 .store(chrono::Utc::now().timestamp(), Ordering::Relaxed);
         }
+
+        self.insert_job(job);
         self.stats
             .jobs_in_last_30s_count
             .fetch_add(1, Ordering::Relaxed);
 
-        self.insert_job(job);
         Ok(())
     }
 
     #[tracing::instrument(skip(self), fields(%drv), err)]
     pub async fn abort_build(&self, drv: &nix_utils::StorePath) -> anyhow::Result<()> {
         self.msg_queue
-            .send(runner_request::Message::Abort(AbortMessage {
-                drv: drv.base_name().to_owned(),
-            }))
+            .send(Message::AbortMessage {
+                drv: drv.to_owned(),
+            })
             .await?;
 
         self.remove_job(drv);
@@ -537,11 +570,7 @@ impl Machine {
         let jobs_in_last_30s_count = self.stats.jobs_in_last_30s_count.load(Ordering::Relaxed);
 
         // ensure that we dont submit more than 4 jobs in 30s
-        if now < (jobs_in_last_30s_start + 30)
-            && jobs_in_last_30s_count >= 4
-            // if we already finished some of those jobs, then whatever
-            && self.stats.get_current_jobs() >= jobs_in_last_30s_count
-        {
+        if now <= (jobs_in_last_30s_start + 30) && jobs_in_last_30s_count >= 4 {
             return false;
         } else if now > (jobs_in_last_30s_start + 30) {
             // reset count
@@ -607,6 +636,19 @@ impl Machine {
         jobs.retain(|j| &j.path != drv);
         self.stats.store_current_jobs(jobs.len() as u64);
         self.stats.incr_nr_steps_done();
+
+        {
+            // if build finished fast we can subtract 1 here
+            let now = chrono::Utc::now().timestamp();
+            let jobs_in_last_30s_start = self.stats.jobs_in_last_30s_start.load(Ordering::Relaxed);
+
+            if now <= (jobs_in_last_30s_start + 30) {
+                self.stats
+                    .jobs_in_last_30s_count
+                    .fetch_sub(1, Ordering::Relaxed);
+            }
+        }
+
         job
     }
 }

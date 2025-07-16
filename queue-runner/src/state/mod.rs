@@ -6,7 +6,7 @@ mod queue;
 
 pub use build::{Build, BuildID, BuildMetric, BuildOutput, BuildProduct, RemoteBuild, Step};
 pub use jobset::{Jobset, JobsetID, SCHEDULING_WINDOW};
-pub use machine::{Machine, Pressure, Stats as MachineStats};
+pub use machine::{Machine, Message as MachineMessage, Pressure, Stats as MachineStats};
 pub use queue::{BuildQueueStats, StepInfo};
 
 use std::sync::atomic::{AtomicI64, Ordering};

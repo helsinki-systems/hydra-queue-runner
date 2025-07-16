@@ -6,7 +6,7 @@ use tracing::Instrument as _;
 
 use crate::{
     server::grpc::runner_v1::StepUpdate,
-    state::{Machine, State},
+    state::{Machine, MachineMessage, State},
 };
 use runner_v1::{
     BuildResultInfo, BuilderRequest, FailResultInfo, JoinResponse, LogChunk, NarData,
@@ -125,7 +125,7 @@ impl RunnerService for Server {
         use tokio_stream::{StreamExt as _, wrappers::ReceiverStream};
 
         let mut stream = req.into_inner();
-        let (input_tx, mut input_rx) = mpsc::channel::<runner_v1::runner_request::Message>(128);
+        let (input_tx, mut input_rx) = mpsc::channel::<MachineMessage>(128);
         let machine = match stream.next().await {
             Some(Ok(m)) => match m.message {
                 Some(runner_v1::builder_request::Message::Join(v)) => {
@@ -144,15 +144,15 @@ impl RunnerService for Server {
         log::info!("Registered new machine: machine_id={machine_id} machine={machine}",);
 
         let (output_tx, output_rx) = mpsc::channel(128);
-        if output_tx
+        if let Err(e) = output_tx
             .send(Ok(RunnerRequest {
                 message: Some(runner_v1::runner_request::Message::Join(JoinResponse {
                     machine_id: machine_id.to_string(),
                 })),
             }))
             .await
-            .is_err()
         {
+            log::error!("Failed to send join response machine_id={machine_id} e={e}");
             return Err(tonic::Status::internal("Failed to send join Response."));
         }
 
@@ -167,14 +167,16 @@ impl RunnerService for Server {
                                 message: "ping".into(),
                             }))
                         };
-                        if output_tx.send(Ok(msg)).await.is_err() {
+                        if let Err(e) = output_tx.send(Ok(msg)).await {
+                            log::error!("Failed to send message to machine={machine_id} e={e}");
                             state.remove_machine(machine_id).await;
                             break
                         }
                     },
                     msg = input_rx.recv() => {
                         if let Some(msg) = msg {
-                            if output_tx.send(Ok(RunnerRequest { message: Some(msg) })).await.is_err() {
+                            if let Err(e) = output_tx.send(Ok(msg.into_request().await)).await {
+                                log::error!("Failed to send message to machine={machine_id} e={e}");
                                 state.remove_machine(machine_id).await;
                                 break
                             }
@@ -189,7 +191,7 @@ impl RunnerService for Server {
                         Some(Err(err)) => {
                             if let Some(io_err) = match_for_io_error(&err) {
                                 if io_err.kind() == std::io::ErrorKind::BrokenPipe {
-                                    log::error!("client disconnected: broken pipe");
+                                    log::error!("client disconnected: broken pipe: machine={machine_id}");
                                     state.remove_machine(machine_id).await;
                                     break;
                                 }
