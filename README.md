@@ -32,6 +32,7 @@ Message workflow (see: `proto/v1/streaming.proto`)
 ## HTTP interface for debugging
 
 - `GET /status`
+- `GET /status/machines`
 - `GET /status/jobsets`
 - `GET /status/builds`
 - `GET /status/steps`
@@ -39,7 +40,7 @@ Message workflow (see: `proto/v1/streaming.proto`)
 - `GET /status/queues`
 - `GET /status/queues/jobs`
 - `GET /status/queues/scheduled`
-- `PUT /build --json {"jobset_id": 1, "drv": "/nix/store/7ayly6qqhzk2x5ww3i3ibaxl69i5mqkg-hdf5-cpp-1.14.6.drv"}`
+- `PUT /build --json {"jobsetId": 1, "drv": "/nix/store/7ayly6qqhzk2x5ww3i3ibaxl69i5mqkg-hdf5-cpp-1.14.6.drv"}`
 - `GET /metrics`
 
 ## queue runner config

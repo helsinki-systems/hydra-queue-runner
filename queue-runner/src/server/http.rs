@@ -127,6 +127,9 @@ async fn router(
     async move {
         let r = match (req.method(), req.uri().path()) {
             (&hyper::Method::GET, "/status") => handler::status::get(req, state).await,
+            (&hyper::Method::GET, "/status/machines") => {
+                handler::status::machines(req, state).await
+            }
             (&hyper::Method::GET, "/status/jobsets") => handler::status::jobsets(req, state),
             (&hyper::Method::GET, "/status/builds") => handler::status::builds(req, state),
             (&hyper::Method::GET, "/status/steps") => handler::status::steps(req, state),
@@ -175,7 +178,27 @@ mod handler {
                 .into_iter()
                 .map(|m| crate::io::Machine::from_state(&m, sort_fn))
                 .collect();
-            construct_json_ok_response(&io::DumpResponse::new(queue_stats, machines))
+            let jobsets = {
+                let jobsets = state.jobsets.read();
+                jobsets.values().map(|v| v.clone().into()).collect()
+            };
+            construct_json_ok_response(&io::DumpResponse::new(queue_stats, machines, jobsets))
+        }
+
+        #[allow(clippy::no_effect_underscore_binding)]
+        #[tracing::instrument(skip(_req, state), err)]
+        pub async fn machines(
+            _req: hyper::Request<hyper::body::Incoming>,
+            state: std::sync::Arc<State>,
+        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+            let sort_fn = state.config.get_sort_fn();
+            let machines = state
+                .machines
+                .get_all_machines()
+                .into_iter()
+                .map(|m| crate::io::Machine::from_state(&m, sort_fn))
+                .collect();
+            construct_json_ok_response(&io::MachinesResponse::new(machines))
         }
 
         #[allow(clippy::no_effect_underscore_binding)]
@@ -184,13 +207,9 @@ mod handler {
             _req: hyper::Request<hyper::body::Incoming>,
             state: std::sync::Arc<State>,
         ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
-            let jobsets: Vec<io::Jobset> = {
-                state
-                    .jobsets
-                    .read()
-                    .values()
-                    .map(|v| v.clone().into())
-                    .collect()
+            let jobsets = {
+                let jobsets = state.jobsets.read();
+                jobsets.values().map(|v| v.clone().into()).collect()
             };
             construct_json_ok_response(&io::JobsetsResponse::new(jobsets))
         }

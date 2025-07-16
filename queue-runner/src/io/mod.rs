@@ -3,20 +3,24 @@ use std::sync::{Arc, atomic::Ordering};
 use ahash::{AHashMap, HashMap};
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Empty {}
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Error {
     pub error: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BuildPayload {
     pub drv: String,
     pub jobset_id: i32,
 }
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Pressure {
     avg10: f32,
     avg60: f32,
@@ -36,6 +40,7 @@ impl From<&crate::state::Pressure> for Pressure {
 }
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MachineStats {
     current_jobs: u64,
     nr_steps_done: u64,
@@ -112,6 +117,7 @@ impl MachineStats {
 }
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Machine {
     systems: Vec<crate::state::System>,
     hostname: String,
@@ -167,6 +173,7 @@ impl Machine {
 }
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BuildQueueStats {
     active_runnable: u64,
     total_runnable: u64,
@@ -186,6 +193,7 @@ impl From<crate::state::BuildQueueStats> for BuildQueueStats {
 }
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Process {
     pid: i32,
     vsize_bytes: u64,
@@ -211,6 +219,7 @@ impl Process {
 }
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QueueRunnerStats {
     status: &'static str,
     time: chrono::DateTime<chrono::Utc>,
@@ -337,21 +346,41 @@ impl QueueRunnerStats {
 }
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DumpResponse {
     queue_runner: QueueRunnerStats,
     machines: Vec<Machine>,
+    jobsets: Vec<Jobset>,
 }
 
 impl DumpResponse {
-    pub fn new(queue_runner: QueueRunnerStats, machines: Vec<Machine>) -> Self {
+    pub fn new(queue_runner: QueueRunnerStats, machines: Vec<Machine>, jobsets: Vec<Jobset>) -> Self {
         Self {
             queue_runner,
+            machines,
+            jobsets,
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MachinesResponse {
+    machines: Vec<Machine>,
+    machines_count: usize,
+}
+
+impl MachinesResponse {
+    pub fn new(machines: Vec<Machine>) -> Self {
+        Self {
+            machines_count: machines.len(),
             machines,
         }
     }
 }
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Jobset {
     id: crate::state::JobsetID,
     project_name: String,
@@ -374,6 +403,7 @@ impl From<std::sync::Arc<crate::state::Jobset>> for Jobset {
 }
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JobsetsResponse {
     jobsets: Vec<Jobset>,
     jobset_count: usize,
@@ -389,6 +419,7 @@ impl JobsetsResponse {
 }
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Build {
     id: crate::state::BuildID,
     drv_path: nix_utils::StorePath,
@@ -420,6 +451,7 @@ impl From<std::sync::Arc<crate::state::Build>> for Build {
 }
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BuildsResponse {
     builds: Vec<Build>,
     build_count: usize,
@@ -435,6 +467,7 @@ impl BuildsResponse {
 }
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Step {
     drv_path: nix_utils::StorePath,
     runnable: bool,
@@ -470,6 +503,7 @@ impl From<std::sync::Arc<crate::state::Step>> for Step {
 }
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StepsResponse {
     steps: Vec<Step>,
     step_count: usize,
@@ -486,6 +520,7 @@ impl StepsResponse {
 
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StepInfo {
     drv_path: nix_utils::StorePath,
     already_scheduled: bool,
@@ -521,6 +556,7 @@ impl From<std::sync::Arc<crate::state::StepInfo>> for StepInfo {
 }
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QueueResponse {
     queues: AHashMap<String, Vec<StepInfo>>,
 }
@@ -532,6 +568,7 @@ impl QueueResponse {
 }
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StepInfoResponse {
     steps: Vec<StepInfo>,
     step_count: usize,

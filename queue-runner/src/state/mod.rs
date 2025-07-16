@@ -632,7 +632,11 @@ impl State {
                 .into_iter()
                 .map(|m| crate::io::Machine::from_state(&m, sort_fn))
                 .collect();
-            let dump_status = crate::io::DumpResponse::new(queue_stats, machines);
+            let jobsets = {
+                let jobsets = state.jobsets.read();
+                jobsets.values().map(|v| v.clone().into()).collect()
+            };
+            let dump_status = crate::io::DumpResponse::new(queue_stats, machines, jobsets);
             {
                 let Ok(mut db) = self.db.get().await else {
                     continue;
