@@ -116,7 +116,7 @@ pub async fn topo_sort_drvs(drv: &StorePath) -> Result<Vec<String>, crate::Error
     use std::io::BufRead as _;
 
     let cmd = &tokio::process::Command::new("nix-store")
-        .args(["-qR", &drv.get_full_path()])
+        .args(["-qR", "--include-outputs", &drv.get_full_path()])
         .output()
         .await?;
     if cmd.status.success() {
