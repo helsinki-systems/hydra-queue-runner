@@ -494,6 +494,8 @@ pub struct StepInfo {
     cancelled: bool,
     runnable_since: chrono::DateTime<chrono::Utc>,
 
+    tries: u32,
+
     lowest_share_used: f64,
     highest_global_priority: i32,
     highest_local_priority: i32,
@@ -509,6 +511,7 @@ impl From<std::sync::Arc<crate::state::StepInfo>> for StepInfo {
             finished: item.step.get_finished(),
             cancelled: item.get_cancelled(),
             runnable_since: item.runnable_since,
+            tries: item.step.atomic_state.tries.load(Ordering::SeqCst),
             lowest_share_used: item.lowest_share_used,
             highest_global_priority: item.highest_global_priority,
             highest_local_priority: item.highest_local_priority,
