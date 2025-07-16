@@ -491,7 +491,7 @@ impl State {
                 "builds_restarted",
                 "builds_cancelled",
                 "builds_deleted",
-                "builds_dumped",
+                "builds_bumped",
                 "jobset_shares_changed",
             ])
             .await?;
