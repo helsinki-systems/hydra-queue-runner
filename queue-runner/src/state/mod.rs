@@ -30,6 +30,13 @@ enum CreateStepResult {
     PreviousFailure(Arc<Step>),
 }
 
+enum RealiseStepResult {
+    None,
+    Valid(Arc<Machine>),
+    MaybeCancelled,
+    CachedFailure,
+}
+
 pub struct State {
     pub config: Arc<parking_lot::RwLock<PreparedApp>>,
     pub args: Args,
@@ -180,7 +187,7 @@ impl State {
         &self,
         step: Arc<Step>,
         system: &System,
-    ) -> anyhow::Result<Option<Arc<Machine>>> {
+    ) -> anyhow::Result<RealiseStepResult> {
         let drv = step.get_drv_path();
         let free_fn = {
             let config = self.config.read();
@@ -192,7 +199,7 @@ impl State {
                 .get_machine_for_system(system, &step.get_required_features(), free_fn)
         else {
             log::debug!("No free machine found for system={system} drv={drv}");
-            return Ok(None);
+            return Ok(RealiseStepResult::None);
         };
 
         let mut build_options = nix_utils::BuildOptions::new(None);
@@ -209,7 +216,7 @@ impl State {
                 // (putting it back in the runnable queue). If there are really no strong pointers to
                 // the step, it will be deleted.
                 log::info!("maybe cancelling build step {}", step.get_drv_path());
-                return Ok(None);
+                return Ok(RealiseStepResult::MaybeCancelled);
             }
 
             let Some(build) = dependents
@@ -218,7 +225,7 @@ impl State {
                 .or(dependents.iter().next())
             else {
                 // this should never happen, as we checked is_empty above and fallback is just any build
-                return Ok(None);
+                return Ok(RealiseStepResult::MaybeCancelled);
             };
 
             build_options.set_max_silent_time(build.max_silent_time);
@@ -231,7 +238,7 @@ impl State {
         if self.check_cached_failure(step.clone()).await {
             job.result.step_status = BuildStatus::CachedFailure;
             self.inner_fail_job(drv, None, job, step.clone()).await?;
-            return Ok(None);
+            return Ok(RealiseStepResult::CachedFailure);
         }
 
         self.construct_log_file_path(drv)
@@ -276,7 +283,7 @@ impl State {
         machine.build_drv(job, &build_options).await?;
         self.metrics.nr_steps_started.add(1);
         self.metrics.nr_steps_building.add(1);
-        Ok(Some(machine))
+        Ok(RealiseStepResult::Valid(machine))
     }
 
     #[tracing::instrument(skip(self), fields(%drv), err)]
@@ -704,6 +711,7 @@ impl State {
         self.notify_dispatch.notify_one();
     }
 
+    #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self))]
     async fn do_dispatch_once(&self) {
         let mut new_runnable = Vec::new();
@@ -746,8 +754,12 @@ impl State {
 
         {
             let mut nr_steps_waiting = 0;
-            let queues = self.queues.read().await;
-            for (system, queue) in queues.iter() {
+            let inner_queues = {
+                // We clone the inner queues here to unlock it again fast for other jobs
+                let queues = self.queues.read().await;
+                queues.clone_inner()
+            };
+            for (system, queue) in inner_queues {
                 for job in queue.clone_inner() {
                     let Some(job) = job.upgrade() else {
                         continue;
@@ -779,16 +791,30 @@ impl State {
                     }
 
                     match self
-                        .realise_drv_on_valid_machine(job.step.clone(), system)
+                        .realise_drv_on_valid_machine(job.step.clone(), &system)
                         .await
                     {
-                        Ok(Some(m)) => queues.add_job_to_scheduled(&job, queue, m),
-                        Ok(_) => {
+                        Ok(RealiseStepResult::Valid(m)) => {
+                            let queues = self.queues.read().await;
+                            queues.add_job_to_scheduled(&job, &queue, m);
+                        }
+                        Ok(RealiseStepResult::None) => {
                             log::debug!(
                                 "Waiting for job to schedule because no builder is ready system={system} drv={}",
                                 job.step.get_drv_path(),
                             );
                             nr_steps_waiting += 1;
+                        }
+                        Ok(
+                            RealiseStepResult::MaybeCancelled | RealiseStepResult::CachedFailure,
+                        ) => {
+                            // If this is maybe cancelled (and the cancellation is correct) it is
+                            // enough to remove it from jobs which will then reduce the ref count
+                            // to 0 as it has no dependents.
+                            // If its a cached failure we need to also remove it from jobs, we
+                            // already wrote cached failure into the db, at this point in time
+                            let mut queues = self.queues.write().await;
+                            queues.remove_job(&job, &queue);
                         }
                         Err(e) => {
                             log::warn!(

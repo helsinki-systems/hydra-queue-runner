@@ -237,6 +237,10 @@ impl Queues {
         }
     }
 
+    pub fn clone_inner(&self) -> AHashMap<String, Arc<BuildQueue>> {
+        self.inner.clone()
+    }
+
     pub fn iter(&self) -> std::collections::hash_map::Iter<'_, System, Arc<BuildQueue>> {
         self.inner.iter()
     }
