@@ -145,19 +145,18 @@ impl BuildQueue {
             let a = a.upgrade();
             let b = b.upgrade();
             match (a, b) {
-                (Some(a), Some(b)) => {
-                    if a.highest_global_priority != b.highest_global_priority {
-                        a.highest_global_priority.cmp(&b.highest_global_priority)
-                    } else if (a.lowest_share_used - b.lowest_share_used).abs() > delta {
-                        b.lowest_share_used.total_cmp(&a.lowest_share_used)
-                    } else if a.highest_local_priority != b.highest_local_priority {
-                        a.highest_local_priority.cmp(&b.highest_local_priority)
-                    } else {
-                        b.lowest_build_id.cmp(&a.lowest_build_id)
-                    }
-                }
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (Some(a), Some(b)) => (if a.highest_global_priority != b.highest_global_priority {
+                    a.highest_global_priority.cmp(&b.highest_global_priority)
+                } else if (a.lowest_share_used - b.lowest_share_used).abs() > delta {
+                    b.lowest_share_used.total_cmp(&a.lowest_share_used)
+                } else if a.highest_local_priority != b.highest_local_priority {
+                    a.highest_local_priority.cmp(&b.highest_local_priority)
+                } else {
+                    b.lowest_build_id.cmp(&a.lowest_build_id)
+                })
+                .reverse(),
+                (Some(_), None) => std::cmp::Ordering::Greater,
+                (None, Some(_)) => std::cmp::Ordering::Less,
                 (None, None) => std::cmp::Ordering::Equal,
             }
         });
