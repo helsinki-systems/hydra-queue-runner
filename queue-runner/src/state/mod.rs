@@ -1083,6 +1083,8 @@ impl State {
             machine
         ))?;
 
+        job.result.step_status = BuildStatus::Failed;
+
         // TODO: max failure count
         let (max_retries, retry_interval, retry_backoff) = self.config.get_retry();
 
@@ -1115,6 +1117,20 @@ impl State {
             }
 
             step_info.set_already_scheduled(false);
+
+            {
+                let mut db = self.db.get().await?;
+                let mut tx = db.begin_transaction().await?;
+                finish_build_step(
+                    &mut tx,
+                    job.build_id,
+                    job.step_nr,
+                    &job.result,
+                    Some(machine.hostname.clone()),
+                )
+                .await?;
+                tx.commit().await?;
+            }
             self.trigger_dispatch();
             return Ok(());
         }
@@ -1125,7 +1141,6 @@ impl State {
             queues.remove_job(&step_info, &queue);
         }
 
-        job.result.step_status = BuildStatus::Failed;
         machine
             .stats
             .add_to_total_step_build_time_ms(build_elapsed.as_millis());
@@ -1161,6 +1176,20 @@ impl State {
                     .add_to_total_step_time_ms(u128::from(total_step_time));
                 machine.stats.store_last_failure_now();
             }
+        }
+
+        {
+            let mut db = self.db.get().await?;
+            let mut tx = db.begin_transaction().await?;
+            finish_build_step(
+                &mut tx,
+                job.build_id,
+                job.step_nr,
+                &job.result,
+                machine.as_ref().map(|m| m.hostname.clone()),
+            )
+            .await?;
+            tx.commit().await?;
         }
 
         // TODO: builder:415
