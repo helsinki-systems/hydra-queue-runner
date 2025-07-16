@@ -1648,6 +1648,7 @@ impl State {
 
             let remote_store = remote_store_url.as_deref().map(nix_utils::RemoteStore::new);
             let mut stream = futures::StreamExt::map(tokio_stream::iter(missing_outputs), |o| {
+                self.metrics.nr_substitutes_started.inc();
                 crate::utils::substitute_output(
                     self.db.clone(),
                     o,
@@ -1660,8 +1661,12 @@ impl State {
             .buffer_unordered(10);
             while let Some(v) = tokio_stream::StreamExt::next(&mut stream).await {
                 match v {
-                    Ok(()) => substituted += 1,
+                    Ok(()) => {
+                        self.metrics.nr_substitutes_succeeded.inc();
+                        substituted += 1;
+                    }
                     Err(e) => {
+                        self.metrics.nr_substitutes_failed.inc();
                         log::warn!("Failed to substitute path: {e}");
                     }
                 }

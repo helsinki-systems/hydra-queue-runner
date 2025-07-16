@@ -29,6 +29,9 @@ pub struct PromMetrics {
     pub nr_steps_runnable: prometheus::IntGauge, // hydra_queue_steps_runnable
     pub nr_steps_unfinished: prometheus::IntGauge, // hydra_queue_steps_unfinished
     pub nr_unsupported_steps: prometheus::IntGauge, // hydra_queue_steps_unsupported
+    pub nr_substitutes_started: prometheus::IntGauge, // hydra_queue_substitutes_started
+    pub nr_substitutes_failed: prometheus::IntGauge, // hydra_queue_substitutes_failed
+    pub nr_substitutes_succeeded: prometheus::IntGauge, // hydra_queue_substitutes_succeeded
     pub nr_retries: prometheus::IntGauge,     // hydra_queue_steps_retries
     pub max_nr_retries: prometheus::IntGauge, // hydra_queue_steps_max_retries
     pub avg_step_time_ms: prometheus::IntGauge, // hydra_queue_steps_avg_total_time
@@ -134,6 +137,18 @@ impl PromMetrics {
             "hydra_queue_steps_unsupported",
             "hydra_queue_steps_unsupported",
         ))?;
+        let nr_substitutes_started = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_substitutes_started",
+            "hydra_queue_substitutes_started",
+        ))?;
+        let nr_substitutes_failed = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_substitutes_failed",
+            "hydra_queue_substitutes_failed",
+        ))?;
+        let nr_substitutes_succeeded = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_substitutes_succeeded",
+            "hydra_queue_substitutes_succeeded",
+        ))?;
         let nr_retries = prometheus::IntGauge::with_opts(prometheus::Opts::new(
             "hydra_queue_steps_retries",
             "hydra_queue_steps_retries",
@@ -224,6 +239,9 @@ impl PromMetrics {
         r.register(Box::new(nr_steps_runnable.clone()))?;
         r.register(Box::new(nr_steps_unfinished.clone()))?;
         r.register(Box::new(nr_unsupported_steps.clone()))?;
+        r.register(Box::new(nr_substitutes_started.clone()))?;
+        r.register(Box::new(nr_substitutes_failed.clone()))?;
+        r.register(Box::new(nr_substitutes_succeeded.clone()))?;
         r.register(Box::new(nr_retries.clone()))?;
         r.register(Box::new(max_nr_retries.clone()))?;
         r.register(Box::new(avg_step_time_ms.clone()))?;
@@ -262,6 +280,9 @@ impl PromMetrics {
             nr_steps_runnable,
             nr_steps_unfinished,
             nr_unsupported_steps,
+            nr_substitutes_started,
+            nr_substitutes_failed,
+            nr_substitutes_succeeded,
             nr_retries,
             max_nr_retries,
             avg_step_time_ms,
