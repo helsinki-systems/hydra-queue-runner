@@ -31,26 +31,26 @@ impl Pressure {
 
     pub fn store_ping_pressure(&self, msg: Option<crate::server::grpc::runner_v1::Pressure>) {
         let Some(msg) = msg else { return };
-        self.avg10.store(msg.avg10, Ordering::SeqCst);
-        self.avg60.store(msg.avg60, Ordering::SeqCst);
-        self.avg300.store(msg.avg300, Ordering::SeqCst);
-        self.total.store(msg.total, Ordering::SeqCst);
+        self.avg10.store(msg.avg10, Ordering::Relaxed);
+        self.avg60.store(msg.avg60, Ordering::Relaxed);
+        self.avg300.store(msg.avg300, Ordering::Relaxed);
+        self.total.store(msg.total, Ordering::Relaxed);
     }
 
     pub fn get_avg10(&self) -> f32 {
-        self.avg10.load(Ordering::SeqCst)
+        self.avg10.load(Ordering::Relaxed)
     }
 
     pub fn get_avg60(&self) -> f32 {
-        self.avg60.load(Ordering::SeqCst)
+        self.avg60.load(Ordering::Relaxed)
     }
 
     pub fn get_avg300(&self) -> f32 {
-        self.avg300.load(Ordering::SeqCst)
+        self.avg300.load(Ordering::Relaxed)
     }
 
     pub fn get_total(&self) -> u64 {
-        self.total.load(Ordering::SeqCst)
+        self.total.load(Ordering::Relaxed)
     }
 }
 
@@ -113,97 +113,98 @@ impl Stats {
     }
 
     pub fn store_current_jobs(&self, c: u64) {
-        if c == 0 && self.idle_since.load(Ordering::SeqCst) == 0 {
+        if c == 0 && self.idle_since.load(Ordering::Relaxed) == 0 {
             self.idle_since
-                .store(chrono::Utc::now().timestamp(), Ordering::SeqCst);
+                .store(chrono::Utc::now().timestamp(), Ordering::Relaxed);
         } else {
-            self.idle_since.store(0, Ordering::SeqCst);
+            self.idle_since.store(0, Ordering::Relaxed);
         }
 
-        self.current_jobs.store(c, Ordering::SeqCst);
+        self.current_jobs.store(c, Ordering::Relaxed);
     }
 
     pub fn get_current_jobs(&self) -> u64 {
-        self.current_jobs.load(Ordering::SeqCst)
+        self.current_jobs.load(Ordering::Relaxed)
     }
 
     pub fn get_nr_steps_done(&self) -> u64 {
-        self.nr_steps_done.load(Ordering::SeqCst)
+        self.nr_steps_done.load(Ordering::Relaxed)
     }
 
     pub fn incr_nr_steps_done(&self) {
-        self.nr_steps_done.fetch_add(1, Ordering::SeqCst);
+        self.nr_steps_done.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn get_total_step_time_ms(&self) -> u64 {
-        self.total_step_time_ms.load(Ordering::SeqCst)
+        self.total_step_time_ms.load(Ordering::Relaxed)
     }
 
     pub fn add_to_total_step_time_ms(&self, v: u128) {
         if let Ok(v) = u64::try_from(v) {
-            self.total_step_time_ms.fetch_add(v, Ordering::SeqCst);
+            self.total_step_time_ms.fetch_add(v, Ordering::Relaxed);
         }
     }
 
     pub fn get_total_step_build_time_ms(&self) -> u64 {
-        self.total_step_build_time_ms.load(Ordering::SeqCst)
+        self.total_step_build_time_ms.load(Ordering::Relaxed)
     }
 
     pub fn add_to_total_step_build_time_ms(&self, v: u128) {
         if let Ok(v) = u64::try_from(v) {
-            self.total_step_build_time_ms.fetch_add(v, Ordering::SeqCst);
+            self.total_step_build_time_ms
+                .fetch_add(v, Ordering::Relaxed);
         }
     }
 
     pub fn get_total_step_import_time_ms(&self) -> u64 {
-        self.total_step_import_time_ms.load(Ordering::SeqCst)
+        self.total_step_import_time_ms.load(Ordering::Relaxed)
     }
 
     pub fn add_to_total_step_import_time_ms(&self, v: u128) {
         if let Ok(v) = u64::try_from(v) {
             self.total_step_import_time_ms
-                .fetch_add(v, Ordering::SeqCst);
+                .fetch_add(v, Ordering::Relaxed);
         }
     }
 
     pub fn get_idle_since(&self) -> i64 {
-        self.idle_since.load(Ordering::SeqCst)
+        self.idle_since.load(Ordering::Relaxed)
     }
 
     pub fn get_last_failure(&self) -> i64 {
-        self.last_failure.load(Ordering::SeqCst)
+        self.last_failure.load(Ordering::Relaxed)
     }
 
     pub fn store_last_failure_now(&self) {
         self.last_failure
-            .store(chrono::Utc::now().timestamp(), Ordering::SeqCst);
-        self.consecutive_failures.fetch_add(1, Ordering::SeqCst);
+            .store(chrono::Utc::now().timestamp(), Ordering::Relaxed);
+        self.consecutive_failures.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn get_disabled_until(&self) -> i64 {
-        self.disabled_until.load(Ordering::SeqCst)
+        self.disabled_until.load(Ordering::Relaxed)
     }
 
     pub fn get_consecutive_failures(&self) -> u64 {
-        self.consecutive_failures.load(Ordering::SeqCst)
+        self.consecutive_failures.load(Ordering::Relaxed)
     }
 
     pub fn reset_consecutive_failures(&self) {
-        self.consecutive_failures.store(0, Ordering::SeqCst);
+        self.consecutive_failures.store(0, Ordering::Relaxed);
     }
 
     pub fn get_last_ping(&self) -> i64 {
-        self.last_ping.load(Ordering::SeqCst)
+        self.last_ping.load(Ordering::Relaxed)
     }
 
     pub fn store_ping(&self, msg: &crate::server::grpc::runner_v1::PingMessage) {
         self.last_ping
-            .store(chrono::Utc::now().timestamp(), Ordering::SeqCst);
+            .store(chrono::Utc::now().timestamp(), Ordering::Relaxed);
 
-        self.load1.store(msg.load1, Ordering::SeqCst);
-        self.load5.store(msg.load5, Ordering::SeqCst);
-        self.load15.store(msg.load15, Ordering::SeqCst);
-        self.mem_usage.store(msg.mem_usage, Ordering::SeqCst);
+        self.load1.store(msg.load1, Ordering::Relaxed);
+        self.load5.store(msg.load5, Ordering::Relaxed);
+        self.load15.store(msg.load15, Ordering::Relaxed);
+        self.mem_usage.store(msg.mem_usage, Ordering::Relaxed);
 
         self.cpu_some_psi.store_ping_pressure(msg.cpu_some);
         self.mem_some_psi.store_ping_pressure(msg.mem_some);
@@ -213,19 +214,19 @@ impl Stats {
     }
 
     pub fn get_load1(&self) -> f32 {
-        self.load1.load(Ordering::SeqCst)
+        self.load1.load(Ordering::Relaxed)
     }
 
     pub fn get_load5(&self) -> f32 {
-        self.load5.load(Ordering::SeqCst)
+        self.load5.load(Ordering::Relaxed)
     }
 
     pub fn get_load15(&self) -> f32 {
-        self.load15.load(Ordering::SeqCst)
+        self.load15.load(Ordering::Relaxed)
     }
 
     pub fn get_mem_usage(&self) -> u64 {
-        self.mem_usage.load(Ordering::SeqCst)
+        self.mem_usage.load(Ordering::Relaxed)
     }
 }
 
@@ -350,18 +351,13 @@ impl Machines {
             inner
                 .by_uuid
                 .values()
-                .find(|m| {
-                    m.has_capacity(free_fn) && m.supports_all_features(required_features)
-                })
+                .find(|m| m.has_capacity(free_fn) && m.supports_all_features(required_features))
                 .cloned()
         } else {
             inner.by_system.get(system).and_then(|machines| {
                 machines
                     .iter()
-                    .find(|m| {
-                        m.has_capacity(free_fn)
-                            && m.supports_all_features(required_features)
-                    })
+                    .find(|m| m.has_capacity(free_fn) && m.supports_all_features(required_features))
                     .cloned()
             })
         }
@@ -490,14 +486,14 @@ impl Machine {
             }))
             .await?;
 
-        if self.stats.jobs_in_last_30s_count.load(Ordering::SeqCst) == 0 {
+        if self.stats.jobs_in_last_30s_count.load(Ordering::Relaxed) == 0 {
             self.stats
                 .jobs_in_last_30s_start
-                .store(chrono::Utc::now().timestamp(), Ordering::SeqCst);
+                .store(chrono::Utc::now().timestamp(), Ordering::Relaxed);
         }
         self.stats
             .jobs_in_last_30s_count
-            .fetch_add(1, Ordering::SeqCst);
+            .fetch_add(1, Ordering::Relaxed);
 
         self.insert_job(job);
         Ok(())
@@ -537,8 +533,8 @@ impl Machine {
 
     pub fn has_capacity(&self, free_fn: MachineFreeFn) -> bool {
         let now = chrono::Utc::now().timestamp();
-        let jobs_in_last_30s_start = self.stats.jobs_in_last_30s_start.load(Ordering::SeqCst);
-        let jobs_in_last_30s_count = self.stats.jobs_in_last_30s_count.load(Ordering::SeqCst);
+        let jobs_in_last_30s_start = self.stats.jobs_in_last_30s_start.load(Ordering::Relaxed);
+        let jobs_in_last_30s_count = self.stats.jobs_in_last_30s_count.load(Ordering::Relaxed);
 
         // ensure that we dont submit more than 4 jobs in 30s
         if now < (jobs_in_last_30s_start + 30)
@@ -549,8 +545,12 @@ impl Machine {
             return false;
         } else if now > (jobs_in_last_30s_start + 30) {
             // reset count
-            self.stats.jobs_in_last_30s_start.store(0, Ordering::SeqCst);
-            self.stats.jobs_in_last_30s_count.store(0, Ordering::SeqCst);
+            self.stats
+                .jobs_in_last_30s_start
+                .store(0, Ordering::Relaxed);
+            self.stats
+                .jobs_in_last_30s_count
+                .store(0, Ordering::Relaxed);
         }
 
         match free_fn {

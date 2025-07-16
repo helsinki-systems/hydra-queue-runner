@@ -847,10 +847,7 @@ impl Transaction<'_> {
         start_time: i32,
         stop_time: i32,
     ) -> anyhow::Result<()> {
-        if build
-            .finished_in_db
-            .load(std::sync::atomic::Ordering::SeqCst)
-        {
+        if build.get_finished_in_db() {
             return Ok(());
         }
 

@@ -43,12 +43,12 @@ impl StepInfo {
             highest_global_priority: step
                 .atomic_state
                 .highest_global_priority
-                .load(Ordering::SeqCst),
+                .load(Ordering::Relaxed),
             highest_local_priority: step
                 .atomic_state
                 .highest_local_priority
-                .load(Ordering::SeqCst),
-            lowest_build_id: step.atomic_state.lowest_build_id.load(Ordering::SeqCst),
+                .load(Ordering::Relaxed),
+            lowest_build_id: step.atomic_state.lowest_build_id.load(Ordering::Relaxed),
             step,
         }
     }
@@ -59,6 +59,10 @@ impl StepInfo {
 
     pub fn set_already_scheduled(&self, v: bool) {
         self.already_scheduled.store(v, Ordering::SeqCst);
+    }
+
+    pub fn set_cancelled(&self, v: bool) {
+        self.cancelled.store(v, Ordering::SeqCst);
     }
 
     pub fn get_cancelled(&self) -> bool {
@@ -95,11 +99,11 @@ impl BuildQueue {
     }
 
     fn incr_active(&self) {
-        self.active_runnable.fetch_add(1, Ordering::SeqCst);
+        self.active_runnable.fetch_add(1, Ordering::Relaxed);
     }
 
     fn decr_active(&self) {
-        self.active_runnable.fetch_sub(1, Ordering::SeqCst);
+        self.active_runnable.fetch_sub(1, Ordering::Relaxed);
     }
 
     #[tracing::instrument(skip(self, jobs))]
@@ -125,7 +129,7 @@ impl BuildQueue {
                 current_jobs.push(j);
             }
         }
-        self.wait_time.fetch_add(wait_time, Ordering::SeqCst);
+        self.wait_time.fetch_add(wait_time, Ordering::Relaxed);
 
         // only keep valid pointers
         drop(current_jobs);
@@ -164,7 +168,7 @@ impl BuildQueue {
         let mut current_jobs = self.jobs.write();
         current_jobs.retain(|v| v.upgrade().is_some());
         self.total_runnable
-            .store(current_jobs.len() as u64, Ordering::SeqCst);
+            .store(current_jobs.len() as u64, Ordering::Relaxed);
     }
 
     pub fn clone_inner(&self) -> Vec<Weak<StepInfo>> {
@@ -173,10 +177,10 @@ impl BuildQueue {
 
     pub fn get_stats(&self) -> BuildQueueStats {
         BuildQueueStats {
-            active_runnable: self.active_runnable.load(Ordering::SeqCst),
-            total_runnable: self.total_runnable.load(Ordering::SeqCst),
-            avg_runnable_time: self.avg_runnable_time.load(Ordering::SeqCst),
-            wait_time: self.wait_time.load(Ordering::SeqCst),
+            active_runnable: self.active_runnable.load(Ordering::Relaxed),
+            total_runnable: self.total_runnable.load(Ordering::Relaxed),
+            avg_runnable_time: self.avg_runnable_time.load(Ordering::Relaxed),
+            wait_time: self.wait_time.load(Ordering::Relaxed),
         }
     }
 }
@@ -256,7 +260,7 @@ impl Queues {
 
         let drv = step.step.get_drv_path();
         scheduled.insert(drv.to_owned(), (step.clone(), queue.clone(), machine));
-        step.already_scheduled.store(true, Ordering::SeqCst);
+        step.set_already_scheduled(true);
         queue.incr_active();
     }
 
@@ -268,7 +272,7 @@ impl Queues {
         let mut scheduled = self.scheduled.write();
 
         let (step_info, queue, machine) = scheduled.remove(drv)?;
-        step_info.already_scheduled.store(false, Ordering::SeqCst);
+        step_info.set_already_scheduled(false);
         queue.decr_active();
         Some((step_info, queue, machine))
     }
@@ -292,7 +296,7 @@ impl Queues {
             scheduled.clone()
         };
         for (drv_path, (step_info, _, machine)) in &active {
-            if step_info.cancelled.load(Ordering::SeqCst) {
+            if step_info.get_cancelled() {
                 continue;
             }
 
@@ -304,7 +308,7 @@ impl Queues {
             }
 
             {
-                step_info.cancelled.store(true, Ordering::SeqCst);
+                step_info.set_cancelled(true);
                 if let Err(e) = machine.abort_build(drv_path).await {
                     log::error!("Failed to abort build drv_path={drv_path} e={e}");
                     // continue; // TODO

@@ -363,7 +363,7 @@ impl State {
                 log::info!(
                     "got {} new runnable steps from {} new builds",
                     new_runnable.len(),
-                    nr_added.load(Ordering::SeqCst)
+                    nr_added.load(Ordering::Relaxed)
                 );
                 for r in new_runnable.iter() {
                     r.make_runnable();
@@ -372,7 +372,7 @@ impl State {
 
             self.metrics
                 .nr_builds_read
-                .add(nr_added.load(Ordering::SeqCst));
+                .add(nr_added.load(Ordering::Relaxed));
             let stop_queue_run_after = {
                 let config = self.config.read();
                 config.stop_queue_run_after
@@ -410,9 +410,11 @@ impl State {
                     continue;
                 };
 
-                if build.global_priority.load(Ordering::SeqCst) < *new_priority {
+                if build.global_priority.load(Ordering::Relaxed) < *new_priority {
                     log::info!("priority of build {id} increased");
-                    build.global_priority.store(*new_priority, Ordering::SeqCst);
+                    build
+                        .global_priority
+                        .store(*new_priority, Ordering::Relaxed);
                     build.propagate_priorities();
                 }
             }
@@ -734,7 +736,7 @@ impl State {
             let Some(system) = r.get_system() else {
                 continue;
             };
-            if r.atomic_state.tries.load(Ordering::SeqCst) > 0 {
+            if r.atomic_state.tries.load(Ordering::Relaxed) > 0 {
                 continue;
             }
 
@@ -972,7 +974,7 @@ impl State {
                 let Some(b) = b.upgrade() else {
                     continue;
                 };
-                if !b.finished_in_db.load(Ordering::SeqCst) {
+                if !b.get_finished_in_db() {
                     direct.push(b);
                 }
             }
@@ -1017,7 +1019,7 @@ impl State {
             // destroyed.
             let mut current_builds = self.builds.write();
             for b in &direct {
-                b.finished_in_db.store(true, Ordering::SeqCst);
+                b.set_finished_in_db(true);
                 current_builds.remove(&b.id);
             }
         }
@@ -1045,9 +1047,7 @@ impl State {
                     rdep_state
                         .deps
                         .retain(|s| s.get_drv_path() != step_info.step.get_drv_path());
-                    if rdep_state.deps.is_empty()
-                        && rdep.atomic_state.created.load(Ordering::SeqCst)
-                    {
+                    if rdep_state.deps.is_empty() && rdep.atomic_state.get_created() {
                         runnable = true;
                     }
                 }
@@ -1109,8 +1109,8 @@ impl State {
             .step
             .atomic_state
             .tries
-            .fetch_add(1, Ordering::SeqCst);
-        let tries = step_info.step.atomic_state.tries.load(Ordering::SeqCst);
+            .fetch_add(1, Ordering::Relaxed);
+        let tries = step_info.step.atomic_state.tries.load(Ordering::Relaxed);
         if tries < max_retries {
             // retry step
             // TODO: update metrics:
@@ -1202,7 +1202,7 @@ impl State {
                         || ((job.result.step_status != BuildStatus::CachedFailure
                             && job.result.step_status != BuildStatus::Unsupported)
                             && job.build_id == b.id)
-                        || b.finished_in_db.load(Ordering::SeqCst)
+                        || b.get_finished_in_db()
                     {
                         continue;
                     }
@@ -1228,7 +1228,7 @@ impl State {
 
                 // Mark all builds that depend on this derivation as failed.
                 for b in &indirect {
-                    if b.finished_in_db.load(Ordering::SeqCst) {
+                    if b.get_finished_in_db() {
                         continue;
                     }
 
@@ -1276,7 +1276,7 @@ impl State {
                 // destroyed.
                 let mut current_builds = self.builds.write();
                 for b in indirect {
-                    b.finished_in_db.store(true, Ordering::SeqCst);
+                    b.set_finished_in_db(true);
                     current_builds.remove(&b.id);
                     dependent_ids.push(b.id);
                 }
@@ -1373,7 +1373,7 @@ impl State {
             build.id,
             step.get_drv_path()
         );
-        if build.finished_in_db.load(Ordering::SeqCst) {
+        if build.get_finished_in_db() {
             return Ok(());
         }
 
@@ -1434,7 +1434,7 @@ impl State {
         let _ = tx.notify_build_finished(build.id, &[]).await;
         tx.commit().await?;
 
-        build.finished_in_db.store(true, Ordering::SeqCst);
+        build.set_finished_in_db(true);
         self.metrics.nr_builds_done.add(1);
         Ok(())
     }
@@ -1460,7 +1460,7 @@ impl State {
     ) {
         self.metrics.queue_build_loads.inc();
         log::info!("loading build {} ({})", build.id, build.full_job_name());
-        nr_added.fetch_add(1, Ordering::SeqCst);
+        nr_added.fetch_add(1, Ordering::Relaxed);
         {
             let mut new_builds_by_id = new_builds_by_id.write();
             new_builds_by_id.remove(&build.id);
@@ -1468,7 +1468,7 @@ impl State {
 
         if !nix_utils::check_if_storepath_exists(&build.drv_path) {
             log::error!("aborting GC'ed build {}", build.id);
-            if !build.finished_in_db.load(Ordering::SeqCst) {
+            if !build.get_finished_in_db() {
                 match self.db.get().await {
                     Ok(mut conn) => {
                         if let Err(e) = conn.abort_build(build.id).await {
@@ -1483,7 +1483,7 @@ impl State {
                 }
             }
 
-            build.finished_in_db.store(true, Ordering::SeqCst);
+            build.set_finished_in_db(true);
             self.metrics.nr_builds_done.add(1);
             return;
         }
@@ -1554,7 +1554,7 @@ impl State {
         }
 
         if let Some(step) = step {
-            if !build.finished_in_db.load(Ordering::SeqCst) {
+            if !build.get_finished_in_db() {
                 let mut builds = self.builds.write();
                 builds.insert(build.id, build.clone());
             }
@@ -1749,7 +1749,7 @@ impl State {
 
         {
             let state = step.state.read();
-            step.atomic_state.created.store(true, Ordering::SeqCst);
+            step.atomic_state.set_created(true);
             if state.deps.is_empty() {
                 let mut new_runnable = new_runnable.write();
                 new_runnable.insert(step.clone());
@@ -1831,7 +1831,7 @@ impl State {
             tx.notify_build_finished(build.id, &[]).await?;
             tx.commit().await?;
         }
-        build.finished_in_db.store(true, Ordering::SeqCst);
+        build.set_finished_in_db(true);
 
         Ok(())
     }

@@ -33,7 +33,7 @@ pub struct Build {
     toplevel: arc_swap::ArcSwapOption<Step>,
     pub jobset: Arc<Jobset>,
 
-    pub finished_in_db: AtomicBool,
+    finished_in_db: AtomicBool,
 }
 
 impl PartialEq for Build {
@@ -99,6 +99,14 @@ impl Build {
         )
     }
 
+    pub fn get_finished_in_db(&self) -> bool {
+        self.finished_in_db.load(Ordering::SeqCst)
+    }
+
+    pub fn set_finished_in_db(&self, v: bool) {
+        self.finished_in_db.store(v, Ordering::SeqCst);
+    }
+
     #[tracing::instrument(skip(self, step))]
     pub fn set_toplevel_step(&self, step: Arc<Step>) {
         self.toplevel.store(Some(step));
@@ -119,26 +127,26 @@ impl Build {
                 std::cmp::max(
                     step.atomic_state
                         .highest_global_priority
-                        .load(Ordering::SeqCst),
-                    self.global_priority.load(Ordering::SeqCst),
+                        .load(Ordering::Relaxed),
+                    self.global_priority.load(Ordering::Relaxed),
                 ),
-                Ordering::SeqCst,
+                Ordering::Relaxed,
             );
             step.atomic_state.highest_local_priority.store(
                 std::cmp::max(
                     step.atomic_state
                         .highest_local_priority
-                        .load(Ordering::SeqCst),
+                        .load(Ordering::Relaxed),
                     self.local_priority,
                 ),
-                Ordering::SeqCst,
+                Ordering::Relaxed,
             );
             step.atomic_state.lowest_build_id.store(
                 std::cmp::min(
-                    step.atomic_state.lowest_build_id.load(Ordering::SeqCst),
+                    step.atomic_state.lowest_build_id.load(Ordering::Relaxed),
                     self.id,
                 ),
-                Ordering::SeqCst,
+                Ordering::Relaxed,
             );
             {
                 let mut state = step.state.write();
@@ -158,8 +166,8 @@ impl Build {
 
 #[derive(Debug)]
 pub struct StepAtomicState {
-    pub created: AtomicBool, // Whether the step has finished initialisation.
-    pub tries: AtomicU32,    // Number of times we've tried this step.
+    created: AtomicBool,  // Whether the step has finished initialisation.
+    pub tries: AtomicU32, // Number of times we've tried this step.
     pub highest_global_priority: AtomicI32, // The highest global priority of any build depending on this step.
     pub highest_local_priority: AtomicI32, // The highest local priority of any build depending on this step.
 
@@ -175,6 +183,14 @@ impl StepAtomicState {
             highest_local_priority: 0.into(),
             lowest_build_id: BuildID::MAX.into(),
         }
+    }
+
+    pub fn get_created(&self) -> bool {
+        self.created.load(Ordering::SeqCst)
+    }
+
+    pub fn set_created(&self, v: bool) {
+        self.created.store(v, Ordering::SeqCst);
     }
 }
 
@@ -307,7 +323,7 @@ impl Step {
             for b in &state.builds {
                 let Some(b) = b.upgrade() else { continue };
 
-                if !b.finished_in_db.load(Ordering::SeqCst) {
+                if !b.get_finished_in_db() {
                     builds.insert(b);
                 }
             }

@@ -413,8 +413,8 @@ impl From<std::sync::Arc<crate::state::Build>> for Build {
             max_silent_time: item.max_silent_time,
             timeout: item.timeout,
             local_priority: item.local_priority,
-            global_priority: item.global_priority.load(Ordering::SeqCst),
-            finished_in_db: item.finished_in_db.load(Ordering::SeqCst),
+            global_priority: item.global_priority.load(Ordering::Relaxed),
+            finished_in_db: item.get_finished_in_db(),
         }
     }
 }
@@ -454,17 +454,17 @@ impl From<std::sync::Arc<crate::state::Step>> for Step {
             drv_path: item.get_drv_path().clone(),
             runnable: item.get_runnable(),
             finished: item.get_finished(),
-            created: item.atomic_state.created.load(Ordering::SeqCst),
-            tries: item.atomic_state.tries.load(Ordering::SeqCst),
+            created: item.atomic_state.get_created(),
+            tries: item.atomic_state.tries.load(Ordering::Relaxed),
             highest_global_priority: item
                 .atomic_state
                 .highest_global_priority
-                .load(Ordering::SeqCst),
+                .load(Ordering::Relaxed),
             highest_local_priority: item
                 .atomic_state
                 .highest_local_priority
-                .load(Ordering::SeqCst),
-            lowest_build_id: item.atomic_state.lowest_build_id.load(Ordering::SeqCst),
+                .load(Ordering::Relaxed),
+            lowest_build_id: item.atomic_state.lowest_build_id.load(Ordering::Relaxed),
         }
     }
 }
@@ -511,7 +511,7 @@ impl From<std::sync::Arc<crate::state::StepInfo>> for StepInfo {
             finished: item.step.get_finished(),
             cancelled: item.get_cancelled(),
             runnable_since: item.runnable_since,
-            tries: item.step.atomic_state.tries.load(Ordering::SeqCst),
+            tries: item.step.atomic_state.tries.load(Ordering::Relaxed),
             lowest_share_used: item.lowest_share_used,
             highest_global_priority: item.highest_global_priority,
             highest_local_priority: item.highest_local_priority,

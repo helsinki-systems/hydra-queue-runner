@@ -47,8 +47,8 @@ impl Jobset {
     }
 
     pub fn share_used(&self) -> f64 {
-        let seconds = self.seconds.load(Ordering::SeqCst);
-        let shares = self.shares.load(Ordering::SeqCst);
+        let seconds = self.seconds.load(Ordering::Relaxed);
+        let shares = self.shares.load(Ordering::Relaxed);
 
         // we dont care about the precision here
         #[allow(clippy::cast_precision_loss)]
@@ -57,21 +57,21 @@ impl Jobset {
 
     pub fn set_shares(&self, shares: i32) -> anyhow::Result<()> {
         debug_assert!(shares > 0);
-        self.shares.store(shares.try_into()?, Ordering::SeqCst);
+        self.shares.store(shares.try_into()?, Ordering::Relaxed);
         Ok(())
     }
 
     pub fn get_shares(&self) -> u32 {
-        self.shares.load(Ordering::SeqCst)
+        self.shares.load(Ordering::Relaxed)
     }
 
     pub fn get_seconds(&self) -> i64 {
-        self.seconds.load(Ordering::SeqCst)
+        self.seconds.load(Ordering::Relaxed)
     }
 
     pub fn add_step(&self, start_time: i64, duration: i64) {
         let mut steps = self.steps.write();
         steps.insert(start_time, duration);
-        self.seconds.fetch_add(duration, Ordering::SeqCst);
+        self.seconds.fetch_add(duration, Ordering::Relaxed);
     }
 }
