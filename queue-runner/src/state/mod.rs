@@ -630,11 +630,19 @@ impl State {
                 .machines
                 .get_all_machines()
                 .into_iter()
-                .map(|m| crate::io::Machine::from_state(&m, sort_fn))
+                .map(|m| {
+                    (
+                        m.hostname.clone(),
+                        crate::io::Machine::from_state(&m, sort_fn),
+                    )
+                })
                 .collect();
             let jobsets = {
                 let jobsets = state.jobsets.read();
-                jobsets.values().map(|v| v.clone().into()).collect()
+                jobsets
+                    .values()
+                    .map(|v| (v.full_name(), v.clone().into()))
+                    .collect()
             };
             let dump_status = crate::io::DumpResponse::new(queue_stats, machines, jobsets);
             {

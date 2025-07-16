@@ -176,11 +176,19 @@ mod handler {
                 .machines
                 .get_all_machines()
                 .into_iter()
-                .map(|m| crate::io::Machine::from_state(&m, sort_fn))
+                .map(|m| {
+                    (
+                        m.hostname.clone(),
+                        crate::io::Machine::from_state(&m, sort_fn),
+                    )
+                })
                 .collect();
             let jobsets = {
                 let jobsets = state.jobsets.read();
-                jobsets.values().map(|v| v.clone().into()).collect()
+                jobsets
+                    .values()
+                    .map(|v| (v.full_name(), v.clone().into()))
+                    .collect()
             };
             construct_json_ok_response(&io::DumpResponse::new(queue_stats, machines, jobsets))
         }
@@ -196,7 +204,12 @@ mod handler {
                 .machines
                 .get_all_machines()
                 .into_iter()
-                .map(|m| crate::io::Machine::from_state(&m, sort_fn))
+                .map(|m| {
+                    (
+                        m.hostname.clone(),
+                        crate::io::Machine::from_state(&m, sort_fn),
+                    )
+                })
                 .collect();
             construct_json_ok_response(&io::MachinesResponse::new(machines))
         }
@@ -209,7 +222,10 @@ mod handler {
         ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
             let jobsets = {
                 let jobsets = state.jobsets.read();
-                jobsets.values().map(|v| v.clone().into()).collect()
+                jobsets
+                    .values()
+                    .map(|v| (v.full_name(), v.clone().into()))
+                    .collect()
             };
             construct_json_ok_response(&io::JobsetsResponse::new(jobsets))
         }

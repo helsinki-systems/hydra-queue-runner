@@ -1,6 +1,6 @@
 use std::sync::{Arc, atomic::Ordering};
 
-use ahash::{AHashMap, HashMap};
+use ahash::AHashMap;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -231,7 +231,7 @@ pub struct QueueRunnerStats {
     jobset_count: usize,
     step_count: usize,
     runnable_count: usize,
-    queue_stats: HashMap<crate::state::System, BuildQueueStats>,
+    queue_stats: AHashMap<crate::state::System, BuildQueueStats>,
 
     queue_checks_started: u64,
     queue_build_loads: u64,
@@ -349,15 +349,15 @@ impl QueueRunnerStats {
 #[serde(rename_all = "camelCase")]
 pub struct DumpResponse {
     queue_runner: QueueRunnerStats,
-    machines: Vec<Machine>,
-    jobsets: Vec<Jobset>,
+    machines: AHashMap<String, Machine>,
+    jobsets: AHashMap<String, Jobset>,
 }
 
 impl DumpResponse {
     pub fn new(
         queue_runner: QueueRunnerStats,
-        machines: Vec<Machine>,
-        jobsets: Vec<Jobset>,
+        machines: AHashMap<String, Machine>,
+        jobsets: AHashMap<String, Jobset>,
     ) -> Self {
         Self {
             queue_runner,
@@ -370,12 +370,12 @@ impl DumpResponse {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MachinesResponse {
-    machines: Vec<Machine>,
+    machines: AHashMap<String, Machine>,
     machines_count: usize,
 }
 
 impl MachinesResponse {
-    pub fn new(machines: Vec<Machine>) -> Self {
+    pub fn new(machines: AHashMap<String, Machine>) -> Self {
         Self {
             machines_count: machines.len(),
             machines,
@@ -409,12 +409,12 @@ impl From<std::sync::Arc<crate::state::Jobset>> for Jobset {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JobsetsResponse {
-    jobsets: Vec<Jobset>,
+    jobsets: AHashMap<String, Jobset>,
     jobset_count: usize,
 }
 
 impl JobsetsResponse {
-    pub fn new(jobsets: Vec<Jobset>) -> Self {
+    pub fn new(jobsets: AHashMap<String, Jobset>) -> Self {
         Self {
             jobset_count: jobsets.len(),
             jobsets,

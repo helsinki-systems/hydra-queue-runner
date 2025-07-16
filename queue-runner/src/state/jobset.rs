@@ -46,6 +46,10 @@ impl Jobset {
         }
     }
 
+    pub fn full_name(&self) -> String {
+        format!("{}:{}", self.project_name, self.name)
+    }
+
     pub fn share_used(&self) -> f64 {
         let seconds = self.seconds.load(Ordering::Relaxed);
         let shares = self.shares.load(Ordering::Relaxed);
