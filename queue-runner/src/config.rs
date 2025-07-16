@@ -142,6 +142,7 @@ pub enum MachineSortFn {
 #[derive(Debug, Default, serde::Deserialize, Copy, Clone, PartialEq, Eq)]
 pub enum MachineFreeFn {
     Dynamic,
+    DynamicWithMaxJobLimit,
     #[default]
     Static,
 }

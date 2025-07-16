@@ -351,7 +351,7 @@ impl Machines {
                 .by_uuid
                 .values()
                 .find(|m| {
-                    m.machine_has_capacity(free_fn) && m.supports_all_features(required_features)
+                    m.has_capacity(free_fn) && m.supports_all_features(required_features)
                 })
                 .cloned()
         } else {
@@ -359,7 +359,7 @@ impl Machines {
                 machines
                     .iter()
                     .find(|m| {
-                        m.machine_has_capacity(free_fn)
+                        m.has_capacity(free_fn)
                             && m.supports_all_features(required_features)
                     })
                     .cloned()
@@ -515,7 +515,27 @@ impl Machine {
         Ok(())
     }
 
-    pub fn machine_has_capacity(&self, free_fn: MachineFreeFn) -> bool {
+    pub fn has_dynamic_capacity(&self) -> bool {
+        if self.stats.cpu_some_psi.get_avg10() > self.cpu_psi_threshold {
+            return false;
+        }
+        if self.stats.mem_some_psi.get_avg10() > self.mem_psi_threshold {
+            return false;
+        }
+        if let Some(threshold) = self.io_psi_threshold {
+            if self.stats.io_some_psi.get_avg10() > threshold {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    pub fn has_static_capacity(&self) -> bool {
+        self.stats.get_current_jobs() < u64::from(self.max_jobs)
+    }
+
+    pub fn has_capacity(&self, free_fn: MachineFreeFn) -> bool {
         let now = chrono::Utc::now().timestamp();
         let jobs_in_last_30s_start = self.stats.jobs_in_last_30s_start.load(Ordering::SeqCst);
         let jobs_in_last_30s_count = self.stats.jobs_in_last_30s_count.load(Ordering::SeqCst);
@@ -534,22 +554,11 @@ impl Machine {
         }
 
         match free_fn {
-            MachineFreeFn::Dynamic => {
-                if self.stats.cpu_some_psi.get_avg10() > self.cpu_psi_threshold {
-                    return false;
-                }
-                if self.stats.mem_some_psi.get_avg10() > self.mem_psi_threshold {
-                    return false;
-                }
-                if let Some(threshold) = self.io_psi_threshold {
-                    if self.stats.io_some_psi.get_avg10() > threshold {
-                        return false;
-                    }
-                }
-
-                true
+            MachineFreeFn::Dynamic => self.has_dynamic_capacity(),
+            MachineFreeFn::DynamicWithMaxJobLimit => {
+                self.has_dynamic_capacity() && self.has_static_capacity()
             }
-            MachineFreeFn::Static => self.stats.get_current_jobs() < u64::from(self.max_jobs),
+            MachineFreeFn::Static => self.has_static_capacity(),
         }
     }
 
@@ -557,7 +566,6 @@ impl Machine {
         features.iter().all(|f| self.supported_features.contains(f))
     }
 
-    #[tracing::instrument(skip(self, sort_fn))]
     pub fn score(&self, sort_fn: MachineSortFn) -> f32 {
         match sort_fn {
             MachineSortFn::SpeedFactorOnly => self.speed_factor,

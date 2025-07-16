@@ -46,6 +46,7 @@ in
               description = "Function name for determining \"idle\" machines";
               type = lib.types.enum [
                 "Dynamic"
+                "DynamicWithMaxJobLimit"
                 "Static"
               ];
               default = "Static";

@@ -130,6 +130,9 @@ pub struct Machine {
     cgroups: bool,
     stats: MachineStats,
     jobs: Vec<nix_utils::StorePath>,
+
+    has_dynamic_capacity: bool,
+    has_static_capacity: bool,
 }
 
 impl Machine {
@@ -157,6 +160,8 @@ impl Machine {
             cgroups: item.cgroups,
             stats: MachineStats::from(&item.stats, time.timestamp()),
             jobs,
+            has_dynamic_capacity: item.has_dynamic_capacity(),
+            has_static_capacity: item.has_static_capacity(),
         }
     }
 }
