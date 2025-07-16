@@ -254,7 +254,7 @@ in
         RestrictSUIDSGID = true;
         PrivateMounts = true;
         RemoveIPC = true;
-        UMask = "0077";
+        UMask = "0022";
 
         CapabilityBoundingSet = "";
         NoNewPrivileges = true;
