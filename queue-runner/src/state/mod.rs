@@ -174,11 +174,16 @@ impl State {
         }
     }
 
-    #[tracing::instrument(skip(self))]
     pub async fn remove_all_machines(&self) {
         for m in self.machines.get_all_machines() {
             self.remove_machine(m.id).await;
         }
+    }
+
+    pub async fn clear_busy(&self) -> anyhow::Result<()> {
+        let mut db = self.db.get().await?;
+        db.clear_busy(0).await?;
+        Ok(())
     }
 
     #[tracing::instrument(skip(self, step, system), err)]

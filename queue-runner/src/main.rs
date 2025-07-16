@@ -104,6 +104,7 @@ async fn main() -> anyhow::Result<()> {
             }
             // removing all machines will also mark all currently running jobs as canceled
             state.remove_all_machines().await;
+            let _ = state.clear_busy().await;
             Ok(())
         }
         _ = sigterm.recv() => {
@@ -115,6 +116,7 @@ async fn main() -> anyhow::Result<()> {
             }
             // removing all machines will also mark all currently running jobs as canceled
             state.remove_all_machines().await;
+            let _ = state.clear_busy().await;
             Ok(())
         }
         r = task => {

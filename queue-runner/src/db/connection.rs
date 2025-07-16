@@ -140,13 +140,12 @@ impl Connection {
         )
     }
 
-    #[allow(dead_code)]
     #[tracing::instrument(skip(self), err)]
-    pub async fn clear_busy(&mut self, stop_time: Option<i32>) -> sqlx::Result<()> {
+    pub async fn clear_busy(&mut self, stop_time: i32) -> sqlx::Result<()> {
         sqlx::query!(
             "UPDATE buildsteps SET busy = 0, status = $1, stopTime = $2 WHERE busy != 0;",
             BuildStatus::Aborted as i32,
-            stop_time,
+            Some(stop_time),
         )
         .execute(&mut *self.conn)
         .await?;
