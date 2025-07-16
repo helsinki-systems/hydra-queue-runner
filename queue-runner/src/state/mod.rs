@@ -581,6 +581,7 @@ impl State {
                     } else {
                         self.notify_dispatch.notified().await;
                     }
+                    log::info!("starting dispatch");
 
                     #[allow(clippy::cast_possible_truncation)]
                     self.metrics
