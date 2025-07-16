@@ -379,10 +379,10 @@ async fn import_path(
 ) -> anyhow::Result<()> {
     use tokio_stream::StreamExt as _;
 
-    if !nix_utils::check_if_storepath_exists(&path) {
+    if !nix_utils::check_if_storepath_exists_using_pathinfo(&path).await {
         log::debug!("Importing {path}");
         let input_stream = client
-            .stream_all_requisites(crate::runner_v1::StorePath {
+            .stream_file(crate::runner_v1::StorePath {
                 path: path.base_name().to_owned(),
             })
             .await?
@@ -406,10 +406,61 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     drv: &nix_utils::StorePath,
     requisites: T,
 ) -> anyhow::Result<()> {
-    // TODO: figure out how to do this in parallel
-    import_path(client.clone(), gcroot, drv.to_owned()).await?;
-    for o in requisites {
-        nix_utils::add_root(&gcroot.root, &o);
+    use futures::stream::StreamExt as _;
+
+    let (drvs, other): (Vec<_>, Vec<_>) = requisites
+        .into_iter()
+        .partition(nix_utils::StorePath::is_drv);
+
+    let mut stream = futures::StreamExt::map(tokio_stream::iter(other.clone()), |p| {
+        import_path(client.clone(), gcroot, p)
+    })
+    .buffer_unordered(50);
+    while let Some(r) = tokio_stream::StreamExt::next(&mut stream).await {
+        r?;
+    }
+
+    // Do this drv by drv otherwise drvs get corrupted
+    for drv in &drvs {
+        import_path(client.clone(), gcroot, drv.clone()).await?;
+    }
+
+    let mut full_requisites = nix_utils::topo_sort_drvs(drv, true)
+        .await?
+        .into_iter()
+        .map(|v| nix_utils::StorePath::new(&v))
+        .filter(|v| !(drvs.contains(v) || other.contains(v)))
+        .collect::<Vec<_>>();
+
+    for drv in drvs {
+        let outputs = nix_utils::get_outputs_for_drv(&drv)
+            .await?
+            .into_iter()
+            .filter(|p| full_requisites.contains(p))
+            .collect::<Vec<_>>();
+        if outputs.is_empty() {
+            continue;
+        }
+        full_requisites.retain(|v| !outputs.contains(v));
+
+        let mut stream = futures::StreamExt::map(tokio_stream::iter(outputs), |p| {
+            import_path(client.clone(), gcroot, p)
+        })
+        .buffer_unordered(5);
+
+        while let Some(r) = tokio_stream::StreamExt::next(&mut stream).await {
+            r?;
+        }
+    }
+
+    // ensure again that all outputs are present
+    let full_requisites = nix_utils::topo_sort_drvs(drv, true)
+        .await?
+        .into_iter()
+        .map(|v| nix_utils::StorePath::new(&v))
+        .collect::<Vec<_>>();
+    for other in full_requisites {
+        import_path(client.clone(), gcroot, other).await?;
     }
 
     Ok(())

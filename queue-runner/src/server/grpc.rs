@@ -373,7 +373,7 @@ impl RunnerService for Server {
         let req = req.into_inner();
         let drv = req.path;
 
-        let requisites = nix_utils::topo_sort_drvs(&nix_utils::StorePath::new(&drv))
+        let requisites = nix_utils::topo_sort_drvs(&nix_utils::StorePath::new(&drv), false)
             .await
             .map_err(|e| {
                 log::error!("failed to toposort drv e={e}");
@@ -426,7 +426,7 @@ impl RunnerService for Server {
         use tokio_stream::StreamExt as _;
 
         let path = nix_utils::StorePath::new(&req.into_inner().path);
-        let requisites = nix_utils::topo_sort_drvs(&path)
+        let requisites = nix_utils::topo_sort_drvs(&path, false)
             .await
             .map_err(|e| {
                 log::error!("failed to toposort drv e={e}");

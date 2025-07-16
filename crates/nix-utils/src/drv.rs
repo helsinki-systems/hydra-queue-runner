@@ -111,14 +111,56 @@ pub async fn query_drv(drv: &StorePath) -> Result<Option<Derivation>, crate::Err
     Ok(query_drvs(&[drv]).await?.into_iter().next())
 }
 
-#[tracing::instrument(fields(%drv), err)]
-pub async fn topo_sort_drvs(drv: &StorePath) -> Result<Vec<String>, crate::Error> {
+#[tracing::instrument(err)]
+pub async fn get_outputs_for_drvs(drvs: &[&StorePath]) -> Result<Vec<StorePath>, crate::Error> {
     use std::io::BufRead as _;
 
     let cmd = &tokio::process::Command::new("nix-store")
-        .args(["-qR", "--include-outputs", &drv.get_full_path()])
+        .args(["-q", "--outputs"])
+        .args(drvs.iter().map(|v| v.get_full_path()))
         .output()
         .await?;
+    if cmd.status.success() {
+        let cursor = std::io::Cursor::new(&cmd.stdout);
+        Ok(std::io::BufReader::new(cursor)
+            .lines()
+            .map_while(Result::ok)
+            .map(|v| StorePath::new(&v))
+            .collect::<Vec<StorePath>>())
+    } else {
+        log::warn!(
+            "nix-store -q --outputs returned exit={} stdout={:?} stderr={:?}",
+            cmd.status,
+            std::str::from_utf8(&cmd.stdout),
+            std::str::from_utf8(&cmd.stderr),
+        );
+        Ok(vec![])
+    }
+}
+
+#[tracing::instrument(fields(%drv), err)]
+pub async fn get_outputs_for_drv(drv: &StorePath) -> Result<Option<StorePath>, crate::Error> {
+    Ok(get_outputs_for_drvs(&[drv]).await?.into_iter().next())
+}
+
+#[tracing::instrument(fields(%drv), err)]
+pub async fn topo_sort_drvs(
+    drv: &StorePath,
+    include_outputs: bool,
+) -> Result<Vec<String>, crate::Error> {
+    use std::io::BufRead as _;
+
+    let cmd = if include_outputs {
+        tokio::process::Command::new("nix-store")
+            .args(["-qR", "--include-outputs", &drv.get_full_path()])
+            .output()
+            .await?
+    } else {
+        tokio::process::Command::new("nix-store")
+            .args(["-qR", &drv.get_full_path()])
+            .output()
+            .await?
+    };
     if cmd.status.success() {
         let cursor = std::io::Cursor::new(&cmd.stdout);
         Ok(std::io::BufReader::new(cursor)
@@ -229,7 +271,7 @@ pub async fn realise_drv(
             "--option",
             "builders",
             "",
-            &drv.get_full_path()
+            &drv.get_full_path(),
         ])
         .kill_on_drop(kill_on_drop)
         .stdout(std::process::Stdio::piped())

@@ -66,6 +66,13 @@ pub async fn query_path_info(path: &StorePath) -> Result<Option<PathInfo>, crate
             "--json",
             "--size",
             "--closure-size",
+            "--offline",
+            "--option",
+            "substitute",
+            "false",
+            "--option",
+            "builders",
+            "",
             &full_path,
         ])
         .output()
@@ -93,6 +100,26 @@ pub async fn query_path_infos(
         }
     }
     Ok(res)
+}
+
+#[tracing::instrument(skip(path))]
+pub async fn check_if_storepath_exists_using_pathinfo(path: &StorePath) -> bool {
+    tokio::process::Command::new("nix")
+        .args([
+            "path-info",
+            "--offline",
+            "--option",
+            "substitute",
+            "false",
+            "--option",
+            "builders",
+            "",
+            &path.get_full_path(),
+        ])
+        .output()
+        .await
+        .map(|cmd| cmd.status.success())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

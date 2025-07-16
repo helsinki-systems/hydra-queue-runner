@@ -45,12 +45,16 @@ where
 
 pub use config::{NixConfig, get_nix_config};
 pub use drv::{
-    BuildOptions, Derivation, Output as DerivationOutput, query_drv, query_drvs,
-    query_missing_outputs, query_missing_remote_outputs, realise_drv, topo_sort_drvs,
+    BuildOptions, Derivation, Output as DerivationOutput, get_outputs_for_drv,
+    get_outputs_for_drvs, query_drv, query_drvs, query_missing_outputs,
+    query_missing_remote_outputs, realise_drv, topo_sort_drvs,
 };
 pub use nar::{export_nar, export_nars, import_nar};
 pub use nix_support::{BuildMetric, BuildProduct, NixSupport, parse_nix_support_from_outputs};
-pub use pathinfo::{PathInfo, clear_query_path_cache, query_path_info, query_path_infos};
+pub use pathinfo::{
+    PathInfo, check_if_storepath_exists_using_pathinfo, clear_query_path_cache, query_path_info,
+    query_path_infos,
+};
 pub use remote::RemoteStore;
 
 pub const HASH_LEN: usize = 32;
@@ -125,6 +129,10 @@ pub fn validate_statuscode(status: std::process::ExitStatus) -> Result<(), Error
 
 pub fn add_root(root_dir: &std::path::Path, store_path: &StorePath) {
     let path = root_dir.join(store_path.base_name());
+    // force create symlink
+    if path.exists() {
+        let _ = std::fs::remove_file(&path);
+    }
     if !path.exists() {
         let _ = std::os::unix::fs::symlink(store_path.get_full_path(), path);
     }
