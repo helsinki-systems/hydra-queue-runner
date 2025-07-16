@@ -80,7 +80,9 @@ impl Server {
             state: state.clone(),
         })
         .send_compressed(tonic::codec::CompressionEncoding::Zstd)
-        .accept_compressed(tonic::codec::CompressionEncoding::Zstd);
+        .accept_compressed(tonic::codec::CompressionEncoding::Zstd)
+        .max_decoding_message_size(50 * 1024 * 1024)
+        .max_encoding_message_size(50 * 1024 * 1024);
 
         if state.args.mtls_enabled() {
             log::info!("Using mtls");

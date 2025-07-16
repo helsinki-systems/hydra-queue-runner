@@ -153,7 +153,9 @@ async fn main() -> anyhow::Result<()> {
     let state = State::new(args);
     let mut client = RunnerServiceClient::new(channel)
         .send_compressed(tonic::codec::CompressionEncoding::Zstd)
-        .accept_compressed(tonic::codec::CompressionEncoding::Zstd);
+        .accept_compressed(tonic::codec::CompressionEncoding::Zstd)
+        .max_decoding_message_size(50 * 1024 * 1024)
+        .max_encoding_message_size(50 * 1024 * 1024);
     let srv = start_bidirectional_stream(&mut client, state);
 
     let _notify = sd_notify::notify(
