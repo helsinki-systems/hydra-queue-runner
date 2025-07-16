@@ -364,7 +364,7 @@ impl PromMetrics {
 
     pub fn add_to_total_step_import_time_ms(&self, v: u128) {
         if let Ok(v) = i64::try_from(v) {
-            self.total_step_build_time_ms.add(v);
+            self.total_step_import_time_ms.add(v);
         }
     }
 
