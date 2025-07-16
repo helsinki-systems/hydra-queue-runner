@@ -239,7 +239,7 @@ struct MachinesInner {
 impl MachinesInner {
     fn sort(&mut self, sort_fn: MachineSortFn) {
         for machines in self.by_system.values_mut() {
-            machines.sort_by(|a, b| a.score(sort_fn).total_cmp(&b.score(sort_fn)));
+            machines.sort_by(|a, b| a.score(sort_fn).total_cmp(&b.score(sort_fn)).reverse());
         }
     }
 }
