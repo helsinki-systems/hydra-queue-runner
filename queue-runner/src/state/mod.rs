@@ -17,7 +17,7 @@ use ahash::{AHashMap, AHashSet};
 use futures::TryStreamExt;
 use secrecy::ExposeSecret as _;
 
-use crate::config::{Args, PreparedApp};
+use crate::config::{App, Args};
 use crate::db::models::BuildStatus;
 use crate::utils::finish_build_step;
 use machine::Machines;
@@ -38,7 +38,7 @@ enum RealiseStepResult {
 }
 
 pub struct State {
-    pub config: Arc<parking_lot::RwLock<PreparedApp>>,
+    pub config: App,
     pub args: Args,
     pub db: crate::db::Database,
 
@@ -74,20 +74,13 @@ impl State {
                 .modify(|filter| *filter = tracing_subscriber::filter::EnvFilter::new("error"));
         }
 
-        let config = PreparedApp::init(&args.config_path)?;
-        let (log_dir, db) = {
-            let (log_dir, db_url, max_db_connections) = {
-                let config = config.read();
-                (
-                    config.hydra_log_dir.clone(),
-                    config.db_url.clone(),
-                    config.max_db_connections,
-                )
-            };
-
-            let db = crate::db::Database::new(db_url.expose_secret(), max_db_connections).await?;
-            (log_dir, db)
-        };
+        let config = App::init(&args.config_path)?;
+        let log_dir = config.get_hydra_log_dir();
+        let db = crate::db::Database::new(
+            config.get_db_url().expose_secret(),
+            config.get_max_db_connections(),
+        )
+        .await?;
 
         let _ = tokio::fs::create_dir_all(&log_dir).await;
         Ok(Arc::new(Self {
@@ -106,20 +99,21 @@ impl State {
         }))
     }
 
-    pub fn reload_config_callback(&self, new_config: &PreparedApp) -> anyhow::Result<()> {
+    pub fn reload_config_callback(
+        &self,
+        new_config: &crate::config::PreparedApp,
+    ) -> anyhow::Result<()> {
         // IF this gets more complex we need a way to trap the state and revert.
         // right now it doesnt matter because only reconfigure_pool can fail and this is the first
         // thing we do.
 
-        let (curr_db_url, curr_machine_sort_fn) = {
-            let config = self.config.read();
-            (config.db_url.clone(), config.machine_sort_fn)
-        };
+        let curr_db_url = self.config.get_db_url();
+        let curr_sort_fn = self.config.get_sort_fn();
         if curr_db_url.expose_secret() != new_config.db_url.expose_secret() {
             self.db
                 .reconfigure_pool(new_config.db_url.expose_secret())?;
         }
-        if curr_machine_sort_fn != new_config.machine_sort_fn {
+        if curr_sort_fn != new_config.machine_sort_fn {
             self.machines.sort(new_config.machine_sort_fn);
         }
         Ok(())
@@ -147,11 +141,9 @@ impl State {
 
     #[tracing::instrument(skip(self, machine))]
     pub async fn insert_machine(&self, machine: Machine) -> uuid::Uuid {
-        let sort_fn = {
-            let config = self.config.read();
-            config.machine_sort_fn
-        };
-        let machine_id = self.machines.insert_machine(machine, sort_fn);
+        let machine_id = self
+            .machines
+            .insert_machine(machine, self.config.get_sort_fn());
         self.trigger_dispatch();
         machine_id
     }
@@ -196,10 +188,7 @@ impl State {
         system: &System,
     ) -> anyhow::Result<RealiseStepResult> {
         let drv = step.get_drv_path();
-        let free_fn = {
-            let config = self.config.read();
-            config.machine_free_fn
-        };
+        let free_fn = self.config.get_free_fn();
 
         let Some(machine) =
             self.machines
@@ -380,10 +369,7 @@ impl State {
             self.metrics
                 .nr_builds_read
                 .add(nr_added.load(Ordering::Relaxed));
-            let stop_queue_run_after = {
-                let config = self.config.read();
-                config.stop_queue_run_after
-            };
+            let stop_queue_run_after = self.config.get_stop_queue_run_after();
 
             if let Some(stop_queue_run_after) = stop_queue_run_after {
                 if chrono::Utc::now() > (starttime + stop_queue_run_after) {
@@ -524,10 +510,7 @@ impl State {
                 .inc_by(before_work.elapsed().as_micros() as u64);
 
             let before_sleep = Instant::now();
-            let queue_trigger_timer = {
-                let config = self.config.read();
-                config.queue_trigger_timer
-            };
+            let queue_trigger_timer = self.config.get_queue_trigger_timer();
             let notification = if let Some(timer) = queue_trigger_timer {
                 tokio::select! {
                     () = tokio::time::sleep(timer) => {"timer_reached".into()},
@@ -584,10 +567,7 @@ impl State {
             async move {
                 loop {
                     let before_sleep = Instant::now();
-                    let dispatch_trigger_timer = {
-                        let config = self.config.read();
-                        config.dispatch_trigger_timer
-                    };
+                    let dispatch_trigger_timer = self.config.get_dispatch_trigger_timer();
                     if let Some(timer) = dispatch_trigger_timer {
                         tokio::select! {
                             () = self.notify_dispatch.notified() => {},
@@ -640,10 +620,7 @@ impl State {
 
             let state = state.clone();
             let queue_stats = crate::io::QueueRunnerStats::new(state.clone()).await;
-            let sort_fn = {
-                let config = state.config.read();
-                config.machine_sort_fn
-            };
+            let sort_fn = state.config.get_sort_fn();
             let machines = state
                 .machines
                 .get_all_machines()
@@ -953,10 +930,7 @@ impl State {
             self.add_root(path);
         }
 
-        let remote_store_url = {
-            let config = self.config.read();
-            config.get_remote_store_addr()
-        };
+        let remote_store_url = self.config.get_remote_store_addr();
         if let Some(url) = remote_store_url {
             let outputs = output.outputs.clone();
             tokio::spawn(async move {
@@ -1105,14 +1079,7 @@ impl State {
         ))?;
 
         // TODO: max failure count
-        let (max_retries, retry_interval, retry_backoff) = {
-            let config = self.config.read();
-            (
-                config.max_retries,
-                config.retry_interval,
-                config.retry_backoff,
-            )
-        };
+        let (max_retries, retry_interval, retry_backoff) = self.config.get_retry();
 
         // TODO: if can_retry {
         step_info
@@ -1658,10 +1625,8 @@ impl State {
             return CreateStepResult::None;
         };
 
-        let (use_substitutes, remote_store_url) = {
-            let config = self.config.read();
-            (config.use_substitutes, config.get_remote_store_addr())
-        };
+        let use_substitutes = self.config.get_use_substitutes();
+        let remote_store_url = self.config.get_remote_store_addr();
         let missing_outputs = if let Some(remote_store_url) = remote_store_url.as_deref() {
             nix_utils::query_missing_remote_outputs(drv.outputs.clone(), remote_store_url).await
         } else {
@@ -1883,7 +1848,7 @@ impl State {
     }
 
     fn add_root(&self, drv_path: &nix_utils::StorePath) {
-        let config = self.config.read();
-        nix_utils::add_root(&config.roots_dir, drv_path);
+        let roots_dir = self.config.get_roots_dir();
+        nix_utils::add_root(&roots_dir, drv_path);
     }
 }

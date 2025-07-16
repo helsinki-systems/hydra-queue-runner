@@ -201,22 +201,22 @@ struct AppConfig {
 pub struct PreparedApp {
     #[allow(dead_code)]
     hydra_data_dir: std::path::PathBuf,
-    pub hydra_log_dir: std::path::PathBuf,
-    pub lockfile: std::path::PathBuf,
+    hydra_log_dir: std::path::PathBuf,
+    lockfile: std::path::PathBuf,
     pub db_url: secrecy::SecretString,
-    pub max_db_connections: u32,
+    max_db_connections: u32,
     pub machine_sort_fn: MachineSortFn,
-    pub machine_free_fn: MachineFreeFn,
-    pub dispatch_trigger_timer: Option<tokio::time::Duration>,
-    pub queue_trigger_timer: Option<tokio::time::Duration>,
+    machine_free_fn: MachineFreeFn,
+    dispatch_trigger_timer: Option<tokio::time::Duration>,
+    queue_trigger_timer: Option<tokio::time::Duration>,
     remote_store_addr: Option<String>,
     signing_key_path: Option<std::path::PathBuf>,
-    pub use_substitutes: bool,
-    pub roots_dir: std::path::PathBuf,
-    pub max_retries: u32,
-    pub retry_interval: f32,
-    pub retry_backoff: f32,
-    pub stop_queue_run_after: Option<chrono::Duration>,
+    use_substitutes: bool,
+    roots_dir: std::path::PathBuf,
+    max_retries: u32,
+    retry_interval: f32,
+    retry_backoff: f32,
+    stop_queue_run_after: Option<chrono::Duration>,
 }
 
 impl TryFrom<AppConfig> for PreparedApp {
@@ -315,14 +315,66 @@ fn load_config(filepath: &str) -> anyhow::Result<PreparedApp> {
         .map_err(|e| anyhow::anyhow!("Failed to prepare configuration: {e}"))
 }
 
-impl PreparedApp {
-    pub fn init(filepath: &str) -> anyhow::Result<Arc<parking_lot::RwLock<Self>>> {
-        Ok(Arc::new(parking_lot::RwLock::new(load_config(filepath)?)))
+#[derive(Clone)]
+pub struct App {
+    inner: Arc<arc_swap::ArcSwap<PreparedApp>>,
+}
+
+impl App {
+    pub fn init(filepath: &str) -> anyhow::Result<Self> {
+        Ok(Self {
+            inner: Arc::new(arc_swap::ArcSwap::from(Arc::new(load_config(filepath)?))),
+        })
+    }
+
+    fn swap_inner(&self, new_val: PreparedApp) {
+        self.inner.store(Arc::new(new_val));
+    }
+
+    pub fn get_hydra_log_dir(&self) -> std::path::PathBuf {
+        let inner = self.inner.load();
+        inner.hydra_log_dir.clone()
+    }
+
+    pub fn get_lockfile(&self) -> std::path::PathBuf {
+        let inner = self.inner.load();
+        inner.lockfile.clone()
+    }
+
+    pub fn get_db_url(&self) -> secrecy::SecretString {
+        let inner = self.inner.load();
+        inner.db_url.clone()
+    }
+
+    pub fn get_max_db_connections(&self) -> u32 {
+        let inner = self.inner.load();
+        inner.max_db_connections
+    }
+
+    pub fn get_sort_fn(&self) -> MachineSortFn {
+        let inner = self.inner.load();
+        inner.machine_sort_fn
+    }
+
+    pub fn get_free_fn(&self) -> MachineFreeFn {
+        let inner = self.inner.load();
+        inner.machine_free_fn
+    }
+
+    pub fn get_dispatch_trigger_timer(&self) -> Option<tokio::time::Duration> {
+        let inner = self.inner.load();
+        inner.dispatch_trigger_timer
+    }
+
+    pub fn get_queue_trigger_timer(&self) -> Option<tokio::time::Duration> {
+        let inner = self.inner.load();
+        inner.queue_trigger_timer
     }
 
     pub fn get_remote_store_addr(&self) -> Option<String> {
-        if let Some(url) = &self.remote_store_addr {
-            if let Some(secret_key) = &self.signing_key_path {
+        let inner = self.inner.load();
+        if let Some(url) = &inner.remote_store_addr {
+            if let Some(secret_key) = &inner.signing_key_path {
                 Some(format!("{url}?secret-key={}", secret_key.to_string_lossy()))
             } else {
                 Some(url.clone())
@@ -331,13 +383,29 @@ impl PreparedApp {
             None
         }
     }
+
+    pub fn get_use_substitutes(&self) -> bool {
+        let inner = self.inner.load();
+        inner.use_substitutes
+    }
+
+    pub fn get_roots_dir(&self) -> std::path::PathBuf {
+        let inner = self.inner.load();
+        inner.roots_dir.clone()
+    }
+
+    pub fn get_retry(&self) -> (u32, f32, f32) {
+        let inner = self.inner.load();
+        (inner.max_retries, inner.retry_interval, inner.retry_backoff)
+    }
+
+    pub fn get_stop_queue_run_after(&self) -> Option<chrono::Duration> {
+        let inner = self.inner.load();
+        inner.stop_queue_run_after
+    }
 }
 
-pub fn reload(
-    current_config: &Arc<parking_lot::RwLock<PreparedApp>>,
-    filepath: &str,
-    state: &Arc<crate::state::State>,
-) {
+pub fn reload(current_config: &App, filepath: &str, state: &Arc<crate::state::State>) {
     let new_config = match load_config(filepath) {
         Ok(c) => c,
         Err(e) => {
@@ -366,11 +434,7 @@ pub fn reload(
         return;
     }
 
-    {
-        let mut current_config_unwrapped = current_config.write();
-        *current_config_unwrapped = new_config;
-    }
-
+    current_config.swap_inner(new_config);
     let _notify = sd_notify::notify(
         false,
         &[

@@ -23,7 +23,7 @@ fn start_task_loops(state: std::sync::Arc<State>) -> Vec<tokio::task::AbortHandl
 
 fn spawn_config_reloader(
     state: std::sync::Arc<State>,
-    current_config: std::sync::Arc<parking_lot::RwLock<config::PreparedApp>>,
+    current_config: config::App,
     filepath: &str,
 ) -> tokio::task::AbortHandle {
     let filepath = filepath.to_owned();
@@ -58,11 +58,7 @@ async fn main() -> anyhow::Result<()> {
         return Err(anyhow::anyhow!("Configuration issue"));
     }
 
-    let lockfile_path = {
-        let config = state.config.read();
-        config.lockfile.clone()
-    };
-
+    let lockfile_path = state.config.get_lockfile();
     let _lock = lockfile::Lockfile::create_with_parents(lockfile_path)
         .map_err(|e| anyhow::anyhow!("Another instance is already running. Internal Error: {e}"))?;
 
