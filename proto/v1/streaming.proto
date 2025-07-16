@@ -13,6 +13,7 @@ service RunnerService {
   rpc BuildStepUpdate(StepUpdate) returns (Empty) {}
   rpc CompleteBuildWithSuccess(BuildResultInfo) returns (Empty) {}
   rpc CompleteBuildWithFailure(FailResultInfo) returns (Empty) {}
+  rpc FetchDrvRequisites(StorePath) returns (DrvRequisitesMessage) {}
   rpc StreamFile(StorePath) returns (stream NarData) {}
 }
 
@@ -81,12 +82,15 @@ message JoinResponse {
 
 message BuildMessage {
   string drv = 1;
-  repeated string requisites = 2;
-  uint64 max_log_size = 3;
-  int32 max_silent_time = 4;
-  int32 build_timeout = 5;
-  // bool is_deterministic = 6;
-  // bool enforce_determinism = 7;
+  uint64 max_log_size = 2;
+  int32 max_silent_time = 3;
+  int32 build_timeout = 4;
+  // bool is_deterministic = 5;
+  // bool enforce_determinism = 6;
+}
+
+message DrvRequisitesMessage {
+  repeated string requisites = 1;
 }
 
 message AbortMessage {

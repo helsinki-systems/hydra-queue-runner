@@ -175,7 +175,7 @@ impl RunnerService for Server {
                     },
                     msg = input_rx.recv() => {
                         if let Some(msg) = msg {
-                            if let Err(e) = output_tx.send(Ok(msg.into_request().await)).await {
+                            if let Err(e) = output_tx.send(Ok(msg.into_request())).await {
                                 log::error!("Failed to send message to machine={machine_id} e={e}");
                                 state.remove_machine(machine_id).await;
                                 break
@@ -360,6 +360,26 @@ impl RunnerService for Server {
         });
 
         Ok(tonic::Response::new(runner_v1::Empty {}))
+    }
+
+    #[tracing::instrument(skip(self, req), err)]
+    async fn fetch_drv_requisites(
+        &self,
+        req: tonic::Request<StorePath>,
+    ) -> BuilderResult<runner_v1::DrvRequisitesMessage> {
+        let req = req.into_inner();
+        let drv = req.path;
+
+        let requisites = nix_utils::topo_sort_drvs(&nix_utils::StorePath::new(&drv))
+            .await
+            .map_err(|e| {
+                log::error!("failed to toposort drv e={e}");
+                tonic::Status::internal("failed to toposort drv.")
+            })?;
+
+        Ok(tonic::Response::new(runner_v1::DrvRequisitesMessage {
+            requisites,
+        }))
     }
 
     #[tracing::instrument(skip(self, req), err)]

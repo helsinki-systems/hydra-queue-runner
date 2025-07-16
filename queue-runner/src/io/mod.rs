@@ -354,7 +354,11 @@ pub struct DumpResponse {
 }
 
 impl DumpResponse {
-    pub fn new(queue_runner: QueueRunnerStats, machines: Vec<Machine>, jobsets: Vec<Jobset>) -> Self {
+    pub fn new(
+        queue_runner: QueueRunnerStats,
+        machines: Vec<Machine>,
+        jobsets: Vec<Jobset>,
+    ) -> Self {
         Self {
             queue_runner,
             machines,

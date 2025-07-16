@@ -417,7 +417,7 @@ pub enum Message {
 }
 
 impl Message {
-    pub async fn into_request(self) -> crate::server::grpc::runner_v1::RunnerRequest {
+    pub fn into_request(self) -> crate::server::grpc::runner_v1::RunnerRequest {
         let msg = match self {
             Message::BuildMessage {
                 drv,
@@ -425,7 +425,6 @@ impl Message {
                 max_silent_time,
                 build_timeout,
             } => runner_request::Message::Build(BuildMessage {
-                requisites: nix_utils::topo_sort_drvs(&drv).await.unwrap_or_default(),
                 drv: drv.base_name().to_owned(),
                 max_log_size,
                 max_silent_time,

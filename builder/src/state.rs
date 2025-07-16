@@ -250,11 +250,19 @@ impl State {
                 step_status: StepStatus::SeningInputs as i32,
             })
             .await;
+        let requisites = client
+            .fetch_drv_requisites(crate::runner_v1::StorePath {
+                path: drv.base_name().to_owned(),
+            })
+            .await?
+            .into_inner()
+            .requisites;
+
         import_requisites(
             &mut client,
             &gcroot,
             &drv,
-            m.requisites
+            requisites
                 .into_iter()
                 .map(|s| nix_utils::StorePath::new(&s)),
         )
