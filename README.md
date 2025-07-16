@@ -45,7 +45,7 @@ Message workflow (see: `proto/v1/streaming.proto`)
 ## queue runner config
 
 ```toml
-hydraLogDir = "/var/lib/hydra/logs"
+hydraDataDir = "/var/lib/hydra"
 dbUrl = "postgres://hydra@%2Frun%2Fpostgresql:5432/hydra"
 maxDbConnections = 128
 # valid options: SpeedFactorOnly, CpuCoreCountWithSpeedFactor, BogomipsWithSpeedFactor

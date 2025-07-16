@@ -18,10 +18,10 @@ in
         description = "Reloadable settings for queue runner";
         type = lib.types.submodule {
           options = {
-            hydraLogDir = lib.mkOption {
-              description = "Hydra log directory";
+            hydraDataDir = lib.mkOption {
+              description = "Hydra data directory";
               type = lib.types.path;
-              default = "/var/lib/hydra/build-logs";
+              default = "/var/lib/hydra";
             };
             dbUrl = lib.mkOption {
               description = "Postgresql database url";

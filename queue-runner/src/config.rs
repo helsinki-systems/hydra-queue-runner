@@ -95,7 +95,7 @@ impl Args {
     }
 }
 
-fn default_log_dir() -> std::path::PathBuf {
+fn default_data_dir() -> std::path::PathBuf {
     "/tmp/hydra".into()
 }
 
@@ -152,8 +152,8 @@ pub enum MachineFreeFn {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 struct AppConfig {
-    #[serde(default = "default_log_dir")]
-    hydra_log_dir: std::path::PathBuf,
+    #[serde(default = "default_data_dir")]
+    hydra_data_dir: std::path::PathBuf,
 
     #[serde(default = "default_pg_socket_url")]
     db_url: secrecy::SecretString,
@@ -199,7 +199,10 @@ struct AppConfig {
 /// Prepared configuration of the application
 #[derive(Debug)]
 pub struct PreparedApp {
+    #[allow(dead_code)]
+    hydra_data_dir: std::path::PathBuf,
     pub hydra_log_dir: std::path::PathBuf,
+    pub lockfile: std::path::PathBuf,
     pub db_url: secrecy::SecretString,
     pub max_db_connections: u32,
     pub machine_sort_fn: MachineSortFn,
@@ -251,8 +254,13 @@ impl TryFrom<AppConfig> for PreparedApp {
         };
         std::fs::create_dir_all(&roots_dir)?;
 
+        let hydra_log_dir = val.hydra_data_dir.join("build-logs");
+        let lockfile = val.hydra_data_dir.join("queue-runner/lock");
+
         Ok(Self {
-            hydra_log_dir: val.hydra_log_dir,
+            hydra_data_dir: val.hydra_data_dir,
+            hydra_log_dir,
+            lockfile,
             db_url: val.db_url,
             max_db_connections: val.max_db_connections,
             machine_sort_fn: val.machine_sort_fn,

@@ -182,6 +182,13 @@ impl State {
         }
     }
 
+    #[tracing::instrument(skip(self))]
+    pub async fn remove_all_machines(&self) {
+        for m in self.machines.get_all_machines() {
+            self.remove_machine(m.id).await;
+        }
+    }
+
     #[tracing::instrument(skip(self, step, system), err)]
     async fn realise_drv_on_valid_machine(
         &self,
@@ -478,14 +485,15 @@ impl State {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn start_queue_monitor_loop(self: Arc<Self>) {
-        tokio::task::spawn({
+    pub fn start_queue_monitor_loop(self: Arc<Self>) -> tokio::task::AbortHandle {
+        let task = tokio::task::spawn({
             async move {
                 if let Err(e) = self.queue_monitor_loop().await {
                     log::error!("Failed to spawn queue monitor loop. e={e}");
                 }
             }
         });
+        task.abort_handle()
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -571,8 +579,8 @@ impl State {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn start_dispatch_loop(self: Arc<Self>) {
-        tokio::task::spawn({
+    pub fn start_dispatch_loop(self: Arc<Self>) -> tokio::task::AbortHandle {
+        let task = tokio::task::spawn({
             async move {
                 loop {
                     let before_sleep = Instant::now();
@@ -612,6 +620,7 @@ impl State {
                 }
             }
         });
+        task.abort_handle()
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -672,14 +681,15 @@ impl State {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn start_dump_status_loop(self: Arc<Self>) {
-        tokio::task::spawn({
+    pub fn start_dump_status_loop(self: Arc<Self>) -> tokio::task::AbortHandle {
+        let task = tokio::task::spawn({
             async move {
                 if let Err(e) = self.dump_status_loop().await {
                     log::error!("Failed to spawn queue monitor loop. e={e}");
                 }
             }
         });
+        task.abort_handle()
     }
 
     #[tracing::instrument(skip(self))]

@@ -10,22 +10,24 @@ mod server;
 mod state;
 mod utils;
 
-fn start_task_loops(state: std::sync::Arc<State>) {
+fn start_task_loops(state: std::sync::Arc<State>) -> Vec<tokio::task::AbortHandle> {
     log::info!("QueueRunner starting task loops");
 
-    spawn_config_reloader(state.clone(), state.config.clone(), &state.args.config_path);
-    state.clone().start_queue_monitor_loop();
-    state.clone().start_dispatch_loop();
-    state.start_dump_status_loop();
+    vec![
+        spawn_config_reloader(state.clone(), state.config.clone(), &state.args.config_path),
+        state.clone().start_queue_monitor_loop(),
+        state.clone().start_dispatch_loop(),
+        state.start_dump_status_loop(),
+    ]
 }
 
 fn spawn_config_reloader(
     state: std::sync::Arc<State>,
     current_config: std::sync::Arc<parking_lot::RwLock<config::PreparedApp>>,
     filepath: &str,
-) {
+) -> tokio::task::AbortHandle {
     let filepath = filepath.to_owned();
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         loop {
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
                 .unwrap()
@@ -36,6 +38,7 @@ fn spawn_config_reloader(
             config::reload(&current_config, &filepath, &state);
         }
     });
+    task.abort_handle()
 }
 
 #[tokio::main]
@@ -55,7 +58,15 @@ async fn main() -> anyhow::Result<()> {
         return Err(anyhow::anyhow!("Configuration issue"));
     }
 
-    start_task_loops(state.clone());
+    let lockfile_path = {
+        let config = state.config.read();
+        config.lockfile.clone()
+    };
+
+    let _lock = lockfile::Lockfile::create_with_parents(lockfile_path)
+        .map_err(|e| anyhow::anyhow!("Another instance is already running. Internal Error: {e}"))?;
+
+    let task_abort_handles = start_task_loops(state.clone());
     log::info!(
         "QueueRunner listening on grpc: {} and rest: {}",
         state.args.grpc_bind,
@@ -64,7 +75,16 @@ async fn main() -> anyhow::Result<()> {
     let srv1 = server::grpc::Server::run(state.args.grpc_bind, state.clone());
     let srv2 = server::http::Server::run(state.args.rest_bind, state.clone());
 
-    let handle = futures_util::future::join(srv1, srv2);
+    let task = tokio::spawn(async move {
+        match futures_util::future::join(srv1, srv2).await {
+            (Ok(()), Ok(())) => Ok(()),
+            (Ok(()), Err(e)) => Err(anyhow::anyhow!("hyper error while awaiting handle: {e}")),
+            (Err(e), Ok(())) => Err(anyhow::anyhow!("tonic error while awaiting handle: {e}")),
+            (Err(e1), Err(e2)) => Err(anyhow::anyhow!(
+                "tonic and hyper error while awaiting handle: {e1} | {e2}"
+            )),
+        }
+    });
 
     let _notify = sd_notify::notify(
         false,
@@ -74,21 +94,36 @@ async fn main() -> anyhow::Result<()> {
         ],
     );
 
-    match handle.await {
-        (Ok(()), Ok(())) => (),
-        (Ok(()), Err(e)) => {
-            log::error!("hyper error while awaiting handle: {e}");
-            std::process::exit(1);
+    let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+
+    let abort_handle = task.abort_handle();
+    tokio::select! {
+        _ = sigint.recv() => {
+            log::info!("Received sigint - shutting down gracefully");
+            let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
+            abort_handle.abort();
+            for h in task_abort_handles {
+                h.abort();
+            }
+            // removing all machines will also mark all currently running jobs as canceled
+            state.remove_all_machines().await;
+            Ok(())
         }
-        (Err(e), Ok(())) => {
-            log::error!("tonic error while awaiting handle: {e}");
-            std::process::exit(1);
+        _ = sigterm.recv() => {
+            log::info!("Received sigterm - shutting down gracefully");
+            let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
+            abort_handle.abort();
+            for h in task_abort_handles {
+                h.abort();
+            }
+            // removing all machines will also mark all currently running jobs as canceled
+            state.remove_all_machines().await;
+            Ok(())
         }
-        (Err(e1), Err(e2)) => {
-            log::error!("tonic and hyper error while awaiting handle: {e1} | {e2}");
-            std::process::exit(1);
+        r = task => {
+            r??;
+            Ok(())
         }
     }
-
-    Ok(())
 }
