@@ -68,13 +68,13 @@ where
             async move {
                 while let Some(chunk) = input_stream.next().await {
                     if let Err(e) = stdin.write_all(&chunk).await {
-                        log::error!("Error writing to stdin: {}", e);
+                        log::error!("Error writing to stdin: {e}");
                         return Err(e);
                     }
                 }
 
                 if let Err(e) = stdin.shutdown().await {
-                    log::error!("Error closing stdin: {}", e);
+                    log::error!("Error closing stdin: {e}");
                     return Err(e);
                 }
                 drop(stdin);
