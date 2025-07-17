@@ -290,7 +290,7 @@ impl Step {
         drv.as_ref().map(|drv| drv.system.clone())
     }
 
-    pub fn get_inputs(&self) -> Option<Vec<String>> {
+    pub fn get_input_drvs(&self) -> Option<Vec<String>> {
         let drv = self.drv.load_full();
         drv.as_ref().map(|drv| drv.input_drvs.clone())
     }

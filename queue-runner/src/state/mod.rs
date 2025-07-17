@@ -1729,7 +1729,8 @@ impl State {
         }
 
         log::debug!("creating build step '{drv_path}");
-        let Some(input_drvs) = step.get_inputs() else {
+        let Some(input_drvs) = step.get_input_drvs() else {
+            // this should never happen because we always a a drv set at this point in time
             return CreateStepResult::None;
         };
 
