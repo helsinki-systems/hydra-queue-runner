@@ -9,8 +9,8 @@ use crate::{
     state::{Machine, MachineMessage, State},
 };
 use runner_v1::{
-    BuildResultInfo, BuilderRequest, FailResultInfo, JoinResponse, LogChunk, NarData,
-    RunnerRequest, SimplePingMessage, StorePath, builder_request,
+    BuildResultInfo, BuilderRequest, FailResultInfo, FetchRequisitesRequest, JoinResponse,
+    LogChunk, NarData, RunnerRequest, SimplePingMessage, StorePath, builder_request,
     runner_service_server::{RunnerService, RunnerServiceServer},
 };
 
@@ -368,17 +368,19 @@ impl RunnerService for Server {
     #[tracing::instrument(skip(self, req), err)]
     async fn fetch_drv_requisites(
         &self,
-        req: tonic::Request<StorePath>,
+        req: tonic::Request<FetchRequisitesRequest>,
     ) -> BuilderResult<runner_v1::DrvRequisitesMessage> {
         let req = req.into_inner();
         let drv = req.path;
+        let include_outputs = req.include_outputs;
 
-        let requisites = nix_utils::topo_sort_drvs(&nix_utils::StorePath::new(&drv), false)
-            .await
-            .map_err(|e| {
-                log::error!("failed to toposort drv e={e}");
-                tonic::Status::internal("failed to toposort drv.")
-            })?;
+        let requisites =
+            nix_utils::topo_sort_drvs(&nix_utils::StorePath::new(&drv), include_outputs)
+                .await
+                .map_err(|e| {
+                    log::error!("failed to toposort drv e={e}");
+                    tonic::Status::internal("failed to toposort drv.")
+                })?;
 
         Ok(tonic::Response::new(runner_v1::DrvRequisitesMessage {
             requisites,

@@ -13,7 +13,7 @@ service RunnerService {
   rpc BuildStepUpdate(StepUpdate) returns (Empty) {}
   rpc CompleteBuildWithSuccess(BuildResultInfo) returns (Empty) {}
   rpc CompleteBuildWithFailure(FailResultInfo) returns (Empty) {}
-  rpc FetchDrvRequisites(StorePath) returns (DrvRequisitesMessage) {}
+  rpc FetchDrvRequisites(FetchRequisitesRequest) returns (DrvRequisitesMessage) {}
   rpc StreamFile(StorePath) returns (stream NarData) {}
   rpc StreamAllRequisites(StorePath) returns (stream NarData) {}
 }
@@ -101,6 +101,11 @@ message AbortMessage {
 message LogChunk {
   string drv = 1;
   bytes data = 2;
+}
+
+message FetchRequisitesRequest {
+  string path = 1;
+  bool include_outputs = 2;
 }
 
 message StorePath {

@@ -1490,7 +1490,7 @@ impl State {
             new_builds_by_id.remove(&build.id);
         }
 
-        if !nix_utils::check_if_storepath_exists(&build.drv_path) {
+        if !nix_utils::check_if_storepath_exists(&build.drv_path).await {
             log::error!("aborting GC'ed build {}", build.id);
             if !build.get_finished_in_db() {
                 match self.db.get().await {
@@ -1677,7 +1677,7 @@ impl State {
         let missing_outputs = if let Some(remote_store_url) = remote_store_url.as_deref() {
             nix_utils::query_missing_remote_outputs(drv.outputs.clone(), remote_store_url).await
         } else {
-            nix_utils::query_missing_outputs(&drv.outputs)
+            nix_utils::query_missing_outputs(drv.outputs.clone()).await
         };
         step.set_drv(drv);
 

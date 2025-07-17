@@ -127,7 +127,7 @@ pub async fn parse_nix_support_from_outputs(
             }
             let path = StorePath::new(&path);
             let path_full_path = path.get_full_path();
-            if !crate::check_if_storepath_exists(&path) {
+            if !crate::check_if_storepath_exists(&path).await {
                 continue;
             }
             let Ok(metadata) = tokio::fs::metadata(&path_full_path).await else {

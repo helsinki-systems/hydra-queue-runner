@@ -288,16 +288,24 @@ pub async fn realise_drv(
 }
 
 #[tracing::instrument(skip(outputs))]
-pub fn query_missing_outputs(outputs: &[Output]) -> Vec<Output> {
-    let mut missing = vec![];
-    for o in outputs {
-        if let Some(path) = &o.path {
-            if !super::check_if_storepath_exists(path) {
-                missing.push(o.clone());
+pub async fn query_missing_outputs(outputs: Vec<Output>) -> Vec<Output> {
+    use futures::stream::StreamExt as _;
+
+    tokio_stream::iter(outputs)
+        .map(|o| async move {
+            let Some(path) = &o.path else {
+                return None;
+            };
+            if !super::check_if_storepath_exists(path).await {
+                Some(o)
+            } else {
+                None
             }
-        }
-    }
-    missing
+        })
+        .buffered(50)
+        .filter_map(|o| async { o })
+        .collect()
+        .await
 }
 
 #[tracing::instrument(skip(outputs, remote_store_url))]

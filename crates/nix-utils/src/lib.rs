@@ -115,8 +115,10 @@ impl std::fmt::Display for StorePath {
 }
 
 #[tracing::instrument(skip(path))]
-pub fn check_if_storepath_exists(path: &StorePath) -> bool {
-    std::path::Path::new(&path.get_full_path()).exists()
+pub async fn check_if_storepath_exists(path: &StorePath) -> bool {
+    tokio::fs::try_exists(&path.get_full_path())
+        .await
+        .unwrap_or_default()
 }
 
 pub fn validate_statuscode(status: std::process::ExitStatus) -> Result<(), Error> {

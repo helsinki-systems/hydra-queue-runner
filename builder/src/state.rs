@@ -251,8 +251,9 @@ impl State {
             })
             .await;
         let requisites = client
-            .fetch_drv_requisites(crate::runner_v1::StorePath {
+            .fetch_drv_requisites(crate::runner_v1::FetchRequisitesRequest {
                 path: drv.base_name().to_owned(),
+                include_outputs: false,
             })
             .await?
             .into_inner()
@@ -369,6 +370,19 @@ impl State {
     }
 }
 
+#[tracing::instrument(fields(%gcroot, %path))]
+async fn filter_missing(
+    gcroot: &Gcroot,
+    path: nix_utils::StorePath,
+) -> Option<nix_utils::StorePath> {
+    if nix_utils::check_if_storepath_exists(&path).await {
+        nix_utils::add_root(&gcroot.root, &path);
+        None
+    } else {
+        Some(path)
+    }
+}
+
 #[tracing::instrument(skip(client), fields(%gcroot, %path), err)]
 async fn import_path(
     mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
@@ -379,7 +393,8 @@ async fn import_path(
 ) -> anyhow::Result<()> {
     use tokio_stream::StreamExt as _;
 
-    if !nix_utils::check_if_storepath_exists_using_pathinfo(&path).await {
+    // Do one last check
+    if !nix_utils::check_if_storepath_exists(&path).await {
         log::debug!("Importing {path}");
         let input_stream = client
             .stream_file(crate::runner_v1::StorePath {
@@ -408,6 +423,14 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
 ) -> anyhow::Result<()> {
     use futures::stream::StreamExt as _;
 
+    let requisites = futures::StreamExt::map(tokio_stream::iter(requisites), |p| {
+        filter_missing(gcroot, p)
+    })
+    .buffered(50)
+    .filter_map(|o| async { o })
+    .collect::<Vec<_>>()
+    .await;
+
     let (drvs, other): (Vec<_>, Vec<_>) = requisites
         .into_iter()
         .partition(nix_utils::StorePath::is_drv);
@@ -425,12 +448,25 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
         import_path(client.clone(), gcroot, drv.clone()).await?;
     }
 
-    let mut full_requisites = nix_utils::topo_sort_drvs(drv, true)
+    let full_requisites = client
+        .clone()
+        .fetch_drv_requisites(crate::runner_v1::FetchRequisitesRequest {
+            path: drv.base_name().to_owned(),
+            include_outputs: true,
+        })
         .await?
+        .into_inner()
+        .requisites
         .into_iter()
-        .map(|v| nix_utils::StorePath::new(&v))
-        .filter(|v| !(drvs.contains(v) || other.contains(v)))
+        .map(|s| nix_utils::StorePath::new(&s))
         .collect::<Vec<_>>();
+    let full_requisites = futures::StreamExt::map(tokio_stream::iter(full_requisites), |p| {
+        filter_missing(gcroot, p)
+    })
+    .buffered(50)
+    .filter_map(|o| async { o })
+    .collect::<Vec<_>>()
+    .await;
 
     for drv in drvs {
         let outputs = nix_utils::get_outputs_for_drv(&drv)
@@ -441,7 +477,6 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
         if outputs.is_empty() {
             continue;
         }
-        full_requisites.retain(|v| !outputs.contains(v));
 
         let mut stream = futures::StreamExt::map(tokio_stream::iter(outputs), |p| {
             import_path(client.clone(), gcroot, p)
@@ -454,11 +489,14 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     }
 
     // ensure again that all outputs are present
-    let full_requisites = nix_utils::topo_sort_drvs(drv, true)
-        .await?
-        .into_iter()
-        .map(|v| nix_utils::StorePath::new(&v))
-        .collect::<Vec<_>>();
+    let full_requisites = futures::StreamExt::map(tokio_stream::iter(full_requisites), |p| {
+        filter_missing(gcroot, p)
+    })
+    .buffered(50)
+    .filter_map(|o| async { o })
+    .collect::<Vec<_>>()
+    .await;
+
     for other in full_requisites {
         import_path(client.clone(), gcroot, other).await?;
     }
