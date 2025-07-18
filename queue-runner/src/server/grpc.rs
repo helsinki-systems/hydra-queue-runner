@@ -10,7 +10,7 @@ use crate::{
 };
 use runner_v1::{
     BuildResultInfo, BuilderRequest, FailResultInfo, FetchRequisitesRequest, JoinResponse,
-    LogChunk, NarData, RunnerRequest, SimplePingMessage, StorePath, builder_request,
+    LogChunk, NarData, RunnerRequest, SimplePingMessage, StorePath, StorePaths, builder_request,
     runner_service_server::{RunnerService, RunnerServiceServer},
 };
 
@@ -118,7 +118,7 @@ impl Server {
 impl RunnerService for Server {
     type OpenTunnelStream = OpenTunnelResponseStream;
     type StreamFileStream = StreamFileResponseStream;
-    type StreamAllRequisitesStream = StreamFileResponseStream;
+    type StreamFilesStream = StreamFileResponseStream;
 
     #[tracing::instrument(skip(self, req), err)]
     async fn open_tunnel(
@@ -421,24 +421,20 @@ impl RunnerService for Server {
     }
 
     #[tracing::instrument(skip(self, req), err)]
-    async fn stream_all_requisites(
+    async fn stream_files(
         &self,
-        req: tonic::Request<StorePath>,
-    ) -> BuilderResult<Self::StreamAllRequisitesStream> {
+        req: tonic::Request<StorePaths>,
+    ) -> BuilderResult<Self::StreamFilesStream> {
         use tokio_stream::StreamExt as _;
 
-        let path = nix_utils::StorePath::new(&req.into_inner().path);
-        let requisites = nix_utils::topo_sort_drvs(&path, false)
-            .await
-            .map_err(|e| {
-                log::error!("failed to toposort drv e={e}");
-                tonic::Status::internal("failed to toposort drv.")
-            })?
+        let req = req.into_inner();
+        let paths = req
+            .paths
             .into_iter()
-            .map(|s| nix_utils::StorePath::new(&s))
+            .map(|p| nix_utils::StorePath::new(&p))
             .collect::<Vec<_>>();
 
-        let (mut child, mut bytes_stream) = nix_utils::export_nars(&requisites, false)
+        let (mut child, mut bytes_stream) = nix_utils::export_nars(&paths, false)
             .await
             .map_err(|_| tonic::Status::internal("failed to export paths"))?;
 
@@ -459,7 +455,7 @@ impl RunnerService for Server {
         };
 
         Ok(tonic::Response::new(
-            Box::pin(output) as Self::StreamAllRequisitesStream
+            Box::pin(output) as Self::StreamFilesStream
         ))
     }
 }

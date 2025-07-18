@@ -1,10 +1,14 @@
 use std::{sync::Arc, time::Instant};
 
 use ahash::AHashMap;
-use futures::TryFutureExt;
+use futures::TryFutureExt as _;
 use tonic::Request;
 
 use crate::runner_v1::{StepStatus, StepUpdate};
+
+// increasing this number will result in increased memory usage of the queue runner as it has to
+// increase file streaming!
+const MAX_DOWNLOAD_NARS: usize = 5;
 
 pub struct BuildInfo {
     handle: tokio::task::JoinHandle<()>,
@@ -412,6 +416,46 @@ async fn import_path(
     Ok(())
 }
 
+#[tracing::instrument(skip(client), fields(%gcroot), err)]
+async fn import_paths(
+    mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
+        tonic::transport::Channel,
+    >,
+    gcroot: &Gcroot,
+    paths: Vec<nix_utils::StorePath>,
+    filter: bool,
+) -> anyhow::Result<()> {
+    use futures::stream::StreamExt as _;
+
+    let paths = if filter {
+        futures::StreamExt::map(tokio_stream::iter(paths), |p| filter_missing(gcroot, p))
+            .buffered(10)
+            .filter_map(|o| async { o })
+            .collect::<Vec<_>>()
+            .await
+    } else {
+        paths
+    };
+
+    // Do one last check
+    log::debug!("Importing {paths:?}");
+    let input_stream = client
+        .stream_files(crate::runner_v1::StorePaths {
+            paths: paths.iter().map(|p| p.base_name().to_owned()).collect(),
+        })
+        .await?
+        .into_inner();
+    nix_utils::import_nar(
+        tokio_stream::StreamExt::map_while(input_stream, |s| s.map(|m| m.chunk.into()).ok()),
+        true,
+    )
+    .await?;
+    for p in paths {
+        nix_utils::add_root(&gcroot.root, &p);
+    }
+    Ok(())
+}
+
 #[tracing::instrument(skip(client, requisites), fields(%gcroot, %drv), err)]
 async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     client: &mut crate::runner_v1::runner_service_client::RunnerServiceClient<
@@ -431,11 +475,11 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     .collect::<Vec<_>>()
     .await;
 
-    let (drvs, other): (Vec<_>, Vec<_>) = requisites
+    let (input_drvs, input_srcs): (Vec<_>, Vec<_>) = requisites
         .into_iter()
         .partition(nix_utils::StorePath::is_drv);
 
-    let mut stream = futures::StreamExt::map(tokio_stream::iter(other.clone()), |p| {
+    let mut stream = futures::StreamExt::map(tokio_stream::iter(input_srcs.clone()), |p| {
         import_path(client.clone(), gcroot, p)
     })
     .buffer_unordered(50);
@@ -443,9 +487,9 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
         r?;
     }
 
-    // Do this drv by drv otherwise drvs get corrupted
-    for drv in &drvs {
-        import_path(client.clone(), gcroot, drv.clone()).await?;
+    // Do this drv by drv otherwise input_drvs get corrupted
+    for drvs in input_drvs.chunks(MAX_DOWNLOAD_NARS) {
+        import_paths(client.clone(), gcroot, drvs.to_vec(), true).await?;
     }
 
     let full_requisites = client
@@ -468,24 +512,21 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     .collect::<Vec<_>>()
     .await;
 
-    for drv in drvs {
-        let outputs = nix_utils::get_outputs_for_drv(&drv)
-            .await?
-            .into_iter()
-            .filter(|p| full_requisites.contains(p))
-            .collect::<Vec<_>>();
-        if outputs.is_empty() {
-            continue;
-        }
+    let outputs = futures::StreamExt::map(tokio_stream::iter(input_drvs), |drv| async move {
+        nix_utils::get_outputs_for_drv(&drv)
+            .await
+            .unwrap_or_default()
+    })
+    .buffered(50)
+    .filter_map(|o| async { o })
+    .collect::<Vec<_>>()
+    .await
+    .into_iter()
+    .filter(|p| full_requisites.contains(p))
+    .collect::<Vec<_>>();
 
-        let mut stream = futures::StreamExt::map(tokio_stream::iter(outputs), |p| {
-            import_path(client.clone(), gcroot, p)
-        })
-        .buffer_unordered(5);
-
-        while let Some(r) = tokio_stream::StreamExt::next(&mut stream).await {
-            r?;
-        }
+    for files in outputs.chunks(MAX_DOWNLOAD_NARS) {
+        import_paths(client.clone(), gcroot, files.to_vec(), true).await?;
     }
 
     // ensure again that all outputs are present
@@ -497,8 +538,9 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     .collect::<Vec<_>>()
     .await;
 
-    for other in full_requisites {
-        import_path(client.clone(), gcroot, other).await?;
+    for other in full_requisites.chunks(MAX_DOWNLOAD_NARS) {
+        // we can skip filtering here as we already done that
+        import_paths(client.clone(), gcroot, other.to_vec(), false).await?;
     }
 
     Ok(())
