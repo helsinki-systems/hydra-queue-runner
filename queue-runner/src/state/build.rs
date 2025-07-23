@@ -92,6 +92,7 @@ impl Build {
         }))
     }
 
+    #[inline]
     pub fn full_job_name(&self) -> String {
         format!(
             "{}:{}:{}",
@@ -99,15 +100,17 @@ impl Build {
         )
     }
 
+    #[inline]
     pub fn get_finished_in_db(&self) -> bool {
         self.finished_in_db.load(Ordering::SeqCst)
     }
 
+    #[inline]
     pub fn set_finished_in_db(&self, v: bool) {
         self.finished_in_db.store(v, Ordering::SeqCst);
     }
 
-    #[tracing::instrument(skip(self, step))]
+    #[inline]
     pub fn set_toplevel_step(&self, step: Arc<Step>) {
         self.toplevel.store(Some(step));
     }
@@ -185,10 +188,12 @@ impl StepAtomicState {
         }
     }
 
+    #[inline]
     pub fn get_created(&self) -> bool {
         self.created.load(Ordering::SeqCst)
     }
 
+    #[inline]
     pub fn set_created(&self, v: bool) {
         self.created.store(v, Ordering::SeqCst);
     }
@@ -230,6 +235,7 @@ pub struct Step {
 
     runnable: AtomicBool,
     finished: AtomicBool,
+    previous_failure: AtomicBool,
     pub atomic_state: StepAtomicState,
     pub state: parking_lot::RwLock<StepState>,
 }
@@ -257,6 +263,7 @@ impl Step {
             drv: arc_swap::ArcSwapOption::from(None),
             runnable: false.into(),
             finished: false.into(),
+            previous_failure: false.into(),
             atomic_state: StepAtomicState::new(),
             state: parking_lot::RwLock::new(StepState::new(
                 chrono::DateTime::<chrono::Utc>::MIN_UTC,
@@ -265,18 +272,32 @@ impl Step {
         })
     }
 
+    #[inline]
     pub fn get_drv_path(&self) -> &nix_utils::StorePath {
         &self.drv_path
     }
 
+    #[inline]
     pub fn get_finished(&self) -> bool {
         self.finished.load(Ordering::SeqCst)
     }
 
+    #[inline]
     pub fn set_finished(&self, v: bool) {
         self.finished.store(v, Ordering::SeqCst);
     }
 
+    #[inline]
+    pub fn get_previous_failure(&self) -> bool {
+        self.previous_failure.load(Ordering::SeqCst)
+    }
+
+    #[inline]
+    pub fn set_previous_failure(&self, v: bool) {
+        self.previous_failure.store(v, Ordering::SeqCst);
+    }
+
+    #[inline]
     pub fn get_runnable(&self) -> bool {
         self.runnable.load(Ordering::SeqCst)
     }
@@ -339,6 +360,34 @@ impl Step {
     pub fn get_deps_size(&self) -> usize {
         let state = self.state.read();
         state.deps.len()
+    }
+
+    pub fn make_rdeps_runnable(&self) {
+        if !self.get_finished() {
+            return;
+        }
+
+        let state = self.state.read();
+        for rdep in &state.rdeps {
+            let Some(rdep) = rdep.upgrade() else {
+                continue;
+            };
+
+            let mut runnable = false;
+            {
+                let mut rdep_state = rdep.state.write();
+                rdep_state
+                    .deps
+                    .retain(|s| s.get_drv_path() != self.get_drv_path());
+                if rdep_state.deps.is_empty() && rdep.atomic_state.get_created() {
+                    runnable = true;
+                }
+            }
+
+            if runnable {
+                rdep.make_runnable();
+            }
+        }
     }
 
     #[tracing::instrument(skip(self))]

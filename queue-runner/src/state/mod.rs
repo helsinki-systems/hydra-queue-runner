@@ -14,7 +14,7 @@ use std::time::Instant;
 use std::{sync::Arc, sync::Weak};
 
 use ahash::{AHashMap, AHashSet};
-use futures::TryStreamExt;
+use futures::TryStreamExt as _;
 use secrecy::ExposeSecret as _;
 
 use crate::config::{App, Args};
@@ -381,6 +381,22 @@ impl State {
                     self.metrics.queue_checks_early_exits.inc();
                     break;
                 }
+            }
+        }
+
+        {
+            // This is here to ensure that we dont have any deps to finished steps
+            // This can happen because step creation is async and is_new can return a step that is
+            // still undecided if its finished or not.
+            let steps = self.steps.read();
+            for (_, s) in steps.iter() {
+                let Some(s) = s.upgrade() else {
+                    continue;
+                };
+                if s.get_finished() && !s.get_previous_failure() {
+                    s.make_rdeps_runnable();
+                }
+                // TODO: if previous failure we should propably also remove from deps
             }
         }
 
@@ -1036,29 +1052,7 @@ impl State {
             tx.commit().await?;
         }
 
-        {
-            let state = step_info.step.state.write();
-            for rdep in &state.rdeps {
-                let Some(rdep) = rdep.upgrade() else {
-                    continue;
-                };
-
-                let mut runnable = false;
-                {
-                    let mut rdep_state = rdep.state.write();
-                    rdep_state
-                        .deps
-                        .retain(|s| s.get_drv_path() != step_info.step.get_drv_path());
-                    if rdep_state.deps.is_empty() && rdep.atomic_state.get_created() {
-                        runnable = true;
-                    }
-                }
-
-                if runnable {
-                    rdep.make_runnable();
-                }
-            }
-        }
+        step_info.step.make_rdeps_runnable();
 
         // always trigger dispatch, as we now might have a free machine again
         self.trigger_dispatch();
@@ -1682,11 +1676,12 @@ impl State {
         step.set_drv(drv);
 
         if self.check_cached_failure(step.clone()).await {
+            step.set_previous_failure(true);
             return CreateStepResult::PreviousFailure(step);
         }
 
         log::debug!("missing outputs: {missing_outputs:?}");
-        let mut valid = missing_outputs.is_empty();
+        let mut finished = missing_outputs.is_empty();
         if !missing_outputs.is_empty() && use_substitutes {
             use futures::stream::StreamExt as _;
 
@@ -1719,12 +1714,13 @@ impl State {
                     }
                 }
             }
-            valid = substituted == missing_outputs_len;
+            finished = substituted == missing_outputs_len;
         }
 
-        if valid {
+        if finished {
             let mut finished_drvs = finished_drvs.write();
             finished_drvs.insert(drv_path.clone());
+            step.set_finished(true);
             return CreateStepResult::None;
         }
 
@@ -1761,7 +1757,7 @@ impl State {
             match v {
                 CreateStepResult::None => (),
                 CreateStepResult::Valid(dep) => {
-                    if !dep.get_finished() {
+                    if !dep.get_finished() && !dep.get_previous_failure() {
                         // finished can be true if a step was returned, that already exists in
                         // self.steps and is currently being processed for completion
                         let mut state = step.state.write();

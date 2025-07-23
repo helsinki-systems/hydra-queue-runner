@@ -472,10 +472,12 @@ impl BuildsResponse {
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Step {
     drv_path: nix_utils::StorePath,
     runnable: bool,
     finished: bool,
+    previous_failure: bool,
 
     created: bool,
     tries: u32,
@@ -492,6 +494,7 @@ impl From<std::sync::Arc<crate::state::Step>> for Step {
             drv_path: item.get_drv_path().clone(),
             runnable: item.get_runnable(),
             finished: item.get_finished(),
+            previous_failure: item.get_previous_failure(),
             created: item.atomic_state.get_created(),
             tries: item.atomic_state.tries.load(Ordering::Relaxed),
             highest_global_priority: item
