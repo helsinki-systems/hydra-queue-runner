@@ -16,6 +16,7 @@ tracing-log = "0.2.0"
 sd-notify = "0.4.5"
 
 anyhow = "1.0.98"
+thiserror = "2.0"
 clap = { version = "4", features = ["derive"] }
 uuid = { version = "1.16", features = ["v4"] }
 ahash = "0.8.11"

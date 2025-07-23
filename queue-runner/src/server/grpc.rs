@@ -5,12 +5,12 @@ use tokio::{io::AsyncWriteExt, sync::mpsc};
 use tracing::Instrument as _;
 
 use crate::{
-    server::grpc::runner_v1::StepUpdate,
+    server::grpc::runner_v1::{BuildResultState, StepUpdate},
     state::{Machine, MachineMessage, State},
 };
 use runner_v1::{
-    BuildResultInfo, BuilderRequest, FailResultInfo, FetchRequisitesRequest, JoinResponse,
-    LogChunk, NarData, RunnerRequest, SimplePingMessage, StorePath, StorePaths, builder_request,
+    BuildResultInfo, BuilderRequest, FetchRequisitesRequest, JoinResponse, LogChunk, NarData,
+    RunnerRequest, SimplePingMessage, StorePath, StorePaths, builder_request,
     runner_service_server::{RunnerService, RunnerServiceServer},
 };
 
@@ -304,7 +304,7 @@ impl RunnerService for Server {
     }
 
     #[tracing::instrument(skip(self, req), fields(machine_id=req.get_ref().machine_id, drv=req.get_ref().drv), err)]
-    async fn complete_build_with_success(
+    async fn complete_build(
         &self,
         req: tonic::Request<BuildResultInfo>,
     ) -> BuilderResult<runner_v1::Empty> {
@@ -316,41 +316,23 @@ impl RunnerService for Server {
 
         tokio::spawn({
             async move {
-                let build_output = crate::state::BuildOutput::from(req);
-                if let Err(e) = state
-                    .succeed_step(
-                        machine_id.ok(),
-                        &nix_utils::StorePath::new(&drv),
-                        build_output,
-                    )
-                    .await
-                {
-                    log::error!("Failed to mark step with drv={drv} as done: {e}");
-                }
-            }
-            .in_current_span()
-        });
-
-        Ok(tonic::Response::new(runner_v1::Empty {}))
-    }
-
-    #[tracing::instrument(skip(self, req), fields(machine_id=req.get_ref().machine_id, drv=req.get_ref().drv), err)]
-    async fn complete_build_with_failure(
-        &self,
-        req: tonic::Request<FailResultInfo>,
-    ) -> BuilderResult<runner_v1::Empty> {
-        let state = self.state.clone();
-
-        let req = req.into_inner();
-        let drv = req.drv;
-        let machine_id = uuid::Uuid::parse_str(&req.machine_id);
-
-        tokio::spawn({
-            async move {
-                if let Err(e) = state
+                if req.result_state() == BuildResultState::Success {
+                    let build_output = crate::state::BuildOutput::from(req);
+                    if let Err(e) = state
+                        .succeed_step(
+                            machine_id.ok(),
+                            &nix_utils::StorePath::new(&drv),
+                            build_output,
+                        )
+                        .await
+                    {
+                        log::error!("Failed to mark step with drv={drv} as done: {e}");
+                    }
+                } else if let Err(e) = state
                     .fail_step(
                         machine_id.ok(),
                         &nix_utils::StorePath::new(&drv),
+                        req.result_state(),
                         std::time::Duration::from_millis(req.import_time_ms),
                         std::time::Duration::from_millis(req.build_time_ms),
                     )

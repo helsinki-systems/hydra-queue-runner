@@ -448,6 +448,24 @@ impl RemoteBuild {
             0
         }
     }
+
+    pub fn update_with_result_state(
+        &mut self,
+        state: crate::server::grpc::runner_v1::BuildResultState,
+    ) {
+        match state {
+            crate::server::grpc::runner_v1::BuildResultState::BuildFailure => {
+                self.can_retry = false;
+            }
+            crate::server::grpc::runner_v1::BuildResultState::Success => (),
+            crate::server::grpc::runner_v1::BuildResultState::PreparingFailure
+            | crate::server::grpc::runner_v1::BuildResultState::ImportFailure
+            | crate::server::grpc::runner_v1::BuildResultState::UploadFailure
+            | crate::server::grpc::runner_v1::BuildResultState::PostProcessingFailure => {
+                self.can_retry = true;
+            }
+        }
+    }
 }
 
 pub struct BuildProduct {

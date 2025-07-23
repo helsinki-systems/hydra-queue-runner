@@ -160,6 +160,9 @@ impl State {
                     .fail_step(
                         Some(machine_id),
                         &job.path,
+                        // we fail this with preparing because we kinda want to restart all jobs if
+                        // a machine is removed
+                        crate::server::grpc::runner_v1::BuildResultState::PreparingFailure,
                         std::time::Duration::from_secs(0),
                         std::time::Duration::from_secs(0),
                     )
@@ -1066,6 +1069,7 @@ impl State {
         &self,
         machine_id: Option<uuid::Uuid>,
         drv_path: &nix_utils::StorePath,
+        state: crate::server::grpc::runner_v1::BuildResultState,
         import_elapsed: std::time::Duration,
         build_elapsed: std::time::Duration,
     ) -> anyhow::Result<()> {
@@ -1090,56 +1094,58 @@ impl State {
             machine
         ))?;
 
+        job.result.update_with_result_state(state);
         job.result.step_status = BuildStatus::Failed;
 
         // TODO: max failure count
         let (max_retries, retry_interval, retry_backoff) = self.config.get_retry();
 
-        // TODO: if can_retry {
-        step_info
-            .step
-            .atomic_state
-            .tries
-            .fetch_add(1, Ordering::Relaxed);
-        let tries = step_info.step.atomic_state.tries.load(Ordering::Relaxed);
-        if tries < max_retries {
-            // retry step
-            // TODO: update metrics:
-            // - build_step_time_ms,
-            // - total_step_time_ms,
-            // - maschine.build_step_time_ms,
-            // - maschine.total_step_time_ms,
-            // - maschine.last_failure
-            self.metrics.nr_retries.add(1);
-            #[allow(clippy::cast_precision_loss)]
-            #[allow(clippy::cast_possible_truncation)]
-            let delta = (retry_interval * retry_backoff.powf((tries - 1) as f32)) as i64;
-            log::info!("will retry '{drv_path}' after {delta}s");
-            {
-                let mut step_state = step_info.step.state.write();
-                step_state.after = chrono::Utc::now() + chrono::Duration::seconds(delta);
-            }
-            if i64::from(tries) > self.metrics.max_nr_retries.get() {
-                self.metrics.max_nr_retries.set(i64::from(tries));
-            }
+        if job.result.can_retry {
+            step_info
+                .step
+                .atomic_state
+                .tries
+                .fetch_add(1, Ordering::Relaxed);
+            let tries = step_info.step.atomic_state.tries.load(Ordering::Relaxed);
+            if tries < max_retries {
+                // retry step
+                // TODO: update metrics:
+                // - build_step_time_ms,
+                // - total_step_time_ms,
+                // - maschine.build_step_time_ms,
+                // - maschine.total_step_time_ms,
+                // - maschine.last_failure
+                self.metrics.nr_retries.add(1);
+                #[allow(clippy::cast_precision_loss)]
+                #[allow(clippy::cast_possible_truncation)]
+                let delta = (retry_interval * retry_backoff.powf((tries - 1) as f32)) as i64;
+                log::info!("will retry '{drv_path}' after {delta}s");
+                {
+                    let mut step_state = step_info.step.state.write();
+                    step_state.after = chrono::Utc::now() + chrono::Duration::seconds(delta);
+                }
+                if i64::from(tries) > self.metrics.max_nr_retries.get() {
+                    self.metrics.max_nr_retries.set(i64::from(tries));
+                }
 
-            step_info.set_already_scheduled(false);
+                step_info.set_already_scheduled(false);
 
-            {
-                let mut db = self.db.get().await?;
-                let mut tx = db.begin_transaction().await?;
-                finish_build_step(
-                    &mut tx,
-                    job.build_id,
-                    job.step_nr,
-                    &job.result,
-                    Some(machine.hostname.clone()),
-                )
-                .await?;
-                tx.commit().await?;
+                {
+                    let mut db = self.db.get().await?;
+                    let mut tx = db.begin_transaction().await?;
+                    finish_build_step(
+                        &mut tx,
+                        job.build_id,
+                        job.step_nr,
+                        &job.result,
+                        Some(machine.hostname.clone()),
+                    )
+                    .await?;
+                    tx.commit().await?;
+                }
+                self.trigger_dispatch();
+                return Ok(());
             }
-            self.trigger_dispatch();
-            return Ok(());
         }
 
         // remove job from queues, aka actually fail the job

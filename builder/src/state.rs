@@ -4,11 +4,38 @@ use ahash::AHashMap;
 use futures::TryFutureExt as _;
 use tonic::Request;
 
-use crate::runner_v1::{StepStatus, StepUpdate};
+use crate::runner_v1::{BuildResultState, StepStatus, StepUpdate};
 
 // increasing this number will result in increased memory usage of the queue runner as it has to
 // increase file streaming!
 const MAX_DOWNLOAD_NARS: usize = 5;
+
+#[derive(thiserror::Error, Debug)]
+#[allow(clippy::enum_variant_names)]
+pub enum JobFailure {
+    #[error("Build failure: `{0}`")]
+    Build(anyhow::Error),
+    #[error("Preparing failure: `{0}`")]
+    Preparing(anyhow::Error),
+    #[error("Import failure: `{0}`")]
+    Import(anyhow::Error),
+    #[error("Upload failure: `{0}`")]
+    Upload(anyhow::Error),
+    #[error("Post processing failure: `{0}`")]
+    PostProcessing(anyhow::Error),
+}
+
+impl From<JobFailure> for BuildResultState {
+    fn from(item: JobFailure) -> Self {
+        match item {
+            JobFailure::Build(_) => Self::BuildFailure,
+            JobFailure::Preparing(_) => Self::PreparingFailure,
+            JobFailure::Import(_) => Self::ImportFailure,
+            JobFailure::Upload(_) => Self::UploadFailure,
+            JobFailure::PostProcessing(_) => Self::PostProcessingFailure,
+        }
+    }
+}
 
 pub struct BuildInfo {
     handle: tokio::task::JoinHandle<()>,
@@ -174,13 +201,16 @@ impl State {
                         log::error!("Build of {drv} failed with {e}");
                         self_.remove_build(&drv);
                         if let Err(e) = client
-                            .complete_build_with_failure(crate::runner_v1::FailResultInfo {
+                            .complete_build(crate::runner_v1::BuildResultInfo {
                                 machine_id: self_.id.to_string(),
                                 drv: drv.base_name().to_owned(),
                                 import_time_ms: u64::try_from(import_elapsed.as_millis())
                                     .unwrap_or_default(),
                                 build_time_ms: u64::try_from(build_elapsed.as_millis())
                                     .unwrap_or_default(),
+                                result_state: BuildResultState::from(e) as i32,
+                                outputs: vec![],
+                                nix_support: None,
                             })
                             .await
                         {
@@ -229,6 +259,7 @@ impl State {
     }
 
     #[tracing::instrument(skip(self, client, m), fields(drv=%m.drv), err)]
+    #[allow(clippy::too_many_lines)]
     async fn process_build(
         &self,
         mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
@@ -237,7 +268,9 @@ impl State {
         m: crate::runner_v1::BuildMessage,
         import_elapsed: &mut std::time::Duration,
         build_elapsed: &mut std::time::Duration,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), JobFailure> {
+        // we dont use anyhow here because we manually need to write the correct build status
+        // to the queue runner.
         use tokio_stream::StreamExt as _;
 
         let machine_id = self.id;
@@ -245,7 +278,9 @@ impl State {
 
         let before_import = Instant::now();
         let gcroot_prefix = uuid::Uuid::new_v4().to_string();
-        let gcroot = self.get_gcroot(&gcroot_prefix)?;
+        let gcroot = self
+            .get_gcroot(&gcroot_prefix)
+            .map_err(|e| JobFailure::Preparing(e.into()))?;
 
         let _ = client // we ignore the error here, as this step status has no prio
             .build_step_update(StepUpdate {
@@ -259,7 +294,8 @@ impl State {
                 path: drv.base_name().to_owned(),
                 include_outputs: false,
             })
-            .await?
+            .await
+            .map_err(|e| JobFailure::Import(e.into()))?
             .into_inner()
             .requisites;
 
@@ -271,12 +307,14 @@ impl State {
                 .into_iter()
                 .map(|s| nix_utils::StorePath::new(&s)),
         )
-        .await?;
+        .await
+        .map_err(JobFailure::Import)?;
         *import_elapsed = before_import.elapsed();
 
         let drv_info = nix_utils::query_drv(&drv)
-            .await?
-            .ok_or(anyhow::anyhow!("drv info not found"))?;
+            .await
+            .map_err(|e| JobFailure::Import(e.into()))?
+            .ok_or(JobFailure::Import(anyhow::anyhow!("drv not found")))?;
 
         let _ = client // we ignore the error here, as this step status has no prio
             .build_step_update(StepUpdate {
@@ -291,7 +329,8 @@ impl State {
             &nix_utils::BuildOptions::complete(m.max_log_size, m.max_silent_time, m.build_timeout),
             true,
         )
-        .await?;
+        .await
+        .map_err(|e| JobFailure::Build(e.into()))?;
         let drv2 = drv.clone();
         let log_stream = async_stream::stream! {
             while let Some(chunk) = log_output.next().await {
@@ -307,13 +346,22 @@ impl State {
                 }
             }
         };
-        client.build_log(Request::new(log_stream)).await?;
+        client
+            .build_log(Request::new(log_stream))
+            .await
+            .map_err(|e| JobFailure::Build(e.into()))?;
         let output_paths = drv_info
             .outputs
             .iter()
             .filter_map(|o| o.path.clone())
             .collect::<Vec<_>>();
-        nix_utils::validate_statuscode(child.wait().await?)?;
+        nix_utils::validate_statuscode(
+            child
+                .wait()
+                .await
+                .map_err(|e| JobFailure::Build(e.into()))?,
+        )
+        .map_err(|e| JobFailure::Build(e.into()))?;
         for o in &output_paths {
             nix_utils::add_root(&gcroot.root, o);
         }
@@ -328,10 +376,9 @@ impl State {
                 step_status: StepStatus::ReceivingOutputs as i32,
             })
             .await;
-        upload_nars(client.clone(), output_paths).await?;
-        let build_results =
-            new_build_result_info(machine_id, &drv, drv_info, *import_elapsed, *build_elapsed)
-                .await?;
+        upload_nars(client.clone(), output_paths)
+            .await
+            .map_err(JobFailure::Upload)?;
 
         let _ = client // we ignore the error here, as this step status has no prio
             .build_step_update(StepUpdate {
@@ -340,7 +387,20 @@ impl State {
                 step_status: StepStatus::PostProcessing as i32,
             })
             .await;
-        client.complete_build_with_success(build_results).await?;
+        let build_results = new_success_build_result_info(
+            machine_id,
+            &drv,
+            drv_info,
+            *import_elapsed,
+            *build_elapsed,
+        )
+        .await
+        .map_err(JobFailure::PostProcessing)?;
+        // This part is stupid, if writing doesnt work, we try to write a failure, maybe that works
+        client
+            .complete_build(build_results)
+            .await
+            .map_err(|e| JobFailure::PostProcessing(e.into()))?;
 
         Ok(())
     }
@@ -577,7 +637,7 @@ async fn upload_nars(
 }
 
 #[tracing::instrument(skip(drv_info), fields(%drv), ret(level = tracing::Level::DEBUG), err)]
-async fn new_build_result_info(
+async fn new_success_build_result_info(
     machine_id: uuid::Uuid,
     drv: &nix_utils::StorePath,
     drv_info: nix_utils::Derivation,
@@ -597,6 +657,7 @@ async fn new_build_result_info(
         drv: drv.base_name().to_owned(),
         import_time_ms: u64::try_from(import_elapsed.as_millis())?,
         build_time_ms: u64::try_from(build_elapsed.as_millis())?,
+        result_state: BuildResultState::Success as i32,
         outputs: drv_info
             .outputs
             .into_iter()

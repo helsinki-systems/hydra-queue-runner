@@ -11,8 +11,7 @@ service RunnerService {
   rpc BuildLog(stream LogChunk) returns (Empty) {}
   rpc BuildResult(stream NarData) returns (Empty) {}
   rpc BuildStepUpdate(StepUpdate) returns (Empty) {}
-  rpc CompleteBuildWithSuccess(BuildResultInfo) returns (Empty) {}
-  rpc CompleteBuildWithFailure(FailResultInfo) returns (Empty) {}
+  rpc CompleteBuild(BuildResultInfo) returns (Empty) {}
   rpc FetchDrvRequisites(FetchRequisitesRequest) returns (DrvRequisitesMessage) {}
   rpc StreamFile(StorePath) returns (stream NarData) {}
   rpc StreamFiles(StorePaths) returns (stream NarData) {}
@@ -183,13 +182,23 @@ message StepUpdate {
   StepStatus step_status = 3;
 }
 
+enum BuildResultState {
+  BuildFailure = 0;
+  Success = 1;
+  PreparingFailure = 2;
+  ImportFailure = 3;
+  UploadFailure = 4;
+  PostProcessingFailure = 5;
+}
+
 message BuildResultInfo {
   string machine_id = 1;
   string drv = 2;
   uint64 import_time_ms = 3;
   uint64 build_time_ms = 4;
-  NixSupport nix_support = 5;
-  repeated Output outputs = 6;
+  BuildResultState result_state = 5;
+  NixSupport nix_support = 6;
+  repeated Output outputs = 7;
 }
 
 message FailResultInfo {
