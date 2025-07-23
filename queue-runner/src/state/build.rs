@@ -336,6 +336,11 @@ impl Step {
         }
     }
 
+    pub fn get_deps_size(&self) -> usize {
+        let state = self.state.read();
+        state.deps.len()
+    }
+
     #[tracing::instrument(skip(self))]
     pub fn make_runnable(&self) {
         log::info!("step '{}' is now runnable", self.get_drv_path());

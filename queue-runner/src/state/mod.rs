@@ -1775,9 +1775,8 @@ impl State {
         }
 
         {
-            let state = step.state.read();
             step.atomic_state.set_created(true);
-            if state.deps.is_empty() {
+            if step.get_deps_size() == 0 {
                 let mut new_runnable = new_runnable.write();
                 new_runnable.insert(step.clone());
             }

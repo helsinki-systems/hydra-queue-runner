@@ -483,6 +483,7 @@ pub struct Step {
     highest_local_priority: i32,
 
     lowest_build_id: crate::state::BuildID,
+    deps_count: usize,
 }
 
 impl From<std::sync::Arc<crate::state::Step>> for Step {
@@ -502,6 +503,7 @@ impl From<std::sync::Arc<crate::state::Step>> for Step {
                 .highest_local_priority
                 .load(Ordering::Relaxed),
             lowest_build_id: item.atomic_state.lowest_build_id.load(Ordering::Relaxed),
+            deps_count: item.get_deps_size(),
         }
     }
 }
