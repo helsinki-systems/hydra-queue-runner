@@ -1761,8 +1761,12 @@ impl State {
             match v {
                 CreateStepResult::None => (),
                 CreateStepResult::Valid(dep) => {
-                    let mut state = step.state.write();
-                    state.deps.insert(dep);
+                    if !dep.get_finished() {
+                        // finished can be true if a step was returned, that already exists in
+                        // self.steps and is currently being processed for completion
+                        let mut state = step.state.write();
+                        state.deps.insert(dep);
+                    }
                 }
                 CreateStepResult::PreviousFailure(step) => {
                     return CreateStepResult::PreviousFailure(step);
