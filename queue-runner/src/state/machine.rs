@@ -569,7 +569,11 @@ impl Machine {
         let jobs_in_last_30s_count = self.stats.jobs_in_last_30s_count.load(Ordering::Relaxed);
 
         // ensure that we dont submit more than 4 jobs in 30s
-        if now <= (jobs_in_last_30s_start + 30) && jobs_in_last_30s_count >= 4 {
+        if now <= (jobs_in_last_30s_start + 30)
+            && jobs_in_last_30s_count >= 4
+            // ensure that we havent already finished some of them, because then its fine again
+            && self.stats.get_current_jobs() >= 4
+        {
             return false;
         } else if now > (jobs_in_last_30s_start + 30) {
             // reset count

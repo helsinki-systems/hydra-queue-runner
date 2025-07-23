@@ -24,7 +24,7 @@ Message workflow (see: `proto/v1/streaming.proto`)
 - Once the build is completed (succeeded or not) the client streams outputs (only if the build succeeded) and returns a build message containing metadata like nix-support information and import/build time.
 - Queue runner writes results to database, signs and uploads output paths to s3
 
-### Furthor Ideas
+### Further Ideas
 
 - Builder upload to s3 (saves a roundtrip), queue-runner can give a builder a presigned url for that (narhash already signed)
 - Track additional build metrics for each step (cgroups)
