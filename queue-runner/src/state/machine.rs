@@ -78,8 +78,8 @@ pub struct Stats {
     pub io_some_psi: Pressure,
     pub io_full_psi: Pressure,
 
-    jobs_in_last_30s_start: std::sync::atomic::AtomicI64,
-    jobs_in_last_30s_count: std::sync::atomic::AtomicU64,
+    pub jobs_in_last_30s_start: std::sync::atomic::AtomicI64,
+    pub jobs_in_last_30s_count: std::sync::atomic::AtomicU64,
 }
 
 impl Stats {

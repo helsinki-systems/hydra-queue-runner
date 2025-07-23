@@ -67,6 +67,9 @@ pub struct MachineStats {
     mem_full_psi: Pressure,
     io_some_psi: Pressure,
     io_full_psi: Pressure,
+
+    jobs_in_last_30s_start: i64,
+    jobs_in_last_30s_count: u64,
 }
 
 impl MachineStats {
@@ -112,6 +115,8 @@ impl MachineStats {
             mem_full_psi: (&item.mem_full_psi).into(),
             io_some_psi: (&item.io_some_psi).into(),
             io_full_psi: (&item.io_full_psi).into(),
+            jobs_in_last_30s_start: item.jobs_in_last_30s_start.load(Ordering::Relaxed),
+            jobs_in_last_30s_count: item.jobs_in_last_30s_count.load(Ordering::Relaxed),
         }
     }
 }
