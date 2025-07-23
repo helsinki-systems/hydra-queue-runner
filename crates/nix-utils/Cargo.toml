@@ -16,6 +16,6 @@ tokio-util = { version = "0.7", features = ["io"] }
 futures = "0.3"
 ahash = { version = "0.8.11", features = ["serde"] }
 parking_lot = "0.12.4"
-cached = { version = "0.55.1", features = ["async", "async_tokio_rt_multi_thread"] }
+cached = { version = "0.56", features = ["async", "async_tokio_rt_multi_thread"] }
 regex = "1"
 sha2 = "0.10"
