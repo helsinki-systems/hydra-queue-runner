@@ -255,6 +255,7 @@ pub async fn realise_drv(
     let mut child = tokio::process::Command::new("nix-store")
         .args([
             "-r",
+            "--quiet", // we want to always set this
             "--max-silent-time",
             &opts.max_silent_time.to_string(),
             "--timeout",
