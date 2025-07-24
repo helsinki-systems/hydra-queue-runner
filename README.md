@@ -60,7 +60,8 @@ useSubstitutes = false
 maxRetries = 5
 retryInterval = 60
 retryBackoff = 3.0
-stopQueueRunAfterInS = 120
+maxUnsupportedTimeInS = 60
+stopQueueRunAfterInS = 60
 ```
 
 ## TODO list
@@ -68,7 +69,6 @@ stopQueueRunAfterInS = 120
 TODO(conni2461): add list what currently works and what still needs to be done
 - [ ] handle open todos in code
 - [ ] upload nix logs? - not possible without using ffi
-- [ ] handle unsupported steps
 - [ ] more tests
 - [ ] document inner workings
 - [ ] github nix ci

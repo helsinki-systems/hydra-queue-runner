@@ -278,6 +278,12 @@ impl Queues {
         Some((step_info, queue, machine))
     }
 
+    pub fn remove_job_by_path(&mut self, drv: &nix_utils::StorePath) {
+        if self.jobs.remove(drv).is_none() {
+            log::error!("Failed to remove stepinfo drv={drv} from jobs!");
+        }
+    }
+
     #[tracing::instrument(skip(self, stepinfo, queue))]
     pub fn remove_job(&mut self, stepinfo: &Arc<StepInfo>, queue: &Arc<BuildQueue>) {
         if self.jobs.remove(stepinfo.step.get_drv_path()).is_none() {

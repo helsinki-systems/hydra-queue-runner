@@ -127,8 +127,12 @@ fn default_retry_backoff() -> f32 {
     3.0
 }
 
+fn default_max_unsupported_time_in_s() -> i64 {
+    0
+}
+
 fn default_stop_queue_run_after_in_s() -> i64 {
-    120
+    60
 }
 
 #[derive(Debug, Default, serde::Deserialize, Copy, Clone, PartialEq, Eq)]
@@ -192,6 +196,9 @@ struct AppConfig {
     #[serde(default = "default_retry_backoff")]
     retry_backoff: f32,
 
+    #[serde(default = "default_max_unsupported_time_in_s")]
+    max_unsupported_time_in_s: i64,
+
     #[serde(default = "default_stop_queue_run_after_in_s")]
     stop_queue_run_after_in_s: i64,
 }
@@ -216,6 +223,7 @@ pub struct PreparedApp {
     max_retries: u32,
     retry_interval: f32,
     retry_backoff: f32,
+    max_unsupported_time: chrono::Duration,
     stop_queue_run_after: Option<chrono::Duration>,
 }
 
@@ -291,6 +299,7 @@ impl TryFrom<AppConfig> for PreparedApp {
             #[allow(clippy::cast_precision_loss)]
             retry_interval: val.retry_interval as f32,
             retry_backoff: val.retry_backoff,
+            max_unsupported_time: chrono::Duration::seconds(val.max_unsupported_time_in_s),
             stop_queue_run_after: if val.stop_queue_run_after_in_s <= 0 {
                 None
             } else {
@@ -397,6 +406,11 @@ impl App {
     pub fn get_retry(&self) -> (u32, f32, f32) {
         let inner = self.inner.load();
         (inner.max_retries, inner.retry_interval, inner.retry_backoff)
+    }
+
+    pub fn get_max_unsupported_time(&self) -> chrono::Duration {
+        let inner = self.inner.load();
+        inner.max_unsupported_time
     }
 
     pub fn get_stop_queue_run_after(&self) -> Option<chrono::Duration> {

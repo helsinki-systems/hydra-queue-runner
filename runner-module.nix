@@ -96,10 +96,15 @@ in
               type = lib.types.float;
               default = 3.0;
             };
+            maxUnsupportedTimeInS = lib.mkOption {
+              description = "Time until unsupported steps are aborted.";
+              type = lib.types.ints.unsigned;
+              default = 0;
+            };
             stopQueueRunAfterInS = lib.mkOption {
               description = "Seconds after which the queue run should be interupted early. Setting this to a value <= 0 will disable this feature and the queue run will never exit early.";
               type = lib.types.int;
-              default = 120;
+              default = 60;
             };
           };
         };

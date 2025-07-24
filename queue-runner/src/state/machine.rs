@@ -270,6 +270,26 @@ impl Machines {
         supported_features.iter().cloned().collect()
     }
 
+    pub fn support_step(&self, s: &Arc<super::Step>) -> bool {
+        // dup of machines.get_machine_for_system
+        let inner = self.inner.read();
+        let Some(system) = s.get_system() else {
+            return false;
+        };
+        let features = s.get_required_features();
+        if system == "builtin" {
+            inner
+                .by_uuid
+                .values()
+                .any(|m| m.supports_all_features(&features))
+        } else {
+            inner
+                .by_system
+                .get(&system)
+                .is_some_and(|v| v.iter().any(|m| m.supports_all_features(&features)))
+        }
+    }
+
     #[allow(dead_code)]
     fn has_supported_features(&self, required_features: &[String]) -> bool {
         let supported_features = self.supported_features.read();
@@ -346,6 +366,7 @@ impl Machines {
         required_features: &[String],
         free_fn: MachineFreeFn,
     ) -> Option<Arc<Machine>> {
+        // dup of machines.support_step
         let inner = self.inner.read();
         if system == "builtin" {
             inner
@@ -595,6 +616,7 @@ impl Machine {
     }
 
     pub fn supports_all_features(&self, features: &[String]) -> bool {
+        // TODO: mandetory features
         features.iter().all(|f| self.supported_features.contains(f))
     }
 

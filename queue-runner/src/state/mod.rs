@@ -853,6 +853,8 @@ impl State {
             }
             self.metrics.nr_steps_waiting.set(nr_steps_waiting);
         }
+
+        self.abort_unsupported().await;
     }
 
     #[tracing::instrument(skip(self, machine_id, step_status), fields(%drv_path), err)]
@@ -1903,5 +1905,84 @@ impl State {
     fn add_root(&self, drv_path: &nix_utils::StorePath) {
         let roots_dir = self.config.get_roots_dir();
         nix_utils::add_root(&roots_dir, drv_path);
+    }
+
+    async fn abort_unsupported(&self) {
+        let runnable = {
+            let mut steps = self.steps.write();
+            steps.retain(|_, s| s.upgrade().is_some());
+            steps
+                .iter()
+                .filter_map(|(_, s)| s.upgrade())
+                .filter(|v| v.get_runnable())
+                .collect::<Vec<_>>()
+        };
+
+        let now = chrono::Utc::now();
+
+        let mut aborted = AHashSet::new();
+        let mut count = 0;
+
+        let max_unsupported_time = self.config.get_max_unsupported_time();
+        for step in &runnable {
+            let supported = self.machines.support_step(step);
+            if supported {
+                step.set_last_supported_now();
+                continue;
+            }
+
+            count += 1;
+            if (now - step.get_last_supported()) < max_unsupported_time {
+                continue;
+            }
+
+            let drv = step.get_drv_path();
+            let system = step.get_system();
+            log::error!("aborting unsupported build step '{drv}' (type '{system:?}')",);
+
+            aborted.insert(step.clone());
+
+            let mut dependents = AHashSet::new();
+            let mut steps = AHashSet::new();
+            step.get_dependents(&mut dependents, &mut steps);
+            // Maybe the step got cancelled.
+            if dependents.is_empty() {
+                continue;
+            }
+
+            // Find the build that has this step as the top-level (if any).
+            let Some(build) = dependents
+                .iter()
+                .find(|b| &b.drv_path == drv)
+                .or(dependents.iter().next())
+            else {
+                // this should never happen, as we checked is_empty above and fallback is just any build
+                continue;
+            };
+
+            let mut job = machine::Job::new(build.id, drv.to_owned());
+            job.result.start_time = Some(now);
+            job.result.stop_time = Some(now);
+            job.result.step_status = BuildStatus::Unsupported;
+            job.result.error_msg = Some(format!(
+                "unsupported system type '{}'",
+                system.unwrap_or(String::new())
+            ));
+            if let Err(e) = self.inner_fail_job(drv, None, job, step.clone()).await {
+                log::error!("Failed to fail step drv={drv} e={e}");
+            }
+        }
+
+        {
+            let mut queues = self.queues.write().await;
+            for step in &aborted {
+                queues.remove_job_by_path(step.get_drv_path());
+            }
+            queues.remove_all_weak_pointer();
+        }
+        self.metrics.nr_unsupported_steps.set(count);
+        self.metrics
+            .nr_unsupported_steps_aborted
+            .add(i64::try_from(aborted.len()).unwrap_or_default());
     }
 }

@@ -316,6 +316,16 @@ impl Step {
         drv.as_ref().map(|drv| drv.input_drvs.clone())
     }
 
+    pub fn get_last_supported(&self) -> chrono::DateTime<chrono::Utc> {
+        let state = self.state.read();
+        state.last_supported
+    }
+
+    pub fn set_last_supported_now(&self) {
+        let mut state = self.state.write();
+        state.last_supported = chrono::Utc::now();
+    }
+
     pub fn get_outputs(&self) -> Option<Vec<nix_utils::DerivationOutput>> {
         let drv = self.drv.load_full();
         drv.as_ref().map(|drv| drv.outputs.clone())
