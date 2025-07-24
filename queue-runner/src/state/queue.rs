@@ -32,7 +32,7 @@ impl StepInfo {
                 .map(|v| v.share_used())
                 .min_by(f64::total_cmp)
                 .unwrap_or(1e9);
-            (lowest_share_used, state.runnable_since)
+            (lowest_share_used, step.get_runnable_since())
         };
 
         Self {

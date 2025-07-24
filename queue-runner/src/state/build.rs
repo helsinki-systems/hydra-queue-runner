@@ -175,16 +175,26 @@ pub struct StepAtomicState {
     pub highest_local_priority: AtomicI32, // The highest local priority of any build depending on this step.
 
     pub lowest_build_id: AtomicBuildID, // The lowest ID of any build depending on this step.
+
+    pub after: super::AtomicDateTime, // Point in time after which the step can be retried.
+    pub runnable_since: super::AtomicDateTime, // The time at which this step became runnable.
+    pub last_supported: super::AtomicDateTime, // The time that we last saw a machine that supports this step
 }
 
 impl StepAtomicState {
-    pub fn new() -> Self {
+    pub fn new(
+        after: chrono::DateTime<chrono::Utc>,
+        runnable_since: chrono::DateTime<chrono::Utc>,
+    ) -> Self {
         Self {
             created: false.into(),
             tries: 0.into(),
             highest_global_priority: 0.into(),
             highest_local_priority: 0.into(),
             lowest_build_id: BuildID::MAX.into(),
+            after: super::AtomicDateTime::new(after),
+            runnable_since: super::AtomicDateTime::new(runnable_since),
+            last_supported: super::AtomicDateTime::default(),
         }
     }
 
@@ -205,25 +215,15 @@ pub struct StepState {
     pub rdeps: Vec<Weak<Step>>,   // The build steps that depend on this step.
     pub builds: Vec<Weak<Build>>, // Builds that have this step as the top-level derivation.
     pub jobsets: AHashSet<Arc<Jobset>>, // Jobsets to which this step belongs. Used for determining scheduling priority.
-    pub after: chrono::DateTime<chrono::Utc>, // Point in time after which the step can be retried.
-
-    pub runnable_since: chrono::DateTime<chrono::Utc>, // The time at which this step became runnable.
-    pub last_supported: chrono::DateTime<chrono::Utc>, // The time that we last saw a machine that supports this step
 }
 
 impl StepState {
-    pub fn new(
-        after: chrono::DateTime<chrono::Utc>,
-        runnable_since: chrono::DateTime<chrono::Utc>,
-    ) -> Self {
+    pub fn new() -> Self {
         Self {
             deps: HashSet::new(),
             rdeps: Vec::new(),
             builds: Vec::new(),
             jobsets: AHashSet::new(),
-            after,
-            runnable_since,
-            last_supported: chrono::Utc::now(),
         }
     }
 }
@@ -264,11 +264,11 @@ impl Step {
             runnable: false.into(),
             finished: false.into(),
             previous_failure: false.into(),
-            atomic_state: StepAtomicState::new(),
-            state: parking_lot::RwLock::new(StepState::new(
-                chrono::DateTime::<chrono::Utc>::MIN_UTC,
-                chrono::DateTime::<chrono::Utc>::MIN_UTC,
-            )),
+            atomic_state: StepAtomicState::new(
+                chrono::DateTime::<chrono::Utc>::from_timestamp_nanos(0),
+                chrono::DateTime::<chrono::Utc>::from_timestamp_nanos(0),
+            ),
+            state: parking_lot::RwLock::new(StepState::new()),
         })
     }
 
@@ -316,14 +316,24 @@ impl Step {
         drv.as_ref().map(|drv| drv.input_drvs.clone())
     }
 
+    pub fn get_after(&self) -> chrono::DateTime<chrono::Utc> {
+        self.atomic_state.after.load()
+    }
+
+    pub fn set_after(&self, v: chrono::DateTime<chrono::Utc>) {
+        self.atomic_state.after.store(v);
+    }
+
+    pub fn get_runnable_since(&self) -> chrono::DateTime<chrono::Utc> {
+        self.atomic_state.runnable_since.load()
+    }
+
     pub fn get_last_supported(&self) -> chrono::DateTime<chrono::Utc> {
-        let state = self.state.read();
-        state.last_supported
+        self.atomic_state.last_supported.load()
     }
 
     pub fn set_last_supported_now(&self) {
-        let mut state = self.state.write();
-        state.last_supported = chrono::Utc::now();
+        self.atomic_state.last_supported.store(chrono::Utc::now());
     }
 
     pub fn get_outputs(&self) -> Option<Vec<nix_utils::DerivationOutput>> {
@@ -406,11 +416,13 @@ impl Step {
         debug_assert!(self.atomic_state.created.load(Ordering::SeqCst));
         debug_assert!(!self.get_finished());
 
+        #[cfg(debug_assertions)]
         {
-            let mut state = self.state.write();
+            let state = self.state.read();
             debug_assert!(state.deps.is_empty());
-            state.runnable_since = chrono::Utc::now();
         }
+
+        self.atomic_state.runnable_since.store(chrono::Utc::now());
         self.runnable.store(true, Ordering::SeqCst);
     }
 }

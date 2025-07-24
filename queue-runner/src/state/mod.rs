@@ -1,9 +1,11 @@
+mod atomic;
 mod build;
 mod jobset;
 mod machine;
 mod metrics;
 mod queue;
 
+pub use atomic::AtomicDateTime;
 pub use build::{Build, BuildID, BuildMetric, BuildOutput, BuildProduct, RemoteBuild, Step};
 pub use jobset::{Jobset, JobsetID, SCHEDULING_WINDOW};
 pub use machine::{Machine, Message as MachineMessage, Pressure, Stats as MachineStats};
@@ -805,12 +807,11 @@ impl State {
                         continue;
                     }
                     {
-                        let state = job.step.state.read();
-                        if state.after > now {
+                        let after = job.step.get_after();
+                        if after > now {
                             log::debug!(
-                                "Can't schedule job because job is not yet ready system={system} drv={} after={}",
+                                "Can't schedule job because job is not yet ready system={system} drv={} after={after}",
                                 job.step.get_drv_path(),
-                                state.after,
                             );
                             continue;
                         }
@@ -1122,10 +1123,9 @@ impl State {
                 #[allow(clippy::cast_possible_truncation)]
                 let delta = (retry_interval * retry_backoff.powf((tries - 1) as f32)) as i64;
                 log::info!("will retry '{drv_path}' after {delta}s");
-                {
-                    let mut step_state = step_info.step.state.write();
-                    step_state.after = chrono::Utc::now() + chrono::Duration::seconds(delta);
-                }
+                step_info
+                    .step
+                    .set_after(chrono::Utc::now() + chrono::Duration::seconds(delta));
                 if i64::from(tries) > self.metrics.max_nr_retries.get() {
                     self.metrics.max_nr_retries.set(i64::from(tries));
                 }
