@@ -68,6 +68,12 @@ in
         default = [ ];
       };
 
+      useSubstitutes = lib.mkOption {
+        description = "Use substitution for paths";
+        type = lib.types.bool;
+        default = true;
+      };
+
       mtls = lib.mkOption {
         description = "mtls options";
         default = null;
@@ -154,6 +160,9 @@ in
             "--mandatory-features"
             v
           ]) cfg.mandatoryFeatures)
+          ++ lib.optionals (cfg.useSubstitutes != null) [
+            "--use-substitutes"
+          ]
           ++ lib.optionals (cfg.mtls != null) [
             "--server-root-ca-cert-path"
             cfg.mtls.serverRootCaCertPath

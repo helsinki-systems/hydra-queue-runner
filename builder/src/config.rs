@@ -59,6 +59,10 @@ pub struct Args {
     /// List of mandatory features
     #[clap(long, default_value = None)]
     pub mandatory_features: Option<Vec<String>>,
+
+    /// Use substitution over pulling inputs via queue runner
+    #[clap(long, default_value_t = false)]
+    pub use_substitutes: bool,
 }
 
 impl Args {

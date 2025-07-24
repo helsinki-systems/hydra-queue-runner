@@ -47,7 +47,7 @@ pub use config::{NixConfig, get_nix_config};
 pub use drv::{
     BuildOptions, Derivation, Output as DerivationOutput, get_outputs_for_drv,
     get_outputs_for_drvs, query_drv, query_drvs, query_missing_outputs,
-    query_missing_remote_outputs, realise_drv, topo_sort_drvs,
+    query_missing_remote_outputs, realise_drv, realise_drvs, topo_sort_drvs,
 };
 pub use nar::{export_nar, export_nars, import_nar};
 pub use nix_support::{BuildMetric, BuildProduct, NixSupport, parse_nix_support_from_outputs};

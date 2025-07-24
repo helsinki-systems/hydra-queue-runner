@@ -235,9 +235,9 @@ impl BuildOptions {
 }
 
 #[allow(clippy::type_complexity)]
-#[tracing::instrument(skip(opts), fields(%drv), err)]
-pub async fn realise_drv(
-    drv: &StorePath,
+#[tracing::instrument(skip(opts, drvs), err)]
+pub async fn realise_drvs(
+    drvs: &[&StorePath],
     opts: &BuildOptions,
     kill_on_drop: bool,
 ) -> Result<
@@ -272,8 +272,8 @@ pub async fn realise_drv(
             "--option",
             "builders",
             "",
-            &drv.get_full_path(),
         ])
+        .args(drvs.iter().map(|v| v.get_full_path()))
         .kill_on_drop(kill_on_drop)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -286,6 +286,25 @@ pub async fn realise_drv(
     let stderr = LinesStream::new(BufReader::new(stderr).lines());
 
     Ok((child, StreamExt::merge(stdout, stderr)))
+}
+
+#[allow(clippy::type_complexity)]
+#[tracing::instrument(skip(opts), fields(%drv), err)]
+pub async fn realise_drv(
+    drv: &StorePath,
+    opts: &BuildOptions,
+    kill_on_drop: bool,
+) -> Result<
+    (
+        tokio::process::Child,
+        tokio_stream::adapters::Merge<
+            LinesStream<BufReader<tokio::process::ChildStdout>>,
+            LinesStream<BufReader<tokio::process::ChildStderr>>,
+        >,
+    ),
+    crate::Error,
+> {
+    realise_drvs(&[drv], opts, kill_on_drop).await
 }
 
 #[tracing::instrument(skip(outputs))]

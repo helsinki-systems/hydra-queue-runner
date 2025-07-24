@@ -57,6 +57,7 @@ pub struct Config {
     pub gcroots: std::path::PathBuf,
     pub supported_features: Option<Vec<String>>,
     pub mandatory_features: Option<Vec<String>>,
+    pub use_substitutes: bool,
 }
 
 pub struct State {
@@ -116,6 +117,7 @@ impl State {
                 gcroots,
                 supported_features: args.supported_features,
                 mandatory_features: args.mandatory_features,
+                use_substitutes: args.use_substitutes,
             },
         })
     }
@@ -306,6 +308,7 @@ impl State {
             requisites
                 .into_iter()
                 .map(|s| nix_utils::StorePath::new(&s)),
+            self.config.use_substitutes,
         )
         .await
         .map_err(JobFailure::Import)?;
@@ -447,6 +450,22 @@ async fn filter_missing(
     }
 }
 
+async fn substitute_paths(
+    paths: &[&nix_utils::StorePath],
+    build_opts: &nix_utils::BuildOptions,
+) -> anyhow::Result<()> {
+    let (mut child, _) = nix_utils::realise_drvs(paths, build_opts, false).await?;
+    nix_utils::validate_statuscode(child.wait().await?)?;
+    Ok(())
+}
+
+async fn substitute_path(
+    path: &nix_utils::StorePath,
+    build_opts: &nix_utils::BuildOptions,
+) -> anyhow::Result<()> {
+    substitute_paths(&[path], build_opts).await
+}
+
 #[tracing::instrument(skip(client), fields(%gcroot, %path), err)]
 async fn import_path(
     mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
@@ -454,23 +473,32 @@ async fn import_path(
     >,
     gcroot: &Gcroot,
     path: nix_utils::StorePath,
+    use_substitutes: Option<&nix_utils::BuildOptions>,
 ) -> anyhow::Result<()> {
     use tokio_stream::StreamExt as _;
 
     // Do one last check
     if !nix_utils::check_if_storepath_exists(&path).await {
         log::debug!("Importing {path}");
-        let input_stream = client
-            .stream_file(crate::runner_v1::StorePath {
-                path: path.base_name().to_owned(),
-            })
-            .await?
-            .into_inner();
-        nix_utils::import_nar(
-            input_stream.map_while(|s| s.map(|m| m.chunk.into()).ok()),
-            true,
-        )
-        .await?;
+        let done = if let Some(build_opts) = use_substitutes {
+            substitute_path(&path, build_opts).await.is_ok()
+        } else {
+            false
+        };
+
+        if !done {
+            let input_stream = client
+                .stream_file(crate::runner_v1::StorePath {
+                    path: path.base_name().to_owned(),
+                })
+                .await?
+                .into_inner();
+            nix_utils::import_nar(
+                input_stream.map_while(|s| s.map(|m| m.chunk.into()).ok()),
+                true,
+            )
+            .await?;
+        }
     }
     nix_utils::add_root(&gcroot.root, &path);
     Ok(())
@@ -484,6 +512,7 @@ async fn import_paths(
     gcroot: &Gcroot,
     paths: Vec<nix_utils::StorePath>,
     filter: bool,
+    use_substitutes: Option<&nix_utils::BuildOptions>,
 ) -> anyhow::Result<()> {
     use futures::stream::StreamExt as _;
 
@@ -493,6 +522,22 @@ async fn import_paths(
             .filter_map(|o| async { o })
             .collect::<Vec<_>>()
             .await
+    } else {
+        paths
+    };
+    let paths = if let Some(build_opts) = use_substitutes {
+        // we can ignore the error
+        let _ = substitute_paths(&paths.iter().collect::<Vec<_>>(), build_opts).await;
+        let paths =
+            futures::StreamExt::map(tokio_stream::iter(paths), |p| filter_missing(gcroot, p))
+                .buffered(10)
+                .filter_map(|o| async { o })
+                .collect::<Vec<_>>()
+                .await;
+        if paths.is_empty() {
+            return Ok(());
+        }
+        paths
     } else {
         paths
     };
@@ -524,6 +569,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     gcroot: &Gcroot,
     drv: &nix_utils::StorePath,
     requisites: T,
+    use_substitutes: bool,
 ) -> anyhow::Result<()> {
     use futures::stream::StreamExt as _;
 
@@ -535,12 +581,18 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     .collect::<Vec<_>>()
     .await;
 
+    let use_substitutes = if use_substitutes {
+        Some(nix_utils::BuildOptions::substitute_only())
+    } else {
+        None
+    };
+
     let (input_drvs, input_srcs): (Vec<_>, Vec<_>) = requisites
         .into_iter()
         .partition(nix_utils::StorePath::is_drv);
 
     let mut stream = futures::StreamExt::map(tokio_stream::iter(input_srcs.clone()), |p| {
-        import_path(client.clone(), gcroot, p)
+        import_path(client.clone(), gcroot, p, use_substitutes.as_ref())
     })
     .buffer_unordered(50);
     while let Some(r) = tokio_stream::StreamExt::next(&mut stream).await {
@@ -549,7 +601,14 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
 
     // Do this drv by drv otherwise input_drvs get corrupted
     for drvs in input_drvs.chunks(MAX_DOWNLOAD_NARS) {
-        import_paths(client.clone(), gcroot, drvs.to_vec(), true).await?;
+        import_paths(
+            client.clone(),
+            gcroot,
+            drvs.to_vec(),
+            true,
+            use_substitutes.as_ref(),
+        )
+        .await?;
     }
 
     let full_requisites = client
@@ -586,7 +645,14 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     .collect::<Vec<_>>();
 
     for files in outputs.chunks(MAX_DOWNLOAD_NARS) {
-        import_paths(client.clone(), gcroot, files.to_vec(), true).await?;
+        import_paths(
+            client.clone(),
+            gcroot,
+            files.to_vec(),
+            true,
+            use_substitutes.as_ref(),
+        )
+        .await?;
     }
 
     // ensure again that all outputs are present
@@ -600,7 +666,14 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
 
     for other in full_requisites.chunks(MAX_DOWNLOAD_NARS) {
         // we can skip filtering here as we already done that
-        import_paths(client.clone(), gcroot, other.to_vec(), false).await?;
+        import_paths(
+            client.clone(),
+            gcroot,
+            other.to_vec(),
+            false,
+            use_substitutes.as_ref(),
+        )
+        .await?;
     }
 
     Ok(())
