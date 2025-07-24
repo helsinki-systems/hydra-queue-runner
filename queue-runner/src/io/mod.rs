@@ -183,7 +183,7 @@ pub struct BuildQueueStats {
     active_runnable: u64,
     total_runnable: u64,
     avg_runnable_time: u64,
-    wait_time: u64,
+    wait_time_ms: u64,
 }
 
 impl From<crate::state::BuildQueueStats> for BuildQueueStats {
@@ -192,7 +192,7 @@ impl From<crate::state::BuildQueueStats> for BuildQueueStats {
             active_runnable: v.active_runnable,
             total_runnable: v.total_runnable,
             avg_runnable_time: v.avg_runnable_time,
-            wait_time: v.wait_time,
+            wait_time_ms: v.wait_time,
         }
     }
 }

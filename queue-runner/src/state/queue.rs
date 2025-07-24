@@ -77,7 +77,7 @@ pub struct BuildQueue {
     active_runnable: Counter,
     total_runnable: Counter,
     avg_runnable_time: Counter,
-    wait_time: Counter,
+    wait_time_ms: Counter,
 }
 
 pub struct BuildQueueStats {
@@ -94,7 +94,7 @@ impl BuildQueue {
             active_runnable: 0.into(),
             total_runnable: 0.into(),
             avg_runnable_time: 0.into(),
-            wait_time: 0.into(),
+            wait_time_ms: 0.into(),
         }
     }
 
@@ -109,7 +109,7 @@ impl BuildQueue {
     #[tracing::instrument(skip(self, jobs))]
     fn insert_new_jobs(&self, jobs: Vec<Weak<StepInfo>>, now: &chrono::DateTime<chrono::Utc>) {
         let mut current_jobs = self.jobs.write();
-        let mut wait_time = 0u64;
+        let mut wait_time_ms = 0u64;
 
         for j in jobs {
             if let Some(owned) = j.upgrade() {
@@ -125,11 +125,13 @@ impl BuildQueue {
                 }
 
                 // runnable since is always > now
-                wait_time += (*now - owned.runnable_since).num_seconds().unsigned_abs();
+                wait_time_ms += (*now - owned.runnable_since)
+                    .num_milliseconds()
+                    .unsigned_abs();
                 current_jobs.push(j);
             }
         }
-        self.wait_time.fetch_add(wait_time, Ordering::Relaxed);
+        self.wait_time_ms.fetch_add(wait_time_ms, Ordering::Relaxed);
 
         // only keep valid pointers
         drop(current_jobs);
@@ -179,7 +181,7 @@ impl BuildQueue {
             active_runnable: self.active_runnable.load(Ordering::Relaxed),
             total_runnable: self.total_runnable.load(Ordering::Relaxed),
             avg_runnable_time: self.avg_runnable_time.load(Ordering::Relaxed),
-            wait_time: self.wait_time.load(Ordering::Relaxed),
+            wait_time: self.wait_time_ms.load(Ordering::Relaxed),
         }
     }
 }

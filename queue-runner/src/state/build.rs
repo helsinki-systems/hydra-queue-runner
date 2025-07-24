@@ -443,7 +443,7 @@ impl RemoteBuild {
 
     pub fn get_total_step_time_ms(&self) -> u64 {
         if let (Some(start_time), Some(stop_time)) = (self.start_time, self.stop_time) {
-            u64::try_from((stop_time - start_time).num_milliseconds()).unwrap_or_default()
+            (stop_time - start_time).num_milliseconds().unsigned_abs()
         } else {
             0
         }
