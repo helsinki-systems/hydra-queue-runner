@@ -6,7 +6,9 @@ mod metrics;
 mod queue;
 
 pub use atomic::AtomicDateTime;
-pub use build::{Build, BuildID, BuildMetric, BuildOutput, BuildProduct, RemoteBuild, Step};
+pub use build::{
+    Build, BuildID, BuildMetric, BuildOutput, BuildProduct, BuildResultState, RemoteBuild, Step,
+};
 pub use jobset::{Jobset, JobsetID, SCHEDULING_WINDOW};
 pub use machine::{Machine, Message as MachineMessage, Pressure, Stats as MachineStats};
 pub use queue::{BuildQueueStats, StepInfo};
@@ -164,7 +166,7 @@ impl State {
                         &job.path,
                         // we fail this with preparing because we kinda want to restart all jobs if
                         // a machine is removed
-                        crate::server::grpc::runner_v1::BuildResultState::PreparingFailure,
+                        BuildResultState::PreparingFailure,
                         std::time::Duration::from_secs(0),
                         std::time::Duration::from_secs(0),
                     )
@@ -440,7 +442,21 @@ impl State {
         }
 
         let queues = self.queues.read().await;
-        queues.kill_active_steps().await;
+        let cancelled_steps = queues.kill_active_steps().await;
+        for (drv_path, machine_id) in cancelled_steps {
+            if let Err(e) = self
+                .fail_step(
+                    Some(machine_id),
+                    &drv_path,
+                    BuildResultState::Cancelled,
+                    std::time::Duration::from_secs(0),
+                    std::time::Duration::from_secs(0),
+                )
+                .await
+            {
+                log::error!("Failed to abort step machine_id={machine_id} drv={drv_path} e={e}",);
+            }
+        }
         Ok(())
     }
 
@@ -1072,7 +1088,7 @@ impl State {
         &self,
         machine_id: Option<uuid::Uuid>,
         drv_path: &nix_utils::StorePath,
-        state: crate::server::grpc::runner_v1::BuildResultState,
+        state: BuildResultState,
         import_elapsed: std::time::Duration,
         build_elapsed: std::time::Duration,
     ) -> anyhow::Result<()> {
@@ -1097,8 +1113,9 @@ impl State {
             machine
         ))?;
 
-        job.result.update_with_result_state(state);
         job.result.step_status = BuildStatus::Failed;
+        // this can override step_status to something more specific
+        job.result.update_with_result_state(&state);
 
         // TODO: max failure count
         let (max_retries, retry_interval, retry_backoff) = self.config.get_retry();

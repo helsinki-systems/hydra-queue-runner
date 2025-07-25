@@ -427,6 +427,35 @@ impl Step {
     }
 }
 
+#[derive(Debug)]
+pub enum BuildResultState {
+    Success,
+    BuildFailure,
+    PreparingFailure,
+    ImportFailure,
+    UploadFailure,
+    PostProcessingFailure,
+    Aborted,
+    Cancelled,
+}
+
+impl From<crate::server::grpc::runner_v1::BuildResultState> for BuildResultState {
+    fn from(v: crate::server::grpc::runner_v1::BuildResultState) -> Self {
+        match v {
+            crate::server::grpc::runner_v1::BuildResultState::BuildFailure => Self::BuildFailure,
+            crate::server::grpc::runner_v1::BuildResultState::Success => Self::Success,
+            crate::server::grpc::runner_v1::BuildResultState::PreparingFailure => {
+                Self::PreparingFailure
+            }
+            crate::server::grpc::runner_v1::BuildResultState::ImportFailure => Self::ImportFailure,
+            crate::server::grpc::runner_v1::BuildResultState::UploadFailure => Self::UploadFailure,
+            crate::server::grpc::runner_v1::BuildResultState::PostProcessingFailure => {
+                Self::PostProcessingFailure
+            }
+        }
+    }
+}
+
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct RemoteBuild {
@@ -471,20 +500,25 @@ impl RemoteBuild {
         }
     }
 
-    pub fn update_with_result_state(
-        &mut self,
-        state: crate::server::grpc::runner_v1::BuildResultState,
-    ) {
+    pub fn update_with_result_state(&mut self, state: &BuildResultState) {
         match state {
-            crate::server::grpc::runner_v1::BuildResultState::BuildFailure => {
+            BuildResultState::BuildFailure => {
                 self.can_retry = false;
             }
-            crate::server::grpc::runner_v1::BuildResultState::Success => (),
-            crate::server::grpc::runner_v1::BuildResultState::PreparingFailure
-            | crate::server::grpc::runner_v1::BuildResultState::ImportFailure
-            | crate::server::grpc::runner_v1::BuildResultState::UploadFailure
-            | crate::server::grpc::runner_v1::BuildResultState::PostProcessingFailure => {
+            BuildResultState::Success => (),
+            BuildResultState::PreparingFailure
+            | BuildResultState::ImportFailure
+            | BuildResultState::UploadFailure
+            | BuildResultState::PostProcessingFailure => {
                 self.can_retry = true;
+            }
+            BuildResultState::Aborted => {
+                self.can_retry = true;
+                self.step_status = BuildStatus::Aborted;
+            }
+            BuildResultState::Cancelled => {
+                self.can_retry = true;
+                self.step_status = BuildStatus::Cancelled;
             }
         }
     }

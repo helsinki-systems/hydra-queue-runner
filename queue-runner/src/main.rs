@@ -102,7 +102,7 @@ async fn main() -> anyhow::Result<()> {
             for h in task_abort_handles {
                 h.abort();
             }
-            // removing all machines will also mark all currently running jobs as canceled
+            // removing all machines will also mark all currently running jobs as cancelled
             state.remove_all_machines().await;
             let _ = state.clear_busy().await;
             Ok(())
@@ -114,7 +114,7 @@ async fn main() -> anyhow::Result<()> {
             for h in task_abort_handles {
                 h.abort();
             }
-            // removing all machines will also mark all currently running jobs as canceled
+            // removing all machines will also mark all currently running jobs as cancelled
             state.remove_all_machines().await;
             let _ = state.clear_busy().await;
             Ok(())

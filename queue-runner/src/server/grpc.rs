@@ -332,7 +332,7 @@ impl RunnerService for Server {
                     .fail_step(
                         machine_id.ok(),
                         &nix_utils::StorePath::new(&drv),
-                        req.result_state(),
+                        req.result_state().into(),
                         std::time::Duration::from_millis(req.import_time_ms),
                         std::time::Duration::from_millis(req.build_time_ms),
                     )

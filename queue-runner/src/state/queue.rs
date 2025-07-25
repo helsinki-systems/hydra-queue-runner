@@ -297,11 +297,13 @@ impl Queues {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn kill_active_steps(&self) {
+    pub async fn kill_active_steps(&self) -> Vec<(nix_utils::StorePath, uuid::Uuid)> {
         let active = {
             let scheduled = self.scheduled.read();
             scheduled.clone()
         };
+
+        let mut cancelled_steps = vec![];
         for (drv_path, (step_info, _, machine)) in &active {
             if step_info.get_cancelled() {
                 continue;
@@ -318,12 +320,13 @@ impl Queues {
                 step_info.set_cancelled(true);
                 if let Err(e) = machine.abort_build(drv_path).await {
                     log::error!("Failed to abort build drv_path={drv_path} e={e}");
-                    // continue; // TODO
+                    continue;
                 }
 
-                // TODO fail job
+                cancelled_steps.push((drv_path.to_owned(), machine.id));
             }
         }
+        cancelled_steps
     }
 
     #[tracing::instrument(skip(self))]
