@@ -13,45 +13,38 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Pressure {
-    pub avg10: atomic_float::AtomicF32,
-    pub avg60: atomic_float::AtomicF32,
-    pub avg300: atomic_float::AtomicF32,
-    pub total: std::sync::atomic::AtomicU64,
+    pub avg10: f32,
+    pub avg60: f32,
+    pub avg300: f32,
+    pub total: u64,
 }
 
 impl Pressure {
-    fn new() -> Self {
-        Self {
-            avg10: 0.0.into(),
-            avg60: 0.0.into(),
-            avg300: 0.0.into(),
-            total: 0.into(),
+    fn new(msg: Option<crate::server::grpc::runner_v1::Pressure>) -> Self {
+        match msg {
+            Some(msg) => Self {
+                avg10: msg.avg10,
+                avg60: msg.avg60,
+                avg300: msg.avg300,
+                total: msg.total,
+            },
+            None => Self {
+                avg10: 0.0,
+                avg60: 0.0,
+                avg300: 0.0,
+                total: 0u64,
+            },
         }
     }
+}
 
-    pub fn store_ping_pressure(&self, msg: Option<crate::server::grpc::runner_v1::Pressure>) {
-        let Some(msg) = msg else { return };
-        self.avg10.store(msg.avg10, Ordering::Relaxed);
-        self.avg60.store(msg.avg60, Ordering::Relaxed);
-        self.avg300.store(msg.avg300, Ordering::Relaxed);
-        self.total.store(msg.total, Ordering::Relaxed);
-    }
-
-    pub fn get_avg10(&self) -> f32 {
-        self.avg10.load(Ordering::Relaxed)
-    }
-
-    pub fn get_avg60(&self) -> f32 {
-        self.avg60.load(Ordering::Relaxed)
-    }
-
-    pub fn get_avg300(&self) -> f32 {
-        self.avg300.load(Ordering::Relaxed)
-    }
-
-    pub fn get_total(&self) -> u64 {
-        self.total.load(Ordering::Relaxed)
-    }
+#[derive(Debug)]
+pub struct PressureState {
+    pub cpu_some: Pressure,
+    pub mem_some: Pressure,
+    pub mem_full: Pressure,
+    pub io_some: Pressure,
+    pub io_full: Pressure,
 }
 
 #[derive(Debug)]
@@ -72,11 +65,7 @@ pub struct Stats {
     load5: atomic_float::AtomicF32,
     load15: atomic_float::AtomicF32,
     mem_usage: std::sync::atomic::AtomicU64,
-    pub cpu_some_psi: Pressure,
-    pub mem_some_psi: Pressure,
-    pub mem_full_psi: Pressure,
-    pub io_some_psi: Pressure,
-    pub io_full_psi: Pressure,
+    pub pressure: arc_swap::ArcSwapOption<PressureState>,
 
     pub jobs_in_last_30s_start: std::sync::atomic::AtomicI64,
     pub jobs_in_last_30s_count: std::sync::atomic::AtomicU64,
@@ -101,11 +90,7 @@ impl Stats {
             load15: 0.0.into(),
             mem_usage: 0.into(),
 
-            cpu_some_psi: Pressure::new(),
-            mem_some_psi: Pressure::new(),
-            mem_full_psi: Pressure::new(),
-            io_some_psi: Pressure::new(),
-            io_full_psi: Pressure::new(),
+            pressure: arc_swap::ArcSwapOption::from(None),
 
             jobs_in_last_30s_start: 0.into(),
             jobs_in_last_30s_count: 0.into(),
@@ -206,11 +191,15 @@ impl Stats {
         self.load15.store(msg.load15, Ordering::Relaxed);
         self.mem_usage.store(msg.mem_usage, Ordering::Relaxed);
 
-        self.cpu_some_psi.store_ping_pressure(msg.cpu_some);
-        self.mem_some_psi.store_ping_pressure(msg.mem_some);
-        self.mem_full_psi.store_ping_pressure(msg.mem_full);
-        self.io_some_psi.store_ping_pressure(msg.io_some);
-        self.io_full_psi.store_ping_pressure(msg.io_full);
+        if let Some(p) = msg.pressure {
+            self.pressure.store(Some(Arc::new(PressureState {
+                cpu_some: Pressure::new(p.cpu_some),
+                mem_some: Pressure::new(p.mem_some),
+                mem_full: Pressure::new(p.mem_full),
+                io_some: Pressure::new(p.io_some),
+                io_full: Pressure::new(p.io_full),
+            })));
+        }
     }
 
     pub fn get_load1(&self) -> f32 {
@@ -469,6 +458,7 @@ pub struct Machine {
     pub bogomips: f32,
     pub speed_factor: f32,
     pub max_jobs: u32,
+    pub load1_threshold: f32,
     pub cpu_psi_threshold: f32,
     pub mem_psi_threshold: f32,        // If None, dont consider this value
     pub io_psi_threshold: Option<f32>, // If None, dont consider this value
@@ -512,6 +502,7 @@ impl Machine {
             bogomips: msg.bogomips,
             speed_factor: msg.speed_factor,
             max_jobs: msg.max_jobs,
+            load1_threshold: msg.load1_threshold,
             cpu_psi_threshold: msg.cpu_psi_threshold,
             mem_psi_threshold: msg.mem_psi_threshold,
             io_psi_threshold: msg.io_psi_threshold,
@@ -565,15 +556,24 @@ impl Machine {
     }
 
     pub fn has_dynamic_capacity(&self) -> bool {
-        if self.stats.cpu_some_psi.get_avg10() > self.cpu_psi_threshold {
-            return false;
-        }
-        if self.stats.mem_some_psi.get_avg10() > self.mem_psi_threshold {
-            return false;
-        }
-        if let Some(threshold) = self.io_psi_threshold {
-            if self.stats.io_some_psi.get_avg10() > threshold {
-                return false;
+        match self.stats.pressure.load().as_ref() {
+            Some(pressure) => {
+                if pressure.cpu_some.avg10 > self.cpu_psi_threshold {
+                    return false;
+                }
+                if pressure.mem_some.avg10 > self.mem_psi_threshold {
+                    return false;
+                }
+                if let Some(threshold) = self.io_psi_threshold {
+                    if pressure.io_some.avg10 > threshold {
+                        return false;
+                    }
+                }
+            }
+            None => {
+                if self.stats.get_load1() > self.load1_threshold {
+                    return false;
+                }
             }
         }
 

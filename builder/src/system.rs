@@ -53,37 +53,50 @@ impl From<Pressure> for crate::runner_v1::Pressure {
     }
 }
 
+pub struct PressureState {
+    pub cpu_some: Pressure,
+    pub mem_some: Pressure,
+    pub mem_full: Pressure,
+    pub io_some: Pressure,
+    pub io_full: Pressure,
+}
+
+impl PressureState {
+    pub fn new() -> Option<Self> {
+        let cpu_psi = procfs::CpuPressure::current().ok()?;
+        let mem_psi = procfs::MemoryPressure::current().ok()?;
+        let io_psi = procfs::IoPressure::current().ok()?;
+
+        Some(Self {
+            cpu_some: Pressure::new(&cpu_psi.some),
+            mem_some: Pressure::new(&mem_psi.some),
+            mem_full: Pressure::new(&mem_psi.full),
+            io_some: Pressure::new(&io_psi.some),
+            io_full: Pressure::new(&io_psi.full),
+        })
+    }
+}
+
 pub struct SystemLoad {
     pub load_avg_1: f32,
     pub load_avg_5: f32,
     pub load_avg_15: f32,
 
     pub mem_usage: u64,
-    pub cpu_some_psi: Pressure,
-    pub mem_some_psi: Pressure,
-    pub mem_full_psi: Pressure,
-    pub io_some_psi: Pressure,
-    pub io_full_psi: Pressure,
+    pub pressure: Option<PressureState>,
 }
 
 impl SystemLoad {
     pub fn new() -> anyhow::Result<Self> {
         let meminfo = procfs::Meminfo::current()?;
         let load = procfs::LoadAverage::current()?;
-        let cpu_psi = procfs::CpuPressure::current()?;
-        let mem_psi = procfs::MemoryPressure::current()?;
-        let io_psi = procfs::IoPressure::current()?;
 
         Ok(Self {
             load_avg_1: load.one,
             load_avg_5: load.five,
             load_avg_15: load.fifteen,
             mem_usage: meminfo.mem_total - meminfo.mem_available.unwrap_or(0),
-            cpu_some_psi: Pressure::new(&cpu_psi.some),
-            mem_some_psi: Pressure::new(&mem_psi.some),
-            mem_full_psi: Pressure::new(&mem_psi.full),
-            io_some_psi: Pressure::new(&io_psi.some),
-            io_full_psi: Pressure::new(&io_psi.full),
+            pressure: PressureState::new(),
         })
     }
 }

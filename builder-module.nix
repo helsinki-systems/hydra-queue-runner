@@ -38,6 +38,12 @@ in
         default = 4;
       };
 
+      load1Threshold = lib.mkOption {
+        description = "Maximum Load1 threshold before we stop scheduling jobs on that node. Only used if PSI is not available.";
+        type = lib.types.float;
+        default = 8.0;
+      };
+
       cpuPsiThreshold = lib.mkOption {
         description = "Maximum CPU PSI in the last 10s before we stop scheduling jobs on that node";
         type = lib.types.float;
@@ -143,6 +149,8 @@ in
             cfg.speedFactor
             "--max-jobs"
             cfg.maxJobs
+            "--load1-threshold"
+            cfg.load1Threshold
             "--cpu-psi-threshold"
             cfg.cpuPsiThreshold
             "--mem-psi-threshold"

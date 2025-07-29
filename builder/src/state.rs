@@ -51,6 +51,7 @@ pub struct Config {
     pub ping_interval: u64,
     pub speed_factor: f32,
     pub max_jobs: u32,
+    pub load1_threshold: f32,
     pub cpu_psi_threshold: f32,
     pub mem_psi_threshold: f32,
     pub io_psi_threshold: Option<f32>,
@@ -111,6 +112,7 @@ impl State {
                 ping_interval: args.ping_interval,
                 speed_factor: args.speed_factor,
                 max_jobs: args.max_jobs,
+                load1_threshold: args.load1_threshold,
                 cpu_psi_threshold: args.cpu_psi_threshold,
                 mem_psi_threshold: args.mem_psi_threshold,
                 io_psi_threshold: args.io_psi_threshold,
@@ -139,6 +141,7 @@ impl State {
             bogomips: sys.bogomips,
             speed_factor: self.config.speed_factor,
             max_jobs: self.config.max_jobs,
+            load1_threshold: self.config.load1_threshold,
             cpu_psi_threshold: self.config.cpu_psi_threshold,
             mem_psi_threshold: self.config.mem_psi_threshold,
             io_psi_threshold: self.config.io_psi_threshold,
@@ -163,11 +166,13 @@ impl State {
             load5: sysinfo.load_avg_5,
             load15: sysinfo.load_avg_15,
             mem_usage: sysinfo.mem_usage,
-            cpu_some: Some(sysinfo.cpu_some_psi.into()),
-            mem_some: Some(sysinfo.mem_some_psi.into()),
-            mem_full: Some(sysinfo.mem_full_psi.into()),
-            io_some: Some(sysinfo.io_some_psi.into()),
-            io_full: Some(sysinfo.io_full_psi.into()),
+            pressure: sysinfo.pressure.map(|p| crate::runner_v1::PressureState {
+                cpu_some: Some(p.cpu_some.into()),
+                mem_some: Some(p.mem_some.into()),
+                mem_full: Some(p.mem_full.into()),
+                io_some: Some(p.io_some.into()),
+                io_full: Some(p.io_full.into()),
+            }),
         })
     }
 

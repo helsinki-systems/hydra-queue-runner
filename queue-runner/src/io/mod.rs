@@ -32,12 +32,22 @@ pub struct Pressure {
 impl From<&crate::state::Pressure> for Pressure {
     fn from(item: &crate::state::Pressure) -> Self {
         Self {
-            avg10: item.get_avg10(),
-            avg60: item.get_avg60(),
-            avg300: item.get_avg300(),
-            total: item.get_total(),
+            avg10: item.avg10,
+            avg60: item.avg60,
+            avg300: item.avg300,
+            total: item.total,
         }
     }
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PressureState {
+    cpu_some: Pressure,
+    mem_some: Pressure,
+    mem_full: Pressure,
+    io_some: Pressure,
+    io_full: Pressure,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -63,11 +73,7 @@ pub struct MachineStats {
     load5: f32,
     load15: f32,
     mem_usage: u64,
-    cpu_some_psi: Pressure,
-    mem_some_psi: Pressure,
-    mem_full_psi: Pressure,
-    io_some_psi: Pressure,
-    io_full_psi: Pressure,
+    pressure: Option<PressureState>,
 
     jobs_in_last_30s_start: i64,
     jobs_in_last_30s_count: u64,
@@ -111,11 +117,13 @@ impl MachineStats {
             load5: item.get_load5(),
             load15: item.get_load15(),
             mem_usage: item.get_mem_usage(),
-            cpu_some_psi: (&item.cpu_some_psi).into(),
-            mem_some_psi: (&item.mem_some_psi).into(),
-            mem_full_psi: (&item.mem_full_psi).into(),
-            io_some_psi: (&item.io_some_psi).into(),
-            io_full_psi: (&item.io_full_psi).into(),
+            pressure: item.pressure.load().as_ref().map(|p| PressureState {
+                cpu_some: (&p.cpu_some).into(),
+                mem_some: (&p.mem_some).into(),
+                mem_full: (&p.mem_full).into(),
+                io_some: (&p.io_some).into(),
+                io_full: (&p.io_full).into(),
+            }),
             jobs_in_last_30s_start: item.jobs_in_last_30s_start.load(Ordering::Relaxed),
             jobs_in_last_30s_count: item.jobs_in_last_30s_count.load(Ordering::Relaxed),
         }
@@ -132,6 +140,7 @@ pub struct Machine {
     bogomips: f32,
     speed_factor: f32,
     max_jobs: u32,
+    load1_threshold: f32,
     cpu_psi_threshold: f32,
     mem_psi_threshold: f32,
     io_psi_threshold: Option<f32>,
@@ -162,6 +171,7 @@ impl Machine {
             bogomips: item.bogomips,
             speed_factor: item.speed_factor,
             max_jobs: item.max_jobs,
+            load1_threshold: item.load1_threshold,
             cpu_psi_threshold: item.cpu_psi_threshold,
             mem_psi_threshold: item.mem_psi_threshold,
             io_psi_threshold: item.io_psi_threshold,

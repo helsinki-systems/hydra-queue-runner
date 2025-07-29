@@ -24,6 +24,10 @@ pub struct Args {
     #[clap(long, default_value_t = 4)]
     pub max_jobs: u32,
 
+    /// Load1 Threshold
+    #[clap(long, default_value_t = 8.)]
+    pub load1_threshold: f32,
+
     /// CPU Pressure Threshold
     #[clap(long, default_value_t = 75.)]
     pub cpu_psi_threshold: f32,
