@@ -402,7 +402,10 @@ mod handler {
             let metrics = state.metrics.gather_metrics(&state).await?;
             Ok(hyper::Response::builder()
                 .status(hyper::StatusCode::OK)
-                .header(hyper::header::CONTENT_TYPE, "text/plain")
+                .header(
+                    hyper::header::CONTENT_TYPE,
+                    "text/plain; version=0.0.4; charset=utf-8",
+                )
                 .body(full(metrics))?)
         }
     }
