@@ -51,6 +51,8 @@ pub struct Config {
     pub ping_interval: u64,
     pub speed_factor: f32,
     pub max_jobs: u32,
+    pub tmp_avail_threshold: f32,
+    pub store_avail_threshold: f32,
     pub load1_threshold: f32,
     pub cpu_psi_threshold: f32,
     pub mem_psi_threshold: f32,
@@ -112,6 +114,8 @@ impl State {
                 ping_interval: args.ping_interval,
                 speed_factor: args.speed_factor,
                 max_jobs: args.max_jobs,
+                tmp_avail_threshold: args.tmp_avail_threshold,
+                store_avail_threshold: args.store_avail_threshold,
                 load1_threshold: args.load1_threshold,
                 cpu_psi_threshold: args.cpu_psi_threshold,
                 mem_psi_threshold: args.mem_psi_threshold,
@@ -141,6 +145,8 @@ impl State {
             bogomips: sys.bogomips,
             speed_factor: self.config.speed_factor,
             max_jobs: self.config.max_jobs,
+            tmp_avail_threshold: self.config.tmp_avail_threshold,
+            store_avail_threshold: self.config.store_avail_threshold,
             load1_threshold: self.config.load1_threshold,
             cpu_psi_threshold: self.config.cpu_psi_threshold,
             mem_psi_threshold: self.config.mem_psi_threshold,
@@ -173,6 +179,8 @@ impl State {
                 io_some: Some(p.io_some.into()),
                 io_full: Some(p.io_full.into()),
             }),
+            tmp_usage_percent: sysinfo.tmp_usage_percent,
+            store_usage_percent: sysinfo.store_usage_percent,
         })
     }
 

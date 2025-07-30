@@ -66,6 +66,8 @@ pub struct Stats {
     load15: atomic_float::AtomicF32,
     mem_usage: std::sync::atomic::AtomicU64,
     pub pressure: arc_swap::ArcSwapOption<PressureState>,
+    tmp_usage_percent: atomic_float::AtomicF64,
+    store_usage_percent: atomic_float::AtomicF64,
 
     pub jobs_in_last_30s_start: std::sync::atomic::AtomicI64,
     pub jobs_in_last_30s_count: std::sync::atomic::AtomicU64,
@@ -91,6 +93,8 @@ impl Stats {
             mem_usage: 0.into(),
 
             pressure: arc_swap::ArcSwapOption::from(None),
+            tmp_usage_percent: 0.0.into(),
+            store_usage_percent: 0.0.into(),
 
             jobs_in_last_30s_start: 0.into(),
             jobs_in_last_30s_count: 0.into(),
@@ -200,6 +204,11 @@ impl Stats {
                 io_full: Pressure::new(p.io_full),
             })));
         }
+
+        self.tmp_usage_percent
+            .store(msg.tmp_usage_percent, Ordering::Relaxed);
+        self.store_usage_percent
+            .store(msg.store_usage_percent, Ordering::Relaxed);
     }
 
     pub fn get_load1(&self) -> f32 {
@@ -216,6 +225,14 @@ impl Stats {
 
     pub fn get_mem_usage(&self) -> u64 {
         self.mem_usage.load(Ordering::Relaxed)
+    }
+
+    pub fn get_tmp_usage_percent(&self) -> f64 {
+        self.tmp_usage_percent.load(Ordering::Relaxed)
+    }
+
+    pub fn get_store_usage_percent(&self) -> f64 {
+        self.store_usage_percent.load(Ordering::Relaxed)
     }
 }
 
@@ -458,6 +475,8 @@ pub struct Machine {
     pub bogomips: f32,
     pub speed_factor: f32,
     pub max_jobs: u32,
+    pub tmp_avail_threshold: f64,
+    pub store_avail_threshold: f64,
     pub load1_threshold: f32,
     pub cpu_psi_threshold: f32,
     pub mem_psi_threshold: f32,        // If None, dont consider this value
@@ -502,6 +521,8 @@ impl Machine {
             bogomips: msg.bogomips,
             speed_factor: msg.speed_factor,
             max_jobs: msg.max_jobs,
+            tmp_avail_threshold: msg.tmp_avail_threshold.into(),
+            store_avail_threshold: msg.store_avail_threshold.into(),
             load1_threshold: msg.load1_threshold,
             cpu_psi_threshold: msg.cpu_psi_threshold,
             mem_psi_threshold: msg.mem_psi_threshold,
@@ -604,6 +625,14 @@ impl Machine {
             self.stats
                 .jobs_in_last_30s_count
                 .store(0, Ordering::Relaxed);
+        }
+
+        if self.stats.get_tmp_usage_percent() > self.tmp_avail_threshold {
+            return false;
+        }
+
+        if self.stats.get_store_usage_percent() > self.store_avail_threshold {
+            return false;
         }
 
         match free_fn {

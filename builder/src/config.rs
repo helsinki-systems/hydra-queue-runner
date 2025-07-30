@@ -24,6 +24,14 @@ pub struct Args {
     #[clap(long, default_value_t = 4)]
     pub max_jobs: u32,
 
+    /// /tmp avail percentage Threshold
+    #[clap(long, default_value_t = 90.)]
+    pub tmp_avail_threshold: f32,
+
+    /// prefix/store avail percentage Threshold
+    #[clap(long, default_value_t = 90.)]
+    pub store_avail_threshold: f32,
+
     /// Load1 Threshold
     #[clap(long, default_value_t = 8.)]
     pub load1_threshold: f32,

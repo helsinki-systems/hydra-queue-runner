@@ -38,6 +38,7 @@ async-stream = "0.3"
 
 gethostname = "1"
 procfs = "0.17"
+nix = { version = "0.30.0", default-features = false, features = ["fs"] }
 
 nix-utils = { path = "../crates/nix-utils" }
 

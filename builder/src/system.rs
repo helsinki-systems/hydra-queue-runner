@@ -84,6 +84,18 @@ pub struct SystemLoad {
 
     pub mem_usage: u64,
     pub pressure: Option<PressureState>,
+
+    pub tmp_usage_percent: f64,
+    pub store_usage_percent: f64,
+}
+
+pub fn get_mount_free_percent(dest: &str) -> anyhow::Result<f64> {
+    let stat = nix::sys::statvfs::statvfs(dest)?;
+
+    let total_bytes = stat.blocks() * stat.block_size();
+    let free_bytes = stat.blocks_available() * stat.block_size();
+    #[allow(clippy::cast_precision_loss)]
+    Ok(free_bytes as f64 / total_bytes as f64 * 100.0)
 }
 
 impl SystemLoad {
@@ -91,12 +103,17 @@ impl SystemLoad {
         let meminfo = procfs::Meminfo::current()?;
         let load = procfs::LoadAverage::current()?;
 
+        // TODO: prefix
+        let nix_state_dir = std::env::var("NIX_STORE_DIR").unwrap_or("/nix/store".to_owned());
+
         Ok(Self {
             load_avg_1: load.one,
             load_avg_5: load.five,
             load_avg_15: load.fifteen,
             mem_usage: meminfo.mem_total - meminfo.mem_available.unwrap_or(0),
             pressure: PressureState::new(),
+            tmp_usage_percent: get_mount_free_percent("/tmp").unwrap_or(0.),
+            store_usage_percent: get_mount_free_percent(&nix_state_dir).unwrap_or(0.),
         })
     }
 }

@@ -34,14 +34,16 @@ message JoinMessage {
   float bogomips = 5;
   float speed_factor = 6;
   uint32 max_jobs = 7;
-  float load1_threshold = 8;
-  float cpu_psi_threshold = 9;
-  float mem_psi_threshold = 10;
-  optional float io_psi_threshold = 11;
-  uint64 total_mem = 12;
-  repeated string supported_features = 13;
-  repeated string mandatory_features = 14;
-  bool cgroups = 15;
+  float tmp_avail_threshold = 8;
+  float store_avail_threshold = 9;
+  float load1_threshold = 10;
+  float cpu_psi_threshold = 11;
+  float mem_psi_threshold = 12;
+  optional float io_psi_threshold = 13;
+  uint64 total_mem = 14;
+  repeated string supported_features = 15;
+  repeated string mandatory_features = 16;
+  bool cgroups = 17;
 }
 
 message Pressure {
@@ -66,6 +68,8 @@ message PingMessage {
   float load15 = 4;
   uint64 mem_usage = 5;
   optional PressureState pressure = 6;
+  double tmp_usage_percent = 7;
+  double store_usage_percent = 8;
 }
 
 message SimplePingMessage {
