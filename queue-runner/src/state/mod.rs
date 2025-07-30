@@ -986,19 +986,30 @@ impl State {
             self.add_root(path);
         }
 
-        let remote_store_url = self.config.get_remote_store_addr();
-        if let Some(url) = remote_store_url {
-            let outputs = output.outputs.clone();
+        let remote_store_urls = self.config.get_remote_store_addrs();
+        if !remote_store_urls.is_empty() {
+            let outputs = output
+                .outputs
+                .values()
+                .map(Clone::clone)
+                .collect::<Vec<_>>();
             tokio::spawn(async move {
                 use futures::stream::StreamExt as _;
 
-                let remote_store = nix_utils::RemoteStore::new(&url);
-                let mut stream =
-                    futures::StreamExt::map(tokio_stream::iter(outputs), |(_, path)| {
+                let urls_outputs_combined = remote_store_urls
+                    .iter()
+                    .flat_map(|url| outputs.iter().map(move |path| (url.clone(), path.clone())))
+                    .collect::<Vec<_>>();
+
+                let mut stream = futures::StreamExt::map(
+                    tokio_stream::iter(urls_outputs_combined),
+                    |(url, path)| async move {
                         // TODO: copy logs, currently not possible with cli interface
-                        remote_store.copy_path(path.clone())
-                    })
-                    .buffer_unordered(10);
+                        let remote_store = nix_utils::RemoteStore::new(&url);
+                        remote_store.copy_path(path.clone()).await
+                    },
+                )
+                .buffer_unordered(10);
                 while let Some(v) = tokio_stream::StreamExt::next(&mut stream).await {
                     if let Err(e) = v {
                         log::error!("Failed to copy path to remote store: {e}");
@@ -1692,7 +1703,12 @@ impl State {
         };
 
         let use_substitutes = self.config.get_use_substitutes();
-        let remote_store_url = self.config.get_remote_store_addr();
+        // TODO: check all remote stores
+        let remote_store_url = self
+            .config
+            .get_remote_store_addrs()
+            .first()
+            .map(ToOwned::to_owned);
         let missing_outputs = if let Some(remote_store_url) = remote_store_url.as_deref() {
             nix_utils::query_missing_remote_outputs(drv.outputs.clone(), remote_store_url).await
         } else {

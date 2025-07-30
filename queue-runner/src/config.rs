@@ -179,8 +179,7 @@ struct AppConfig {
     #[serde(default = "default_queue_trigger_timer_in_s")]
     queue_trigger_timer_in_s: i64,
 
-    remote_store_addr: Option<String>,
-    signing_key_path: Option<std::path::PathBuf>,
+    remote_store_addr: Vec<String>,
 
     #[serde(default)]
     use_substitutes: bool,
@@ -216,8 +215,7 @@ pub struct PreparedApp {
     machine_free_fn: MachineFreeFn,
     dispatch_trigger_timer: Option<tokio::time::Duration>,
     queue_trigger_timer: Option<tokio::time::Duration>,
-    remote_store_addr: Option<String>,
-    signing_key_path: Option<std::path::PathBuf>,
+    remote_store_addr: Vec<String>,
     use_substitutes: bool,
     roots_dir: std::path::PathBuf,
     max_retries: u32,
@@ -231,24 +229,16 @@ impl TryFrom<AppConfig> for PreparedApp {
     type Error = anyhow::Error;
 
     fn try_from(val: AppConfig) -> Result<Self, Self::Error> {
-        let signing_key_path = val.signing_key_path.and_then(|v| {
-            if std::fs::exists(&v).unwrap_or_default() {
-                Some(v)
-            } else {
-                None
-            }
-        });
-        let remote_store_addr = val.remote_store_addr.and_then(|v| {
-            if v.starts_with("file://")
-                || v.starts_with("s3://")
-                || v.starts_with("ssh://")
-                || v.starts_with('/')
-            {
-                Some(v)
-            } else {
-                None
-            }
-        });
+        let remote_store_addr = val
+            .remote_store_addr
+            .into_iter()
+            .filter(|v| {
+                v.starts_with("file://")
+                    || v.starts_with("s3://")
+                    || v.starts_with("ssh://")
+                    || v.starts_with('/')
+            })
+            .collect();
 
         let logname = std::env::var("LOGNAME").expect("LOGNAME not set");
         let nix_state_dir = std::env::var("NIX_STATE_DIR").unwrap_or("/nix/var/nix/".to_owned());
@@ -292,7 +282,6 @@ impl TryFrom<AppConfig> for PreparedApp {
                     }
                 }),
             remote_store_addr,
-            signing_key_path,
             use_substitutes: val.use_substitutes,
             roots_dir,
             max_retries: val.max_retries,
@@ -380,17 +369,9 @@ impl App {
         inner.queue_trigger_timer
     }
 
-    pub fn get_remote_store_addr(&self) -> Option<String> {
+    pub fn get_remote_store_addrs(&self) -> Vec<String> {
         let inner = self.inner.load();
-        if let Some(url) = &inner.remote_store_addr {
-            if let Some(secret_key) = &inner.signing_key_path {
-                Some(format!("{url}?secret-key={}", secret_key.to_string_lossy()))
-            } else {
-                Some(url.clone())
-            }
-        } else {
-            None
-        }
+        inner.remote_store_addr.clone()
     }
 
     pub fn get_use_substitutes(&self) -> bool {

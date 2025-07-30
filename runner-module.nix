@@ -63,13 +63,8 @@ in
             };
             remoteStoreAddr = lib.mkOption {
               description = "Remote store address";
-              type = lib.types.nullOr lib.types.singleLineStr;
-              default = null;
-            };
-            signingKeyPath = lib.mkOption {
-              description = "Signing key path";
-              type = lib.types.nullOr lib.types.path;
-              default = null;
+              type = lib.types.listOf lib.types.singleLineStr;
+              default = [];
             };
             useSubstitutes = lib.mkOption {
               description = "Use substitution for paths";
