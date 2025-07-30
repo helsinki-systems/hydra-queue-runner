@@ -94,7 +94,7 @@ in
             maxUnsupportedTimeInS = lib.mkOption {
               description = "Time until unsupported steps are aborted.";
               type = lib.types.ints.unsigned;
-              default = 0;
+              default = 120;
             };
             stopQueueRunAfterInS = lib.mkOption {
               description = "Seconds after which the queue run should be interupted early. Setting this to a value <= 0 will disable this feature and the queue run will never exit early.";

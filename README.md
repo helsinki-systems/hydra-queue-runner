@@ -60,7 +60,7 @@ useSubstitutes = false
 maxRetries = 5
 retryInterval = 60
 retryBackoff = 3.0
-maxUnsupportedTimeInS = 60
+maxUnsupportedTimeInS = 120
 stopQueueRunAfterInS = 60
 ```
 

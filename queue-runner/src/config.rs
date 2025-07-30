@@ -128,7 +128,7 @@ fn default_retry_backoff() -> f32 {
 }
 
 fn default_max_unsupported_time_in_s() -> i64 {
-    0
+    120
 }
 
 fn default_stop_queue_run_after_in_s() -> i64 {
