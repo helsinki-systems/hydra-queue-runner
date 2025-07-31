@@ -74,8 +74,8 @@ pub struct MachineStats {
     load15: f32,
     mem_usage: u64,
     pressure: Option<PressureState>,
-    tmp_usage_percent: f64,
-    store_usage_percent: f64,
+    tmp_free_percent: f64,
+    store_free_percent: f64,
 
     jobs_in_last_30s_start: i64,
     jobs_in_last_30s_count: u64,
@@ -126,8 +126,8 @@ impl MachineStats {
                 io_some: (&p.io_some).into(),
                 io_full: (&p.io_full).into(),
             }),
-            tmp_usage_percent: item.get_tmp_usage_percent(),
-            store_usage_percent: item.get_store_usage_percent(),
+            tmp_free_percent: item.get_tmp_free_percent(),
+            store_free_percent: item.get_store_free_percent(),
             jobs_in_last_30s_start: item.jobs_in_last_30s_start.load(Ordering::Relaxed),
             jobs_in_last_30s_count: item.jobs_in_last_30s_count.load(Ordering::Relaxed),
         }

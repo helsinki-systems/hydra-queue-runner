@@ -179,8 +179,8 @@ impl State {
                 io_some: Some(p.io_some.into()),
                 io_full: Some(p.io_full.into()),
             }),
-            tmp_usage_percent: sysinfo.tmp_usage_percent,
-            store_usage_percent: sysinfo.store_usage_percent,
+            tmp_free_percent: sysinfo.tmp_free_percent,
+            store_free_percent: sysinfo.store_free_percent,
         })
     }
 

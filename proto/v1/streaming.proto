@@ -68,8 +68,8 @@ message PingMessage {
   float load15 = 4;
   uint64 mem_usage = 5;
   optional PressureState pressure = 6;
-  double tmp_usage_percent = 7;
-  double store_usage_percent = 8;
+  double tmp_free_percent = 7;
+  double store_free_percent = 8;
 }
 
 message SimplePingMessage {

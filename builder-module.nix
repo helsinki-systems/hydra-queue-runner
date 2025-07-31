@@ -41,13 +41,13 @@ in
       tmpAvailThreshold = lib.mkOption {
         description = "Threshold in percent for /tmp before jobs are no longer scheduled on the machine";
         type = lib.types.float;
-        default = 90.0;
+        default = 10.0;
       };
 
       storeAvailThreshold = lib.mkOption {
         description = "Threshold in percent for /nix/store before jobs are no longer scheduled on the machine";
         type = lib.types.float;
-        default = 90.0;
+        default = 10.0;
       };
 
       load1Threshold = lib.mkOption {

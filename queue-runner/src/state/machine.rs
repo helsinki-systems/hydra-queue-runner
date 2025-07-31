@@ -66,8 +66,8 @@ pub struct Stats {
     load15: atomic_float::AtomicF32,
     mem_usage: std::sync::atomic::AtomicU64,
     pub pressure: arc_swap::ArcSwapOption<PressureState>,
-    tmp_usage_percent: atomic_float::AtomicF64,
-    store_usage_percent: atomic_float::AtomicF64,
+    tmp_free_percent: atomic_float::AtomicF64,
+    store_free_percent: atomic_float::AtomicF64,
 
     pub jobs_in_last_30s_start: std::sync::atomic::AtomicI64,
     pub jobs_in_last_30s_count: std::sync::atomic::AtomicU64,
@@ -93,8 +93,8 @@ impl Stats {
             mem_usage: 0.into(),
 
             pressure: arc_swap::ArcSwapOption::from(None),
-            tmp_usage_percent: 0.0.into(),
-            store_usage_percent: 0.0.into(),
+            tmp_free_percent: 0.0.into(),
+            store_free_percent: 0.0.into(),
 
             jobs_in_last_30s_start: 0.into(),
             jobs_in_last_30s_count: 0.into(),
@@ -205,10 +205,10 @@ impl Stats {
             })));
         }
 
-        self.tmp_usage_percent
-            .store(msg.tmp_usage_percent, Ordering::Relaxed);
-        self.store_usage_percent
-            .store(msg.store_usage_percent, Ordering::Relaxed);
+        self.tmp_free_percent
+            .store(msg.tmp_free_percent, Ordering::Relaxed);
+        self.store_free_percent
+            .store(msg.store_free_percent, Ordering::Relaxed);
     }
 
     pub fn get_load1(&self) -> f32 {
@@ -227,12 +227,12 @@ impl Stats {
         self.mem_usage.load(Ordering::Relaxed)
     }
 
-    pub fn get_tmp_usage_percent(&self) -> f64 {
-        self.tmp_usage_percent.load(Ordering::Relaxed)
+    pub fn get_tmp_free_percent(&self) -> f64 {
+        self.tmp_free_percent.load(Ordering::Relaxed)
     }
 
-    pub fn get_store_usage_percent(&self) -> f64 {
-        self.store_usage_percent.load(Ordering::Relaxed)
+    pub fn get_store_free_percent(&self) -> f64 {
+        self.store_free_percent.load(Ordering::Relaxed)
     }
 }
 
@@ -627,11 +627,11 @@ impl Machine {
                 .store(0, Ordering::Relaxed);
         }
 
-        if self.stats.get_tmp_usage_percent() > self.tmp_avail_threshold {
+        if self.stats.get_tmp_free_percent() < self.tmp_avail_threshold {
             return false;
         }
 
-        if self.stats.get_store_usage_percent() > self.store_avail_threshold {
+        if self.stats.get_store_free_percent() < self.store_avail_threshold {
             return false;
         }
 

@@ -25,11 +25,11 @@ pub struct Args {
     pub max_jobs: u32,
 
     /// /tmp avail percentage Threshold
-    #[clap(long, default_value_t = 90.)]
+    #[clap(long, default_value_t = 10.)]
     pub tmp_avail_threshold: f32,
 
     /// prefix/store avail percentage Threshold
-    #[clap(long, default_value_t = 90.)]
+    #[clap(long, default_value_t = 10.)]
     pub store_avail_threshold: f32,
 
     /// Load1 Threshold

@@ -85,8 +85,8 @@ pub struct SystemLoad {
     pub mem_usage: u64,
     pub pressure: Option<PressureState>,
 
-    pub tmp_usage_percent: f64,
-    pub store_usage_percent: f64,
+    pub tmp_free_percent: f64,
+    pub store_free_percent: f64,
 }
 
 pub fn get_mount_free_percent(dest: &str) -> anyhow::Result<f64> {
@@ -112,8 +112,8 @@ impl SystemLoad {
             load_avg_15: load.fifteen,
             mem_usage: meminfo.mem_total - meminfo.mem_available.unwrap_or(0),
             pressure: PressureState::new(),
-            tmp_usage_percent: get_mount_free_percent("/tmp").unwrap_or(0.),
-            store_usage_percent: get_mount_free_percent(&nix_state_dir).unwrap_or(0.),
+            tmp_free_percent: get_mount_free_percent("/tmp").unwrap_or(0.),
+            store_free_percent: get_mount_free_percent(&nix_state_dir).unwrap_or(0.),
         })
     }
 }
