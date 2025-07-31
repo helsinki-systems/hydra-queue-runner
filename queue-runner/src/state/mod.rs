@@ -819,6 +819,7 @@ impl State {
                 let queues = self.queues.read().await;
                 queues.clone_inner()
             };
+            let sort_fn = self.config.get_sort_fn();
             for (system, queue) in inner_queues {
                 for job in queue.clone_inner() {
                     let Some(job) = job.upgrade() else {
@@ -856,6 +857,9 @@ impl State {
                         Ok(RealiseStepResult::Valid(m)) => {
                             let queues = self.queues.read().await;
                             queues.add_job_to_scheduled(&job, &queue, m);
+                            // if we sort after each successful schedule we basically get a least
+                            // current builds as tie breaker, if we have the same score.
+                            self.machines.sort(sort_fn);
                         }
                         Ok(RealiseStepResult::None) => {
                             log::debug!(

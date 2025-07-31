@@ -247,7 +247,15 @@ struct MachinesInner {
 impl MachinesInner {
     fn sort(&mut self, sort_fn: MachineSortFn) {
         for machines in self.by_system.values_mut() {
-            machines.sort_by(|a, b| a.score(sort_fn).total_cmp(&b.score(sort_fn)).reverse());
+            machines.sort_by(|a, b| {
+                let r = a.score(sort_fn).total_cmp(&b.score(sort_fn)).reverse();
+                if r.is_eq() {
+                    // if score is the same then we do a tiebreaker on current jobs
+                    a.stats.get_current_jobs().cmp(&b.stats.get_current_jobs())
+                } else {
+                    r
+                }
+            });
         }
     }
 }
