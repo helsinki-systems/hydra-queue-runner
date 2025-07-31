@@ -179,6 +179,7 @@ struct AppConfig {
     #[serde(default = "default_queue_trigger_timer_in_s")]
     queue_trigger_timer_in_s: i64,
 
+    #[serde(default)]
     remote_store_addr: Vec<String>,
 
     #[serde(default)]

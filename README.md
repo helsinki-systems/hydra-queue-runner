@@ -53,8 +53,9 @@ maxDbConnections = 128
 dispatchTriggerTimerInS = 120
 queueTriggerTimerInS = -1
 machineSortFn = "SpeedFactorOnly"
-remoteStoreAddr = "s3://my-bucket?region=eu-west-1"
-signingKeyPath = "/run/secrets/hydra/signing_key"
+remoteStoreAddr = [
+  "s3://my-bucket?region=eu-west-1&secret-key=/run/secrets/hydra/signing_key&ls-compression=br&log-compression=br"
+]
 # if queue is allowed to substitute
 useSubstitutes = false
 maxRetries = 5
