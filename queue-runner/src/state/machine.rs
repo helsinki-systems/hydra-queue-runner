@@ -11,7 +11,7 @@ use crate::{
     server::grpc::runner_v1::{AbortMessage, BuildMessage, JoinMessage, runner_request},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Pressure {
     pub avg10: f32,
     pub avg60: f32,
@@ -20,32 +20,24 @@ pub struct Pressure {
 }
 
 impl Pressure {
-    fn new(msg: Option<crate::server::grpc::runner_v1::Pressure>) -> Self {
-        match msg {
-            Some(msg) => Self {
-                avg10: msg.avg10,
-                avg60: msg.avg60,
-                avg300: msg.avg300,
-                total: msg.total,
-            },
-            None => Self {
-                avg10: 0.0,
-                avg60: 0.0,
-                avg300: 0.0,
-                total: 0u64,
-            },
-        }
+    fn new(msg: Option<crate::server::grpc::runner_v1::Pressure>) -> Option<Self> {
+        msg.map(|v| Self {
+            avg10: v.avg10,
+            avg60: v.avg60,
+            avg300: v.avg300,
+            total: v.total,
+        })
     }
 }
 
 #[derive(Debug)]
 pub struct PressureState {
-    pub cpu_some: Pressure,
-    pub mem_some: Pressure,
-    pub mem_full: Pressure,
-    pub io_some: Pressure,
-    pub io_full: Pressure,
-    pub irq_full: Pressure,
+    pub cpu_some: Option<Pressure>,
+    pub mem_some: Option<Pressure>,
+    pub mem_full: Option<Pressure>,
+    pub io_some: Option<Pressure>,
+    pub io_full: Option<Pressure>,
+    pub irq_full: Option<Pressure>,
 }
 
 #[derive(Debug)]
@@ -587,25 +579,26 @@ impl Machine {
     }
 
     pub fn has_dynamic_capacity(&self) -> bool {
-        match self.stats.pressure.load().as_ref() {
-            Some(pressure) => {
-                if pressure.cpu_some.avg10 > self.cpu_psi_threshold {
+        let pressure = self.stats.pressure.load();
+
+        if let Some(cpu_some) = pressure.as_ref().and_then(|v| v.cpu_some) {
+            if cpu_some.avg10 > self.cpu_psi_threshold {
+                return false;
+            }
+            if let Some(mem_full) = pressure.as_ref().and_then(|v| v.mem_full) {
+                if mem_full.avg10 > self.mem_psi_threshold {
                     return false;
                 }
-                if pressure.mem_some.avg10 > self.mem_psi_threshold {
-                    return false;
-                }
-                if let Some(threshold) = self.io_psi_threshold {
-                    if pressure.io_some.avg10 > threshold {
+            }
+            if let Some(threshold) = self.io_psi_threshold {
+                if let Some(io_full) = pressure.as_ref().and_then(|v| v.io_full) {
+                    if io_full.avg10 > threshold {
                         return false;
                     }
                 }
             }
-            None => {
-                if self.stats.get_load1() > self.load1_threshold {
-                    return false;
-                }
-            }
+        } else if self.stats.get_load1() > self.load1_threshold {
+            return false;
         }
 
         true

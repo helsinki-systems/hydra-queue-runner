@@ -54,12 +54,12 @@ impl From<Pressure> for crate::runner_v1::Pressure {
 }
 
 pub struct PressureState {
-    pub cpu_some: Pressure,
-    pub mem_some: Pressure,
-    pub mem_full: Pressure,
-    pub io_some: Pressure,
-    pub io_full: Pressure,
-    pub irq_full: Pressure,
+    pub cpu_some: Option<Pressure>,
+    pub mem_some: Option<Pressure>,
+    pub mem_full: Option<Pressure>,
+    pub io_some: Option<Pressure>,
+    pub io_full: Option<Pressure>,
+    pub irq_full: Option<Pressure>,
 }
 
 // TODO: remove once https://github.com/eminence/procfs/issues/351 is resolved
@@ -112,19 +112,24 @@ fn parse_pressure_record(line: &str) -> procfs::ProcResult<procfs::PressureRecor
 
 impl PressureState {
     pub fn new() -> Option<Self> {
-        let cpu_psi = procfs::CpuPressure::current().ok()?;
-        let mem_psi = procfs::MemoryPressure::current().ok()?;
-        let io_psi = procfs::IoPressure::current().ok()?;
-        let irq_psi_full =
-            parse_pressure_record(&std::fs::read_to_string("/proc/pressure/irq").ok()?).ok()?;
+        if !std::fs::exists("/proc/pressure").unwrap_or_default() {
+            return None;
+        }
+
+        let cpu_psi = procfs::CpuPressure::current().ok();
+        let mem_psi = procfs::MemoryPressure::current().ok();
+        let io_psi = procfs::IoPressure::current().ok();
+        let irq_psi_full = std::fs::read_to_string("/proc/pressure/irq")
+            .ok()
+            .and_then(|v| parse_pressure_record(&v).ok());
 
         Some(Self {
-            cpu_some: Pressure::new(&cpu_psi.some),
-            mem_some: Pressure::new(&mem_psi.some),
-            mem_full: Pressure::new(&mem_psi.full),
-            io_some: Pressure::new(&io_psi.some),
-            io_full: Pressure::new(&io_psi.full),
-            irq_full: Pressure::new(&irq_psi_full),
+            cpu_some: cpu_psi.map(|v| Pressure::new(&v.some)),
+            mem_some: mem_psi.as_ref().map(|v| Pressure::new(&v.some)),
+            mem_full: mem_psi.map(|v| Pressure::new(&v.full)),
+            io_some: io_psi.as_ref().map(|v| Pressure::new(&v.some)),
+            io_full: io_psi.map(|v| Pressure::new(&v.full)),
+            irq_full: irq_psi_full.map(|v| Pressure::new(&v)),
         })
     }
 }

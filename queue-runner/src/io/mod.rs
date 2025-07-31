@@ -29,26 +29,26 @@ pub struct Pressure {
     total: u64,
 }
 
-impl From<&crate::state::Pressure> for Pressure {
-    fn from(item: &crate::state::Pressure) -> Self {
-        Self {
-            avg10: item.avg10,
-            avg60: item.avg60,
-            avg300: item.avg300,
-            total: item.total,
-        }
+impl Pressure {
+    pub fn new(item: Option<&crate::state::Pressure>) -> Option<Self> {
+        item.map(|v| Self {
+            avg10: v.avg10,
+            avg60: v.avg60,
+            avg300: v.avg300,
+            total: v.total,
+        })
     }
 }
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PressureState {
-    cpu_some: Pressure,
-    mem_some: Pressure,
-    mem_full: Pressure,
-    io_some: Pressure,
-    io_full: Pressure,
-    irq_full: Pressure,
+    cpu_some: Option<Pressure>,
+    mem_some: Option<Pressure>,
+    mem_full: Option<Pressure>,
+    io_some: Option<Pressure>,
+    io_full: Option<Pressure>,
+    irq_full: Option<Pressure>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -121,12 +121,12 @@ impl MachineStats {
             load15: item.get_load15(),
             mem_usage: item.get_mem_usage(),
             pressure: item.pressure.load().as_ref().map(|p| PressureState {
-                cpu_some: (&p.cpu_some).into(),
-                mem_some: (&p.mem_some).into(),
-                mem_full: (&p.mem_full).into(),
-                io_some: (&p.io_some).into(),
-                io_full: (&p.io_full).into(),
-                irq_full: (&p.irq_full).into(),
+                cpu_some: Pressure::new(p.cpu_some.as_ref()),
+                mem_some: Pressure::new(p.mem_some.as_ref()),
+                mem_full: Pressure::new(p.mem_full.as_ref()),
+                io_some: Pressure::new(p.io_some.as_ref()),
+                io_full: Pressure::new(p.io_full.as_ref()),
+                irq_full: Pressure::new(p.irq_full.as_ref()),
             }),
             tmp_free_percent: item.get_tmp_free_percent(),
             store_free_percent: item.get_store_free_percent(),
