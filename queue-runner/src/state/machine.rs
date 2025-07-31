@@ -45,6 +45,7 @@ pub struct PressureState {
     pub mem_full: Pressure,
     pub io_some: Pressure,
     pub io_full: Pressure,
+    pub irq_full: Pressure,
 }
 
 #[derive(Debug)]
@@ -202,6 +203,7 @@ impl Stats {
                 mem_full: Pressure::new(p.mem_full),
                 io_some: Pressure::new(p.io_some),
                 io_full: Pressure::new(p.io_full),
+                irq_full: Pressure::new(p.irq_full),
             })));
         }
 

@@ -178,6 +178,7 @@ impl State {
                 mem_full: Some(p.mem_full.into()),
                 io_some: Some(p.io_some.into()),
                 io_full: Some(p.io_full.into()),
+                irq_full: Some(p.irq_full.into()),
             }),
             tmp_free_percent: sysinfo.tmp_free_percent,
             store_free_percent: sysinfo.store_free_percent,

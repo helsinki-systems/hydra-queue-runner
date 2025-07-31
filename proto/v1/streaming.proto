@@ -59,6 +59,7 @@ message PressureState {
   Pressure mem_full = 3;
   Pressure io_some = 4;
   Pressure io_full = 5;
+  Pressure irq_full = 6;
 }
 
 message PingMessage {

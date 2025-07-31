@@ -48,6 +48,7 @@ pub struct PressureState {
     mem_full: Pressure,
     io_some: Pressure,
     io_full: Pressure,
+    irq_full: Pressure,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -125,6 +126,7 @@ impl MachineStats {
                 mem_full: (&p.mem_full).into(),
                 io_some: (&p.io_some).into(),
                 io_full: (&p.io_full).into(),
+                irq_full: (&p.irq_full).into(),
             }),
             tmp_free_percent: item.get_tmp_free_percent(),
             store_free_percent: item.get_store_free_percent(),

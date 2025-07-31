@@ -59,6 +59,55 @@ pub struct PressureState {
     pub mem_full: Pressure,
     pub io_some: Pressure,
     pub io_full: Pressure,
+    pub irq_full: Pressure,
+}
+
+// TODO: remove once https://github.com/eminence/procfs/issues/351 is resolved
+// Next 3 Functions are copied from https://github.com/eminence/procfs/blob/v0.17.0/procfs-core/src/pressure.rs#L93
+// LICENSE is Apache2.0/MIT
+fn get_f32(map: &std::collections::HashMap<&str, &str>, value: &str) -> procfs::ProcResult<f32> {
+    map.get(value).map_or_else(
+        || Err(procfs::ProcError::Incomplete(None)),
+        |v| {
+            v.parse::<f32>()
+                .map_err(|_| procfs::ProcError::Incomplete(None))
+        },
+    )
+}
+
+fn get_total(map: &std::collections::HashMap<&str, &str>) -> procfs::ProcResult<u64> {
+    map.get("total").map_or_else(
+        || Err(procfs::ProcError::Incomplete(None)),
+        |v| {
+            v.parse::<u64>()
+                .map_err(|_| procfs::ProcError::Incomplete(None))
+        },
+    )
+}
+
+fn parse_pressure_record(line: &str) -> procfs::ProcResult<procfs::PressureRecord> {
+    let mut parsed = std::collections::HashMap::new();
+
+    if !line.starts_with("some") && !line.starts_with("full") {
+        return Err(procfs::ProcError::Incomplete(None));
+    }
+
+    let values = &line[5..];
+
+    for kv_str in values.split_whitespace() {
+        let kv_split = kv_str.split('=');
+        let vec: Vec<&str> = kv_split.collect();
+        if vec.len() == 2 {
+            parsed.insert(vec[0], vec[1]);
+        }
+    }
+
+    Ok(procfs::PressureRecord {
+        avg10: get_f32(&parsed, "avg10")?,
+        avg60: get_f32(&parsed, "avg60")?,
+        avg300: get_f32(&parsed, "avg300")?,
+        total: get_total(&parsed)?,
+    })
 }
 
 impl PressureState {
@@ -66,6 +115,8 @@ impl PressureState {
         let cpu_psi = procfs::CpuPressure::current().ok()?;
         let mem_psi = procfs::MemoryPressure::current().ok()?;
         let io_psi = procfs::IoPressure::current().ok()?;
+        let irq_psi_full =
+            parse_pressure_record(&std::fs::read_to_string("/proc/pressure/irq").ok()?).ok()?;
 
         Some(Self {
             cpu_some: Pressure::new(&cpu_psi.some),
@@ -73,6 +124,7 @@ impl PressureState {
             mem_full: Pressure::new(&mem_psi.full),
             io_some: Pressure::new(&io_psi.some),
             io_full: Pressure::new(&io_psi.full),
+            irq_full: Pressure::new(&irq_psi_full),
         })
     }
 }
