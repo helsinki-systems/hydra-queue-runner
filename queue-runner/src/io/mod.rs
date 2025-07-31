@@ -136,6 +136,7 @@ impl MachineStats {
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Machine {
     systems: Vec<crate::state::System>,
     hostname: String,
@@ -158,6 +159,7 @@ pub struct Machine {
     stats: MachineStats,
     jobs: Vec<nix_utils::StorePath>,
 
+    has_capacity: bool,
     has_dynamic_capacity: bool,
     has_static_capacity: bool,
 }
@@ -166,6 +168,7 @@ impl Machine {
     pub fn from_state(
         item: &Arc<crate::state::Machine>,
         sort_fn: crate::config::MachineSortFn,
+        free_fn: crate::config::MachineFreeFn,
     ) -> Self {
         let jobs = { item.jobs.read().iter().map(|j| j.path.clone()).collect() };
         let time = chrono::Utc::now();
@@ -190,6 +193,7 @@ impl Machine {
             cgroups: item.cgroups,
             stats: MachineStats::from(&item.stats, time.timestamp()),
             jobs,
+            has_capacity: item.has_capacity(free_fn),
             has_dynamic_capacity: item.has_dynamic_capacity(),
             has_static_capacity: item.has_static_capacity(),
         }

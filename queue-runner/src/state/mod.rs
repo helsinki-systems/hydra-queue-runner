@@ -664,6 +664,7 @@ impl State {
             let state = state.clone();
             let queue_stats = crate::io::QueueRunnerStats::new(state.clone()).await;
             let sort_fn = state.config.get_sort_fn();
+            let free_fn = state.config.get_free_fn();
             let machines = state
                 .machines
                 .get_all_machines()
@@ -671,7 +672,7 @@ impl State {
                 .map(|m| {
                     (
                         m.hostname.clone(),
-                        crate::io::Machine::from_state(&m, sort_fn),
+                        crate::io::Machine::from_state(&m, sort_fn, free_fn),
                     )
                 })
                 .collect();
