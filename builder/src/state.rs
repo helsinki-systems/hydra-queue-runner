@@ -85,7 +85,7 @@ impl Gcroot {
 
 impl std::fmt::Display for Gcroot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{:?}", self.root)
+        write!(f, "{}", self.root.display())
     }
 }
 
