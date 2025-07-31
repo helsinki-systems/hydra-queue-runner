@@ -759,6 +759,21 @@ impl State {
     #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self))]
     async fn do_dispatch_once(&self) {
+        // Prune old historical build step info from the jobsets.
+        {
+            let jobsets = self.jobsets.read();
+            for ((project_name, jobset_name), jobset) in jobsets.iter() {
+                let s1 = jobset.share_used();
+                jobset.prune_steps();
+                let s2 = jobset.share_used();
+                if (s1 - s2).abs() > f64::EPSILON {
+                    log::debug!(
+                        "pruned scheduling window of '{project_name}:{jobset_name}' from {s1} to {s2}"
+                    );
+                }
+            }
+        }
+
         let mut new_runnable = Vec::new();
         {
             let mut steps = self.steps.write();

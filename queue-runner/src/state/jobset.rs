@@ -4,7 +4,7 @@ use std::{
 };
 
 pub type JobsetID = i32;
-pub const SCHEDULING_WINDOW: i32 = 24 * 60 * 60;
+pub const SCHEDULING_WINDOW: i64 = 24 * 60 * 60;
 
 #[derive(Debug)]
 pub struct Jobset {
@@ -77,5 +77,23 @@ impl Jobset {
         let mut steps = self.steps.write();
         steps.insert(start_time, duration);
         self.seconds.fetch_add(duration, Ordering::Relaxed);
+    }
+
+    pub fn prune_steps(&self) {
+        let now = chrono::Utc::now().timestamp();
+        let mut steps = self.steps.write();
+
+        loop {
+            let Some(first) = steps.first_entry() else {
+                break;
+            };
+            let start_time = *first.key();
+
+            if start_time > now - SCHEDULING_WINDOW {
+                break;
+            }
+            self.seconds.fetch_sub(*first.get(), Ordering::Relaxed);
+            steps.remove(&start_time);
+        }
     }
 }

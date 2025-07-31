@@ -99,6 +99,7 @@ impl Connection {
         &mut self,
         jobset_id: i32,
     ) -> sqlx::Result<Vec<BuildSteps>> {
+        #[allow(clippy::cast_precision_loss)]
         sqlx::query_as!(
             BuildSteps,
             r#"
@@ -108,7 +109,7 @@ impl Connection {
               to_timestamp(s.stopTime) > (NOW() - (interval '1 second' * $1)) AND
               jobset_id = $2
             "#,
-            Some(f64::from(crate::state::SCHEDULING_WINDOW * 10)),
+            Some((crate::state::SCHEDULING_WINDOW * 10) as f64),
             jobset_id,
         )
         .fetch_all(&mut *self.conn)
