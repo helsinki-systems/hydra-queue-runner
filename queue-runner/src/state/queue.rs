@@ -76,6 +76,8 @@ pub struct BuildQueue {
 
     active_runnable: Counter,
     total_runnable: Counter,
+    nr_runnable_waiting: Counter,
+    nr_runnable_disabled: Counter,
     avg_runnable_time: Counter,
     wait_time_ms: Counter,
 }
@@ -83,6 +85,8 @@ pub struct BuildQueue {
 pub struct BuildQueueStats {
     pub active_runnable: u64,
     pub total_runnable: u64,
+    pub nr_runnable_waiting: u64,
+    pub nr_runnable_disabled: u64,
     pub avg_runnable_time: u64,
     pub wait_time: u64,
 }
@@ -93,9 +97,19 @@ impl BuildQueue {
             jobs: parking_lot::RwLock::new(Vec::new()),
             active_runnable: 0.into(),
             total_runnable: 0.into(),
+            nr_runnable_waiting: 0.into(),
+            nr_runnable_disabled: 0.into(),
             avg_runnable_time: 0.into(),
             wait_time_ms: 0.into(),
         }
+    }
+
+    pub fn set_nr_runnable_waiting(&self, v: u64) {
+        self.nr_runnable_waiting.store(v, Ordering::Relaxed);
+    }
+
+    pub fn set_nr_runnable_disabled(&self, v: u64) {
+        self.nr_runnable_disabled.store(v, Ordering::Relaxed);
     }
 
     fn incr_active(&self) {
@@ -180,6 +194,8 @@ impl BuildQueue {
         BuildQueueStats {
             active_runnable: self.active_runnable.load(Ordering::Relaxed),
             total_runnable: self.total_runnable.load(Ordering::Relaxed),
+            nr_runnable_waiting: self.nr_runnable_waiting.load(Ordering::Relaxed),
+            nr_runnable_disabled: self.nr_runnable_disabled.load(Ordering::Relaxed),
             avg_runnable_time: self.avg_runnable_time.load(Ordering::Relaxed),
             wait_time: self.wait_time_ms.load(Ordering::Relaxed),
         }

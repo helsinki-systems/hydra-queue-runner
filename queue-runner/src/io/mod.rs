@@ -207,6 +207,8 @@ impl Machine {
 pub struct BuildQueueStats {
     active_runnable: u64,
     total_runnable: u64,
+    nr_runnable_waiting: u64,
+    nr_runnable_disabled: u64,
     avg_runnable_time: u64,
     wait_time_ms: u64,
 }
@@ -216,6 +218,8 @@ impl From<crate::state::BuildQueueStats> for BuildQueueStats {
         Self {
             active_runnable: v.active_runnable,
             total_runnable: v.total_runnable,
+            nr_runnable_waiting: v.nr_runnable_waiting,
+            nr_runnable_disabled: v.nr_runnable_disabled,
             avg_runnable_time: v.avg_runnable_time,
             wait_time_ms: v.wait_time,
         }

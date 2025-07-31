@@ -813,7 +813,7 @@ impl State {
         }
 
         {
-            let mut nr_steps_waiting = 0;
+            let mut nr_steps_waiting_all_queues = 0;
             let inner_queues = {
                 // We clone the inner queues here to unlock it again fast for other jobs
                 let queues = self.queues.read().await;
@@ -821,6 +821,8 @@ impl State {
             };
             let sort_fn = self.config.get_sort_fn();
             for (system, queue) in inner_queues {
+                let mut nr_disabled = 0;
+                let mut nr_waiting = 0;
                 for job in queue.clone_inner() {
                     let Some(job) = job.upgrade() else {
                         continue;
@@ -842,6 +844,7 @@ impl State {
                     {
                         let after = job.step.get_after();
                         if after > now {
+                            nr_disabled += 1;
                             log::debug!(
                                 "Can't schedule job because job is not yet ready system={system} drv={} after={after}",
                                 job.step.get_drv_path(),
@@ -866,7 +869,8 @@ impl State {
                                 "Waiting for job to schedule because no builder is ready system={system} drv={}",
                                 job.step.get_drv_path(),
                             );
-                            nr_steps_waiting += 1;
+                            nr_waiting += 1;
+                            nr_steps_waiting_all_queues += 1;
                         }
                         Ok(
                             RealiseStepResult::MaybeCancelled | RealiseStepResult::CachedFailure,
@@ -886,9 +890,13 @@ impl State {
                             );
                         }
                     }
+                    queue.set_nr_runnable_waiting(nr_waiting);
+                    queue.set_nr_runnable_disabled(nr_disabled);
                 }
             }
-            self.metrics.nr_steps_waiting.set(nr_steps_waiting);
+            self.metrics
+                .nr_steps_waiting
+                .set(nr_steps_waiting_all_queues);
         }
 
         self.abort_unsupported().await;
