@@ -651,10 +651,10 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
             .unwrap_or_default()
     })
     .buffered(50)
-    .filter_map(|o| async { o })
     .collect::<Vec<_>>()
     .await
     .into_iter()
+    .flatten()
     .filter(|p| full_requisites.contains(p))
     .collect::<Vec<_>>();
 

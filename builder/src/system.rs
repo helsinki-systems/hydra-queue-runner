@@ -161,7 +161,7 @@ impl SystemLoad {
         let load = procfs::LoadAverage::current()?;
 
         // TODO: prefix
-        let nix_state_dir = std::env::var("NIX_STORE_DIR").unwrap_or("/nix/store".to_owned());
+        let nix_store_dir = std::env::var("NIX_STORE_DIR").unwrap_or("/nix/store".to_owned());
 
         Ok(Self {
             load_avg_1: load.one,
@@ -170,7 +170,7 @@ impl SystemLoad {
             mem_usage: meminfo.mem_total - meminfo.mem_available.unwrap_or(0),
             pressure: PressureState::new(),
             tmp_free_percent: get_mount_free_percent("/tmp").unwrap_or(0.),
-            store_free_percent: get_mount_free_percent(&nix_state_dir).unwrap_or(0.),
+            store_free_percent: get_mount_free_percent(&nix_store_dir).unwrap_or(0.),
         })
     }
 }

@@ -139,8 +139,8 @@ pub async fn get_outputs_for_drvs(drvs: &[&StorePath]) -> Result<Vec<StorePath>,
 }
 
 #[tracing::instrument(fields(%drv), err)]
-pub async fn get_outputs_for_drv(drv: &StorePath) -> Result<Option<StorePath>, crate::Error> {
-    Ok(get_outputs_for_drvs(&[drv]).await?.into_iter().next())
+pub async fn get_outputs_for_drv(drv: &StorePath) -> Result<Vec<StorePath>, crate::Error> {
+    get_outputs_for_drvs(&[drv]).await
 }
 
 #[tracing::instrument(fields(%drv), err)]
