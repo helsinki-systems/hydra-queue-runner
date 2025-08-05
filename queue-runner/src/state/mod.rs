@@ -42,6 +42,7 @@ enum RealiseStepResult {
 }
 
 pub struct State {
+    pub store: nix_utils::LocalStore,
     pub config: App,
     pub args: Args,
     pub db: crate::db::Database,
@@ -72,6 +73,8 @@ impl State {
             tracing_subscriber::Registry,
         >,
     ) -> anyhow::Result<Arc<Self>> {
+        let store = nix_utils::LocalStore::init();
+        nix_utils::set_verbosity(1);
         let args = Args::new();
         if args.status {
             let _ = reload_handle
@@ -88,6 +91,7 @@ impl State {
 
         let _ = tokio::fs::create_dir_all(&log_dir).await;
         Ok(Arc::new(Self {
+            store,
             config,
             args,
             db,
@@ -1021,25 +1025,27 @@ impl State {
                 .values()
                 .map(Clone::clone)
                 .collect::<Vec<_>>();
+            let local_store = self.store.clone();
             tokio::spawn(async move {
-                use futures::stream::StreamExt as _;
+                for url in remote_store_urls {
+                    let remote_store = nix_utils::RemoteStore::init(&url);
 
-                let urls_outputs_combined = remote_store_urls
-                    .iter()
-                    .flat_map(|url| outputs.iter().map(move |path| (url.clone(), path.clone())))
-                    .collect::<Vec<_>>();
+                    if let Ok(log_data) = std::fs::read_to_string(&job.result.log_file) {
+                        let _ = remote_store.upsert_file(
+                            &format!("log/{}", job.path.base_name()),
+                            &log_data,
+                            "text/plain; charset=utf-8",
+                        );
+                    }
 
-                let mut stream = futures::StreamExt::map(
-                    tokio_stream::iter(urls_outputs_combined),
-                    |(url, path)| async move {
-                        // TODO: copy logs, currently not possible with cli interface
-                        let remote_store = nix_utils::RemoteStore::new(&url);
-                        remote_store.copy_path(path.clone()).await
-                    },
-                )
-                .buffer_unordered(10);
-                while let Some(v) = tokio_stream::StreamExt::next(&mut stream).await {
-                    if let Err(e) = v {
+                    if let Err(e) = nix_utils::copy_paths(
+                        local_store.as_base_store(),
+                        remote_store.as_base_store(),
+                        &outputs,
+                        false,
+                        false,
+                        false,
+                    ) {
                         log::error!("Failed to copy path to remote store: {e}");
                     }
                 }
@@ -1738,7 +1744,8 @@ impl State {
             .first()
             .map(ToOwned::to_owned);
         let missing_outputs = if let Some(remote_store_url) = remote_store_url.as_deref() {
-            nix_utils::query_missing_remote_outputs(drv.outputs.clone(), remote_store_url).await
+            let store = nix_utils::RemoteStore::init(remote_store_url);
+            store.query_missing_remote_outputs(drv.outputs.clone())
         } else {
             nix_utils::query_missing_outputs(drv.outputs.clone()).await
         };
@@ -1758,11 +1765,14 @@ impl State {
             let missing_outputs_len = missing_outputs.len();
             let build_opts = nix_utils::BuildOptions::substitute_only();
 
-            let remote_store = remote_store_url.as_deref().map(nix_utils::RemoteStore::new);
+            let remote_store = remote_store_url
+                .as_deref()
+                .map(nix_utils::RemoteStore::init);
             let mut stream = futures::StreamExt::map(tokio_stream::iter(missing_outputs), |o| {
                 self.metrics.nr_substitutes_started.inc();
                 crate::utils::substitute_output(
                     self.db.clone(),
+                    self.store.clone(),
                     o,
                     build.id,
                     &drv_path,

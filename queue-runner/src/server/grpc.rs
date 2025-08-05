@@ -1,13 +1,14 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::Context as _;
-use tokio::{io::AsyncWriteExt, sync::mpsc};
+use tokio::{io::AsyncWriteExt as _, sync::mpsc};
 use tracing::Instrument as _;
 
 use crate::{
     server::grpc::runner_v1::{BuildResultState, StepUpdate},
     state::{Machine, MachineMessage, State},
 };
+use nix_utils::BaseStore as _;
 use runner_v1::{
     BuildResultInfo, BuilderRequest, FetchRequisitesRequest, JoinResponse, LogChunk, NarData,
     RunnerRequest, SimplePingMessage, StorePath, StorePaths, builder_request,
@@ -125,7 +126,7 @@ impl RunnerService for Server {
         &self,
         req: tonic::Request<tonic::Streaming<BuilderRequest>>,
     ) -> BuilderResult<Self::OpenTunnelStream> {
-        use tokio_stream::{StreamExt as _, wrappers::ReceiverStream};
+        use tokio_stream::StreamExt as _;
 
         let mut stream = req.into_inner();
         let (input_tx, mut input_rx) = mpsc::channel::<MachineMessage>(128);
@@ -218,7 +219,8 @@ impl RunnerService for Server {
         });
 
         Ok(tonic::Response::new(
-            Box::pin(ReceiverStream::new(output_rx)) as Self::OpenTunnelStream,
+            Box::pin(tokio_stream::wrappers::ReceiverStream::new(output_rx))
+                as Self::OpenTunnelStream,
         ))
     }
 
@@ -256,17 +258,20 @@ impl RunnerService for Server {
         &self,
         req: tonic::Request<tonic::Streaming<NarData>>,
     ) -> BuilderResult<runner_v1::Empty> {
-        use tokio_stream::StreamExt as _;
+        let state = self.state.clone();
 
-        let mut stream = req.into_inner();
-
-        if let Some(Ok(first_item)) = stream.next().await {
-            let new_stream = tokio_stream::once(first_item.chunk.into())
-                .chain(stream.map_while(|s| s.map(|m| m.chunk.into()).ok()));
-            nix_utils::import_nar(new_stream, false)
-                .await
-                .map_err(|_| tonic::Status::internal("Failed to import nar"))?;
-        }
+        let stream = req.into_inner();
+        state
+            .store
+            .import_paths(
+                tokio_stream::StreamExt::map(stream, |s| {
+                    s.map(|v| v.chunk.into())
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::UnexpectedEof, e))
+                }),
+                false,
+            )
+            .await
+            .map_err(|_| tonic::Status::internal("Failed to import path."))?;
 
         Ok(tonic::Response::new(runner_v1::Empty {}))
     }
@@ -374,31 +379,24 @@ impl RunnerService for Server {
         &self,
         req: tonic::Request<StorePath>,
     ) -> BuilderResult<Self::StreamFileStream> {
-        use tokio_stream::StreamExt as _;
+        let state = self.state.clone();
 
         let path = nix_utils::StorePath::new(&req.into_inner().path);
-        let (mut child, mut bytes_stream) = nix_utils::export_nar(&path, false)
-            .await
-            .map_err(|_| tonic::Status::internal("failed to export paths"))?;
+        let store = state.store.clone();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Result<NarData, tonic::Status>>();
 
-        let output = async_stream::try_stream! {
-            while let Some(chunk) = bytes_stream.next().await {
-                let chunk = chunk?;
-                yield NarData {
-                    chunk: chunk.into()
-                }
-            }
-            nix_utils::validate_statuscode(
-                child
-                    .wait()
-                    .await
-                    .map_err(|_| tonic::Status::internal("failed to export paths"))?,
-            )
-            .map_err(|_| tonic::Status::internal("failed to export paths"))?;
+        let closure = move |data: &[u8]| {
+            let data = Vec::from(data);
+            tx.send(Ok(NarData { chunk: data })).is_ok()
         };
 
+        tokio::task::spawn_blocking(move || async move {
+            let _ = store.export_paths(&[path], closure);
+        });
+
         Ok(tonic::Response::new(
-            Box::pin(output) as Self::StreamFileStream
+            Box::pin(tokio_stream::wrappers::UnboundedReceiverStream::new(rx))
+                as Self::StreamFileStream,
         ))
     }
 
@@ -407,7 +405,7 @@ impl RunnerService for Server {
         &self,
         req: tonic::Request<StorePaths>,
     ) -> BuilderResult<Self::StreamFilesStream> {
-        use tokio_stream::StreamExt as _;
+        let state = self.state.clone();
 
         let req = req.into_inner();
         let paths = req
@@ -416,28 +414,21 @@ impl RunnerService for Server {
             .map(|p| nix_utils::StorePath::new(&p))
             .collect::<Vec<_>>();
 
-        let (mut child, mut bytes_stream) = nix_utils::export_nars(&paths, false)
-            .await
-            .map_err(|_| tonic::Status::internal("failed to export paths"))?;
+        let store = state.store.clone();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Result<NarData, tonic::Status>>();
 
-        let output = async_stream::try_stream! {
-            while let Some(chunk) = bytes_stream.next().await {
-                let chunk = chunk?;
-                yield NarData {
-                    chunk: chunk.into()
-                }
-            }
-            nix_utils::validate_statuscode(
-                child
-                    .wait()
-                    .await
-                    .map_err(|_| tonic::Status::internal("failed to export paths"))?,
-            )
-            .map_err(|_| tonic::Status::internal("failed to export paths"))?;
+        let closure = move |data: &[u8]| {
+            let data = Vec::from(data);
+            tx.send(Ok(NarData { chunk: data })).is_ok()
         };
 
+        tokio::task::spawn_blocking(move || async move {
+            let _ = store.export_paths(&paths, closure.clone());
+        });
+
         Ok(tonic::Response::new(
-            Box::pin(output) as Self::StreamFilesStream
+            Box::pin(tokio_stream::wrappers::UnboundedReceiverStream::new(rx))
+                as Self::StreamFilesStream,
         ))
     }
 }

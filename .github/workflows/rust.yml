@@ -51,7 +51,7 @@ jobs:
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y pkg-config protobuf-compiler
 
-      - run: cargo build --all --tests --all-features
+      - run: cargo build --all --tests --all-features --examples
 
   test:
     name: Test

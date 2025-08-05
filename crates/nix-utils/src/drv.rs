@@ -332,28 +332,3 @@ pub async fn query_missing_outputs(outputs: Vec<Output>) -> Vec<Output> {
         .collect()
         .await
 }
-
-#[tracing::instrument(skip(outputs, remote_store_url))]
-pub async fn query_missing_remote_outputs(
-    outputs: Vec<Output>,
-    remote_store_url: &str,
-) -> Vec<Output> {
-    use futures::stream::StreamExt as _;
-
-    tokio_stream::iter(outputs)
-        .map(|o| async move {
-            let Some(path) = &o.path else {
-                return None;
-            };
-            let remote_store = crate::RemoteStore::new(remote_store_url);
-            if !remote_store.check_if_storepath_exists(path).await {
-                Some(o)
-            } else {
-                None
-            }
-        })
-        .buffered(50)
-        .filter_map(|o| async { o })
-        .collect()
-        .await
-}

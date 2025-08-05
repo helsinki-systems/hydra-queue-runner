@@ -52,6 +52,7 @@ chrono = { version = "0.4.38", default-features = false, features = [
 ] }
 prometheus = "0.14.0"
 procfs = "0.17"
+os_pipe = "1.2"
 
 sqlx = { version = "0.8", features = [
   "runtime-tokio",

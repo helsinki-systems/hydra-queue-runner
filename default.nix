@@ -9,13 +9,18 @@
   zlib ? pkgs.zlib,
   protobuf ? pkgs.protobuf,
   makeWrapper ? pkgs.makeWrapper,
-  nix ? pkgs.nix,
+  nixVersions ? pkgs.nixVersions,
+  nlohmann_json ? pkgs.nlohmann_json,
+  libsodium ? pkgs.libsodium,
+  boost ? pkgs.boost,
 }:
 rustPlatform.buildRustPackage {
   name = "queue-runner";
   src = nix-gitignore.gitignoreSource [ ] (
     lib.sources.sourceFilesBySuffices (lib.cleanSource ./.) [
       ".rs"
+      ".cpp"
+      ".h"
       ".toml"
       ".lock"
       ".md"
@@ -37,13 +42,18 @@ rustPlatform.buildRustPackage {
     openssl
     zlib
     protobuf
+
+    nixVersions.nix_2_29
+    nlohmann_json
+    libsodium
+    boost
   ];
 
   postInstall = ''
     wrapProgram $out/bin/queue-runner \
-      --prefix PATH : ${lib.makeBinPath [ nix ]}
+      --prefix PATH : ${lib.makeBinPath [ nixVersions.nix_2_29 ]}
     wrapProgram $out/bin/builder \
-      --prefix PATH : ${lib.makeBinPath [ nix ]}
+      --prefix PATH : ${lib.makeBinPath [ nixVersions.nix_2_29 ]}
   '';
 
   meta = with lib; {

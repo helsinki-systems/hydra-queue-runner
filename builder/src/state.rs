@@ -6,10 +6,11 @@ use futures::TryFutureExt as _;
 use tonic::Request;
 
 use crate::runner_v1::{BuildResultState, StepStatus, StepUpdate};
+use nix_utils::BaseStore as _;
 
 // increasing this number will result in increased memory usage of the queue runner as it has to
 // increase file streaming!
-const MAX_DOWNLOAD_NARS: usize = 5;
+const MAX_DOWNLOAD_NARS: usize = 10;
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::enum_variant_names)]
@@ -70,6 +71,7 @@ pub struct State {
     active_builds: parking_lot::RwLock<AHashMap<nix_utils::StorePath, Arc<BuildInfo>>>,
 
     pub config: Config,
+    pub store: nix_utils::LocalStore,
 }
 
 #[derive(Debug)]
@@ -100,8 +102,10 @@ impl Drop for Gcroot {
 
 impl State {
     pub fn new(args: super::config::Args) -> anyhow::Result<Arc<Self>> {
-        let logname = std::env::var("LOGNAME").context("LOGNAME not set")?;
+        let store = nix_utils::LocalStore::init();
+        nix_utils::set_verbosity(1);
 
+        let logname = std::env::var("LOGNAME").context("LOGNAME not set")?;
         let nix_state_dir = std::env::var("NIX_STATE_DIR").unwrap_or("/nix/var/nix/".to_owned());
         let gcroots = std::path::PathBuf::from(nix_state_dir)
             .join("gcroots/per-user")
@@ -127,6 +131,7 @@ impl State {
                 mandatory_features: args.mandatory_features,
                 use_substitutes: args.use_substitutes,
             },
+            store,
         }))
     }
 
@@ -134,12 +139,16 @@ impl State {
     pub async fn get_join_message(&self) -> anyhow::Result<crate::runner_v1::JoinMessage> {
         let sys = crate::system::BaseSystemInfo::new()?;
 
-        let nix_config = nix_utils::get_nix_config().await?;
-        log::info!("Builder nix config: {nix_config:?}");
+        let systems = {
+            let mut out = Vec::with_capacity(8);
+            out.push(nix_utils::get_this_system());
+            out.extend(nix_utils::get_extra_platforms());
+            out
+        };
 
-        Ok(crate::runner_v1::JoinMessage {
+        let join = crate::runner_v1::JoinMessage {
             machine_id: self.id.to_string(),
-            systems: nix_config.systems(),
+            systems,
             hostname: gethostname::gethostname()
                 .into_string()
                 .map_err(|_| anyhow::anyhow!("Couldn't convert hostname to string"))?,
@@ -157,11 +166,18 @@ impl State {
             supported_features: if let Some(s) = &self.config.supported_features {
                 s.clone()
             } else {
-                nix_config.system_features.clone()
+                nix_utils::get_system_features()
             },
             mandatory_features: self.config.mandatory_features.clone().unwrap_or_default(),
-            cgroups: nix_config.cgroups,
-        })
+            cgroups: nix_utils::get_use_cgroups(),
+        };
+
+        log::info!("Builder systems={:?}", join.systems);
+        log::info!("Builder supported_features={:?}", join.supported_features);
+        log::info!("Builder mandatory_features={:?}", join.mandatory_features);
+        log::info!("Builder use_cgroups={:?}", join.cgroups);
+
+        Ok(join)
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -319,6 +335,7 @@ impl State {
 
         import_requisites(
             &mut client,
+            self.store.clone(),
             &gcroot,
             &drv,
             requisites
@@ -395,7 +412,7 @@ impl State {
                 step_status: StepStatus::ReceivingOutputs as i32,
             })
             .await;
-        upload_nars(client.clone(), output_paths)
+        upload_nars(client.clone(), self.store.clone(), output_paths)
             .await
             .map_err(JobFailure::Upload)?;
 
@@ -488,55 +505,64 @@ async fn substitute_path(
     substitute_paths(&[path], build_opts).await
 }
 
-#[tracing::instrument(skip(client), fields(%gcroot, %path), err)]
+#[tracing::instrument(skip(client, store), fields(%gcroot, %path), err)]
 async fn import_path(
     mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
         tonic::transport::Channel,
     >,
+    store: nix_utils::LocalStore,
     gcroot: &Gcroot,
     path: nix_utils::StorePath,
     use_substitutes: Option<&nix_utils::BuildOptions>,
 ) -> anyhow::Result<()> {
-    use tokio_stream::StreamExt as _;
-
     // Do one last check
     if !nix_utils::check_if_storepath_exists(&path).await {
-        log::debug!("Importing {path}");
         let done = if let Some(build_opts) = use_substitutes {
-            substitute_path(&path, build_opts).await.is_ok()
+            log::debug!("Try substitute");
+            let r = substitute_path(&path, build_opts).await.is_ok();
+            log::debug!("Try substitute resulted in {r}");
+            r
         } else {
             false
         };
 
         if !done {
-            let input_stream = client
+            log::debug!("Start importing path");
+            let stream = client
                 .stream_file(crate::runner_v1::StorePath {
                     path: path.base_name().to_owned(),
                 })
                 .await?
                 .into_inner();
-            nix_utils::import_nar(
-                input_stream.map_while(|s| s.map(|m| m.chunk.into()).ok()),
-                true,
-            )
-            .await?;
+
+            store
+                .import_paths(
+                    tokio_stream::StreamExt::map(stream, |s| {
+                        s.map(|v| v.chunk.into())
+                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::UnexpectedEof, e))
+                    }),
+                    false,
+                )
+                .await?;
+            log::debug!("Finished importing path");
         }
     }
     nix_utils::add_root(&gcroot.root, &path);
     Ok(())
 }
 
-#[tracing::instrument(skip(client), fields(%gcroot), err)]
+#[tracing::instrument(skip(client, store), fields(%gcroot), err)]
 async fn import_paths(
     mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
         tonic::transport::Channel,
     >,
+    store: nix_utils::LocalStore,
     gcroot: &Gcroot,
     paths: Vec<nix_utils::StorePath>,
     filter: bool,
     use_substitutes: Option<&nix_utils::BuildOptions>,
 ) -> anyhow::Result<()> {
-    use futures::stream::StreamExt as _;
+    use futures::StreamExt as _;
 
     let paths = if filter {
         futures::StreamExt::map(tokio_stream::iter(paths), |p| filter_missing(gcroot, p))
@@ -564,30 +590,37 @@ async fn import_paths(
         paths
     };
 
-    // Do one last check
-    log::debug!("Importing {paths:?}");
-    let input_stream = client
+    log::debug!("Start importing paths");
+    let stream = client
         .stream_files(crate::runner_v1::StorePaths {
             paths: paths.iter().map(|p| p.base_name().to_owned()).collect(),
         })
         .await?
         .into_inner();
-    nix_utils::import_nar(
-        tokio_stream::StreamExt::map_while(input_stream, |s| s.map(|m| m.chunk.into()).ok()),
-        true,
-    )
-    .await?;
+
+    store
+        .import_paths(
+            tokio_stream::StreamExt::map(stream, |s| {
+                s.map(|v| v.chunk.into())
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::UnexpectedEof, e))
+            }),
+            false,
+        )
+        .await?;
+    log::debug!("Finished importing paths");
+
     for p in paths {
         nix_utils::add_root(&gcroot.root, &p);
     }
     Ok(())
 }
 
-#[tracing::instrument(skip(client, requisites), fields(%gcroot, %drv), err)]
+#[tracing::instrument(skip(client, store, requisites), fields(%gcroot, %drv), err)]
 async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     client: &mut crate::runner_v1::runner_service_client::RunnerServiceClient<
         tonic::transport::Channel,
     >,
+    store: nix_utils::LocalStore,
     gcroot: &Gcroot,
     drv: &nix_utils::StorePath,
     requisites: T,
@@ -614,7 +647,13 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
         .partition(nix_utils::StorePath::is_drv);
 
     let mut stream = futures::StreamExt::map(tokio_stream::iter(input_srcs.clone()), |p| {
-        import_path(client.clone(), gcroot, p, use_substitutes.as_ref())
+        import_path(
+            client.clone(),
+            store.clone(),
+            gcroot,
+            p,
+            use_substitutes.as_ref(),
+        )
     })
     .buffer_unordered(50);
     while let Some(r) = tokio_stream::StreamExt::next(&mut stream).await {
@@ -625,6 +664,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     for drvs in input_drvs.chunks(MAX_DOWNLOAD_NARS) {
         import_paths(
             client.clone(),
+            store.clone(),
             gcroot,
             drvs.to_vec(),
             true,
@@ -653,43 +693,11 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     .collect::<Vec<_>>()
     .await;
 
-    let outputs = futures::StreamExt::map(tokio_stream::iter(input_drvs), |drv| async move {
-        nix_utils::get_outputs_for_drv(&drv)
-            .await
-            .unwrap_or_default()
-    })
-    .buffered(50)
-    .collect::<Vec<_>>()
-    .await
-    .into_iter()
-    .flatten()
-    .filter(|p| full_requisites.contains(p))
-    .collect::<Vec<_>>();
-
-    for files in outputs.chunks(MAX_DOWNLOAD_NARS) {
-        import_paths(
-            client.clone(),
-            gcroot,
-            files.to_vec(),
-            true,
-            use_substitutes.as_ref(),
-        )
-        .await?;
-    }
-
-    // ensure again that all outputs are present
-    let full_requisites = futures::StreamExt::map(tokio_stream::iter(full_requisites), |p| {
-        filter_missing(gcroot, p)
-    })
-    .buffered(50)
-    .filter_map(|o| async { o })
-    .collect::<Vec<_>>()
-    .await;
-
     for other in full_requisites.chunks(MAX_DOWNLOAD_NARS) {
         // we can skip filtering here as we already done that
         import_paths(
             client.clone(),
+            store.clone(),
             gcroot,
             other.to_vec(),
             false,
@@ -701,25 +709,31 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     Ok(())
 }
 
-#[tracing::instrument(skip(client, nars), err)]
+#[tracing::instrument(skip(client, store, nars), err)]
 async fn upload_nars(
     client: crate::runner_v1::runner_service_client::RunnerServiceClient<tonic::transport::Channel>,
+    store: nix_utils::LocalStore,
     nars: Vec<nix_utils::StorePath>,
 ) -> anyhow::Result<()> {
     use futures::stream::StreamExt as _;
 
     let mut stream = futures::StreamExt::map(tokio_stream::iter(nars), |p| {
         let mut client = client.clone();
+        let store = store.clone();
         async move {
-            let (mut child, s) = nix_utils::export_nar(&p, true).await?;
-            let wait_fut = child.wait().map_err(Into::<anyhow::Error>::into);
-            let submit_fut = client
-                .build_result(tokio_stream::StreamExt::map_while(s, move |s| {
-                    s.map(|m| crate::runner_v1::NarData { chunk: m.into() })
-                        .ok()
-                }))
-                .map_err(Into::<anyhow::Error>::into);
-            let _ = futures::future::try_join(wait_fut, submit_fut).await?;
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<crate::runner_v1::NarData>();
+            let closure = move |data: &[u8]| {
+                let data = Vec::from(data);
+                tx.send(crate::runner_v1::NarData { chunk: data }).is_ok()
+            };
+            tokio::task::spawn_blocking(move || async move {
+                let _ = store.export_paths(&[p], closure);
+            });
+
+            client
+                .build_result(tokio_stream::wrappers::UnboundedReceiverStream::new(rx))
+                .map_err(Into::<anyhow::Error>::into)
+                .await?;
             Ok::<(), anyhow::Error>(())
         }
     })

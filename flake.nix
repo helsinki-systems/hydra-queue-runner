@@ -38,6 +38,11 @@
           openssl
           zlib
           protobuf
+
+          nixVersions.nix_2_29
+          nlohmann_json
+          libsodium
+          boost
         ];
       in
       {
