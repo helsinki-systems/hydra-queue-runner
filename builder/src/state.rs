@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Instant};
 
 use ahash::AHashMap;
+use anyhow::Context;
 use futures::TryFutureExt as _;
 use tonic::Request;
 
@@ -98,16 +99,17 @@ impl Drop for Gcroot {
 }
 
 impl State {
-    pub fn new(args: super::config::Args) -> Arc<Self> {
-        let logname = std::env::var("LOGNAME").expect("LOGNAME not set");
+    pub fn new(args: super::config::Args) -> anyhow::Result<Arc<Self>> {
+        let logname = std::env::var("LOGNAME").context("LOGNAME not set")?;
 
         let nix_state_dir = std::env::var("NIX_STATE_DIR").unwrap_or("/nix/var/nix/".to_owned());
         let gcroots = std::path::PathBuf::from(nix_state_dir)
             .join("gcroots/per-user")
             .join(logname)
             .join("hydra-roots");
+        std::fs::create_dir_all(&gcroots)?;
 
-        Arc::new(Self {
+        Ok(Arc::new(Self {
             id: uuid::Uuid::new_v4(),
             active_builds: parking_lot::RwLock::new(AHashMap::new()),
             config: Config {
@@ -125,7 +127,7 @@ impl State {
                 mandatory_features: args.mandatory_features,
                 use_substitutes: args.use_substitutes,
             },
-        })
+        }))
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -448,6 +450,12 @@ impl State {
                 sd_notify::NotifyState::Ready,
             ],
         );
+    }
+
+    pub fn clear_gcroots(&self) -> std::io::Result<()> {
+        std::fs::remove_dir_all(&self.config.gcroots)?;
+        std::fs::create_dir_all(&self.config.gcroots)?;
+        Ok(())
     }
 }
 

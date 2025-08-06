@@ -150,13 +150,16 @@ async fn main() -> anyhow::Result<()> {
             .await?
     };
 
-    let state = State::new(args);
+    let state = State::new(args)?;
     let mut client = RunnerServiceClient::new(channel)
         .send_compressed(tonic::codec::CompressionEncoding::Zstd)
         .accept_compressed(tonic::codec::CompressionEncoding::Zstd)
         .max_decoding_message_size(50 * 1024 * 1024)
         .max_encoding_message_size(50 * 1024 * 1024);
-    let srv = start_bidirectional_stream(&mut client, state);
+    let task = tokio::spawn({
+        let state = state.clone();
+        async move { start_bidirectional_stream(&mut client, state.clone()).await }
+    });
 
     let _notify = sd_notify::notify(
         false,
@@ -165,7 +168,29 @@ async fn main() -> anyhow::Result<()> {
             sd_notify::NotifyState::Ready,
         ],
     );
-    srv.await?;
 
+    let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+
+    let abort_handle = task.abort_handle();
+
+    tokio::select! {
+        _ = sigint.recv() => {
+            log::info!("Received sigint - shutting down gracefully");
+            let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
+            abort_handle.abort();
+            state.clear_gcroots()?;
+        }
+        _ = sigterm.recv() => {
+            log::info!("Received sigterm - shutting down gracefully");
+            let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
+            abort_handle.abort();
+            state.clear_gcroots()?;
+        }
+        r = task => {
+            state.clear_gcroots()?;
+            r??;
+        }
+    };
     Ok(())
 }
