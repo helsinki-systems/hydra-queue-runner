@@ -51,8 +51,13 @@ where
     D: serde::Deserializer<'de>,
 {
     let x: Option<String> = serde::Deserialize::deserialize(deserializer)?;
-    Ok(x.map(|v| v.split(' ').map(ToOwned::to_owned).collect())
-        .unwrap_or_default())
+    Ok(x.map(|v| {
+        v.split(' ')
+            .filter(|v| !v.is_empty())
+            .map(ToOwned::to_owned)
+            .collect()
+    })
+    .unwrap_or_default())
 }
 
 #[derive(Debug, serde::Deserialize)]
