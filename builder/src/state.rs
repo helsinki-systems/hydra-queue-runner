@@ -4,6 +4,7 @@ use ahash::AHashMap;
 use anyhow::Context;
 use futures::TryFutureExt as _;
 use tonic::Request;
+use tracing::Instrument;
 
 use crate::runner_v1::{BuildResultState, StepStatus, StepUpdate};
 use nix_utils::BaseStore as _;
@@ -711,39 +712,36 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     Ok(())
 }
 
-#[tracing::instrument(skip(client, store, nars), err)]
+#[tracing::instrument(skip(client, store), err)]
 async fn upload_nars(
-    client: crate::runner_v1::runner_service_client::RunnerServiceClient<tonic::transport::Channel>,
+    mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
+        tonic::transport::Channel,
+    >,
     store: nix_utils::LocalStore,
     nars: Vec<nix_utils::StorePath>,
 ) -> anyhow::Result<()> {
-    use futures::stream::StreamExt as _;
+    log::debug!("Start uploading paths");
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<crate::runner_v1::NarData>();
+    let closure = move |data: &[u8]| {
+        let data = Vec::from(data);
+        tx.send(crate::runner_v1::NarData { chunk: data }).is_ok()
+    };
+    let a = client
+        .build_result(tokio_stream::wrappers::UnboundedReceiverStream::new(rx))
+        .map_err(Into::<anyhow::Error>::into);
 
-    let mut stream = futures::StreamExt::map(tokio_stream::iter(nars), |p| {
-        let mut client = client.clone();
-        let store = store.clone();
+    let b = tokio::task::spawn_blocking(move || {
         async move {
-            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<crate::runner_v1::NarData>();
-            let closure = move |data: &[u8]| {
-                let data = Vec::from(data);
-                tx.send(crate::runner_v1::NarData { chunk: data }).is_ok()
-            };
-            tokio::task::spawn_blocking(move || async move {
-                let _ = store.export_paths(&[p], closure);
-            });
-
-            client
-                .build_result(tokio_stream::wrappers::UnboundedReceiverStream::new(rx))
-                .map_err(Into::<anyhow::Error>::into)
-                .await?;
+            store.export_paths(&nars, closure)?;
+            log::debug!("Finished exporting paths");
             Ok::<(), anyhow::Error>(())
         }
+        .in_current_span()
     })
-    .buffer_unordered(10);
-
-    while let Some(r) = tokio_stream::StreamExt::next(&mut stream).await {
-        r?;
-    }
+    .await?
+    .map_err(Into::<anyhow::Error>::into);
+    futures::future::try_join(a, b).await?;
+    log::debug!("Finished uploading paths");
     Ok(())
 }
 
