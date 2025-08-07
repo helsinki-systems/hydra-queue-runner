@@ -74,6 +74,12 @@ in
         default = null;
       };
 
+      systems = lib.mkOption {
+        description = "List of supported systems. If none are passed, system and extra-platforms are read from nix.";
+        type = lib.types.listOf lib.types.singleLineStr;
+        default = [ ];
+      };
+
       supportedFeatures = lib.mkOption {
         description = "Pass supported features to the builder. If none are passed, system features will be used.";
         type = lib.types.listOf lib.types.singleLineStr;
@@ -176,6 +182,10 @@ in
             "--io-psi-threshold"
             cfg.ioPsiThreshold
           ]
+          ++ (builtins.concatMap (v: [
+            "--systems"
+            v
+          ]) cfg.systems)
           ++ (builtins.concatMap (v: [
             "--supported-features"
             v

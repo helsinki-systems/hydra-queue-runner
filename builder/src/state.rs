@@ -60,6 +60,7 @@ pub struct Config {
     pub mem_psi_threshold: f32,
     pub io_psi_threshold: Option<f32>,
     pub gcroots: std::path::PathBuf,
+    pub systems: Option<Vec<String>>,
     pub supported_features: Option<Vec<String>>,
     pub mandatory_features: Option<Vec<String>>,
     pub use_substitutes: bool,
@@ -127,6 +128,7 @@ impl State {
                 mem_psi_threshold: args.mem_psi_threshold,
                 io_psi_threshold: args.io_psi_threshold,
                 gcroots,
+                systems: args.systems,
                 supported_features: args.supported_features,
                 mandatory_features: args.mandatory_features,
                 use_substitutes: args.use_substitutes,
@@ -139,16 +141,16 @@ impl State {
     pub async fn get_join_message(&self) -> anyhow::Result<crate::runner_v1::JoinMessage> {
         let sys = crate::system::BaseSystemInfo::new()?;
 
-        let systems = {
-            let mut out = Vec::with_capacity(8);
-            out.push(nix_utils::get_this_system());
-            out.extend(nix_utils::get_extra_platforms());
-            out
-        };
-
         let join = crate::runner_v1::JoinMessage {
             machine_id: self.id.to_string(),
-            systems,
+            systems: if let Some(s) = &self.config.systems {
+                s.clone()
+            } else {
+                let mut out = Vec::with_capacity(8);
+                out.push(nix_utils::get_this_system());
+                out.extend(nix_utils::get_extra_platforms());
+                out
+            },
             hostname: gethostname::gethostname()
                 .into_string()
                 .map_err(|_| anyhow::anyhow!("Couldn't convert hostname to string"))?,
