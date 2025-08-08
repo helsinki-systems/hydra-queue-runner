@@ -19,6 +19,29 @@ pub fn init_tracing() -> anyhow::Result<
     Ok(reload_handle)
 }
 
+#[derive(Debug, Clone)]
+pub enum BindSocket {
+    Tcp(SocketAddr),
+    Unix(std::path::PathBuf),
+    ListenFd,
+}
+
+impl std::str::FromStr for BindSocket {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse::<std::net::SocketAddr>()
+            .map(BindSocket::Tcp)
+            .or_else(|_| {
+                if s == "-" {
+                    Ok(BindSocket::ListenFd)
+                } else {
+                    Ok(BindSocket::Unix(s.into()))
+                }
+            })
+    }
+}
+
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
@@ -30,9 +53,9 @@ pub struct Args {
     #[clap(short, long, default_value = "[::1]:8080")]
     pub rest_bind: SocketAddr,
 
-    /// GRPC server bind
+    /// GRPC server bind, either a `SocketAddr`, a Path for a Unix Socket or `-` to use `ListenFD` (systemd socket activation)
     #[clap(short, long, default_value = "[::1]:50051")]
-    pub grpc_bind: SocketAddr,
+    pub grpc_bind: BindSocket,
 
     /// Config path
     #[clap(short, long, default_value = "config.toml")]

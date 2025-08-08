@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use anyhow::Context as _;
+use anyhow::Context;
 use runner_v1::{
     BuilderRequest, builder_request, runner_request, runner_service_client::RunnerServiceClient,
 };
@@ -141,13 +141,29 @@ async fn main() -> anyhow::Result<()> {
             .identity(client_identity);
 
         tonic::transport::Channel::builder(args.gateway_endpoint.parse()?)
-            .tls_config(tls)?
+            .tls_config(tls)
+            .context("Failed to attach tls config")?
             .connect()
-            .await?
+            .await
+            .context("Failed to establish connection with Channel")?
+    } else if let Some(path) = args.gateway_endpoint.strip_prefix("unix://") {
+        let path = path.to_owned();
+        tonic::transport::Endpoint::try_from("http://[::]:50051")?
+            .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
+                let path = path.clone();
+                async move {
+                    Ok::<_, std::io::Error>(hyper_util::rt::TokioIo::new(
+                        tokio::net::UnixStream::connect(&path).await?,
+                    ))
+                }
+            }))
+            .await
+            .context("Failed to establish unix socket connection with Channel")?
     } else {
         tonic::transport::Channel::builder(args.gateway_endpoint.parse()?)
             .connect()
-            .await?
+            .await
+            .context("Failed to establish connection with Channel")?
     };
 
     let state = State::new(args)?;

@@ -29,6 +29,7 @@
           cargo-outdated
           cargo-machete
           cargo-expand
+          systemfd
           rustPackages.clippy
           rustPackages.rustfmt
           sqlx-cli

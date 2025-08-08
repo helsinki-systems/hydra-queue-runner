@@ -1,10 +1,11 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Context as _;
 use tokio::{io::AsyncWriteExt as _, sync::mpsc};
 use tracing::Instrument as _;
 
 use crate::{
+    config::BindSocket,
     server::grpc::runner_v1::{BuildResultState, StepUpdate},
     state::{Machine, MachineMessage, State},
 };
@@ -76,7 +77,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub async fn run(addr: SocketAddr, state: Arc<State>) -> anyhow::Result<()> {
+    pub async fn run(addr: BindSocket, state: Arc<State>) -> anyhow::Result<()> {
         let service = RunnerServiceServer::new(Self {
             state: state.clone(),
         })
@@ -84,6 +85,9 @@ impl Server {
         .accept_compressed(tonic::codec::CompressionEncoding::Zstd)
         .max_decoding_message_size(50 * 1024 * 1024)
         .max_encoding_message_size(50 * 1024 * 1024);
+
+        let mut server =
+            tonic::transport::Server::builder().trace_fn(|_| tracing::info_span!("grpc_server"));
 
         if state.args.mtls_enabled() {
             log::info!("Using mtls");
@@ -96,19 +100,28 @@ impl Server {
             let tls = tonic::transport::ServerTlsConfig::new()
                 .identity(server_identity)
                 .client_ca_root(client_ca_cert);
+            server = server.tls_config(tls)?;
+        }
+        let server = server.add_service(service);
 
-            tonic::transport::Server::builder()
-                .tls_config(tls)?
-                .trace_fn(|_| tracing::info_span!("grpc_server"))
-                .add_service(service)
-                .serve(addr)
-                .await?;
-        } else {
-            tonic::transport::Server::builder()
-                .trace_fn(|_| tracing::info_span!("grpc_server"))
-                .add_service(service)
-                .serve(addr)
-                .await?;
+        match addr {
+            BindSocket::Tcp(s) => server.serve(s).await?,
+            BindSocket::Unix(p) => {
+                let uds = tokio::net::UnixListener::bind(p)?;
+                let uds_stream = tokio_stream::wrappers::UnixListenerStream::new(uds);
+                server.serve_with_incoming(uds_stream).await?;
+            }
+            BindSocket::ListenFd => {
+                let listener = listenfd::ListenFd::from_env()
+                    .take_unix_listener(0)?
+                    .ok_or(anyhow::anyhow!("No listenfd found in env"))?;
+                listener.set_nonblocking(true)?;
+                let listener = tokio_stream::wrappers::UnixListenerStream::new(
+                    tokio::net::UnixListener::from_std(listener)?,
+                );
+
+                server.serve_with_incoming(listener).await?;
+            }
         }
 
         Ok(())

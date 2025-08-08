@@ -38,6 +38,7 @@ tokio-stream = "0.1"
 prost = "0.14"
 tonic = { version = "0.14", features = ["zstd", "tls-ring"] }
 tonic-prost = "0.14"
+listenfd = "1"
 async-stream = "0.3"
 h2 = "0.4"
 

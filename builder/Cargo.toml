@@ -28,6 +28,8 @@ futures = "0.3"
 prost = "0.14"
 tonic = { version = "0.14", features = ["zstd", "tls-ring"] }
 tonic-prost = "0.14"
+tower = "0.5.2"
+hyper-util = "0.1.10"
 async-stream = "0.3"
 
 gethostname = "1"

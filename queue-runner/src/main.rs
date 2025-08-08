@@ -59,16 +59,20 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let lockfile_path = state.config.get_lockfile();
-    let _lock = lockfile::Lockfile::create_with_parents(lockfile_path)
-        .map_err(|e| anyhow::anyhow!("Another instance is already running. Internal Error: {e}"))?;
+    let _lock = lockfile::Lockfile::create_with_parents(&lockfile_path).map_err(|e| {
+        anyhow::anyhow!(
+            "Another instance is already running. Path={} Internal Error: {e}",
+            lockfile_path.display()
+        )
+    })?;
 
     let task_abort_handles = start_task_loops(state.clone());
     log::info!(
-        "QueueRunner listening on grpc: {} and rest: {}",
+        "QueueRunner listening on grpc: {:?} and rest: {}",
         state.args.grpc_bind,
         state.args.rest_bind
     );
-    let srv1 = server::grpc::Server::run(state.args.grpc_bind, state.clone());
+    let srv1 = server::grpc::Server::run(state.args.grpc_bind.clone(), state.clone());
     let srv2 = server::http::Server::run(state.args.rest_bind, state.clone());
 
     let task = tokio::spawn(async move {
