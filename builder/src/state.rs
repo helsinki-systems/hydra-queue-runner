@@ -501,59 +501,6 @@ async fn substitute_paths(
     Ok(())
 }
 
-async fn substitute_path(
-    path: &nix_utils::StorePath,
-    build_opts: &nix_utils::BuildOptions,
-) -> anyhow::Result<()> {
-    substitute_paths(&[path], build_opts).await
-}
-
-#[tracing::instrument(skip(client, store), fields(%gcroot, %path), err)]
-async fn import_path(
-    mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
-        tonic::transport::Channel,
-    >,
-    store: nix_utils::LocalStore,
-    gcroot: &Gcroot,
-    path: nix_utils::StorePath,
-    use_substitutes: Option<&nix_utils::BuildOptions>,
-) -> anyhow::Result<()> {
-    // Do one last check
-    if !nix_utils::check_if_storepath_exists(&path).await {
-        let done = if let Some(build_opts) = use_substitutes {
-            log::debug!("Try substitute");
-            let r = substitute_path(&path, build_opts).await.is_ok();
-            log::debug!("Try substitute resulted in {r}");
-            r
-        } else {
-            false
-        };
-
-        if !done {
-            log::debug!("Start importing path");
-            let stream = client
-                .stream_file(crate::runner_v1::StorePath {
-                    path: path.base_name().to_owned(),
-                })
-                .await?
-                .into_inner();
-
-            store
-                .import_paths(
-                    tokio_stream::StreamExt::map(stream, |s| {
-                        s.map(|v| v.chunk.into())
-                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::UnexpectedEof, e))
-                    }),
-                    false,
-                )
-                .await?;
-            log::debug!("Finished importing path");
-        }
-    }
-    nix_utils::add_root(&gcroot.root, &path);
-    Ok(())
-}
-
 #[tracing::instrument(skip(client, store), fields(%gcroot), err)]
 async fn import_paths(
     mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
@@ -649,21 +596,18 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
         .into_iter()
         .partition(nix_utils::StorePath::is_drv);
 
-    let mut stream = futures::StreamExt::map(tokio_stream::iter(input_srcs.clone()), |p| {
-        import_path(
+    for srcs in input_srcs.chunks(MAX_DOWNLOAD_NARS) {
+        import_paths(
             client.clone(),
             store.clone(),
             gcroot,
-            p,
+            srcs.to_vec(),
+            true,
             use_substitutes.as_ref(),
         )
-    })
-    .buffer_unordered(50);
-    while let Some(r) = tokio_stream::StreamExt::next(&mut stream).await {
-        r?;
+        .await?;
     }
 
-    // Do this drv by drv otherwise input_drvs get corrupted
     for drvs in input_drvs.chunks(MAX_DOWNLOAD_NARS) {
         import_paths(
             client.clone(),
@@ -671,7 +615,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
             gcroot,
             drvs.to_vec(),
             true,
-            use_substitutes.as_ref(),
+            None, // never use substitute for drvs
         )
         .await?;
     }

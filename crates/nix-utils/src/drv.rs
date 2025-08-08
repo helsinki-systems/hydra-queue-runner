@@ -215,6 +215,8 @@ impl BuildOptions {
         let mut o = Self::new(None);
         o.build = false;
         o.substitute = true;
+        o.max_silent_time = 60 * 5;
+        o.build_timeout = 60 * 5;
         o
     }
 
