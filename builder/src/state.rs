@@ -237,21 +237,34 @@ impl State {
                     Err(e) => {
                         log::error!("Build of {drv} failed with {e}");
                         self_.remove_build(&drv);
-                        if let Err(e) = client
-                            .complete_build(crate::runner_v1::BuildResultInfo {
-                                machine_id: self_.id.to_string(),
-                                drv: drv.base_name().to_owned(),
-                                import_time_ms: u64::try_from(import_elapsed.as_millis())
-                                    .unwrap_or_default(),
-                                build_time_ms: u64::try_from(build_elapsed.as_millis())
-                                    .unwrap_or_default(),
-                                result_state: BuildResultState::from(e) as i32,
-                                outputs: vec![],
-                                nix_support: None,
-                            })
-                            .await
-                        {
-                            log::error!("Failed to submit build failure info: {e}");
+                        let failed_build = crate::runner_v1::BuildResultInfo {
+                            machine_id: self_.id.to_string(),
+                            drv: drv.base_name().to_owned(),
+                            import_time_ms: u64::try_from(import_elapsed.as_millis())
+                                .unwrap_or_default(),
+                            build_time_ms: u64::try_from(build_elapsed.as_millis())
+                                .unwrap_or_default(),
+                            result_state: BuildResultState::from(e) as i32,
+                            outputs: vec![],
+                            nix_support: None,
+                        };
+
+                        for i in 0..3 {
+                            match client.complete_build(failed_build.clone()).await {
+                                Ok(_) => break,
+                                Err(e) => {
+                                    if i == 2 {
+                                        log::error!("Failed to submit build failure info: {e}");
+                                    } else {
+                                        log::error!(
+                                            "Failed to submit build failure info (retrying ... i={i}): {e}"
+                                        );
+                                        // TODO: backoff
+                                        tokio::time::sleep(tokio::time::Duration::from_secs(1))
+                                            .await;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
