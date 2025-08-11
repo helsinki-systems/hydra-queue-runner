@@ -195,16 +195,18 @@ async fn main() -> anyhow::Result<()> {
             log::info!("Received sigint - shutting down gracefully");
             let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
             abort_handle.abort();
-            state.clear_gcroots()?;
+            state.abort_all_active_builds();
+            let _ = state.clear_gcroots();
         }
         _ = sigterm.recv() => {
             log::info!("Received sigterm - shutting down gracefully");
             let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
             abort_handle.abort();
-            state.clear_gcroots()?;
+            state.abort_all_active_builds();
+            let _ = state.clear_gcroots();
         }
         r = task => {
-            state.clear_gcroots()?;
+            let _ = state.clear_gcroots();
             r??;
         }
     };

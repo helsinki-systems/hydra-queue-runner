@@ -295,6 +295,14 @@ impl State {
         }
     }
 
+    pub fn abort_all_active_builds(&self) {
+        let mut active = self.active_builds.write();
+        for b in active.values() {
+            b.abort();
+        }
+        active.clear();
+    }
+
     #[tracing::instrument(skip(self, client, m), fields(drv=%m.drv), err)]
     #[allow(clippy::too_many_lines)]
     async fn process_build(
