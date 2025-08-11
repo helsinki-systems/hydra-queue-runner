@@ -30,6 +30,10 @@ bool get_use_cgroups();
 void set_verbosity(int32_t level);
 
 bool is_valid_path(const StoreWrapper &wrapper, rust::Str path);
+InternalPathInfo query_path_info(const StoreWrapper &wrapper, rust::Str path);
+void clear_path_info_cache(const StoreWrapper &wrapper);
+long unsigned int compute_closure_size(const StoreWrapper &wrapper,
+                                       rust::Str path);
 rust::Vec<rust::String> compute_fs_closure(const StoreWrapper &wrapper,
                                            rust::Str path, bool flip_direction,
                                            bool include_outputs,

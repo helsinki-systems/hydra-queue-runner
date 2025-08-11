@@ -448,6 +448,7 @@ impl State {
             })
             .await;
         let build_results = new_success_build_result_info(
+            self.store.clone(),
             machine_id,
             &drv,
             drv_info,
@@ -710,8 +711,9 @@ async fn upload_nars(
     Ok(())
 }
 
-#[tracing::instrument(skip(drv_info), fields(%drv), ret(level = tracing::Level::DEBUG), err)]
+#[tracing::instrument(skip(store, drv_info), fields(%drv), ret(level = tracing::Level::DEBUG), err)]
 async fn new_success_build_result_info(
+    store: nix_utils::LocalStore,
     machine_id: uuid::Uuid,
     drv: &nix_utils::StorePath,
     drv_info: nix_utils::Derivation,
@@ -723,7 +725,7 @@ async fn new_success_build_result_info(
         .iter()
         .filter_map(|o| o.path.as_ref())
         .collect::<Vec<_>>();
-    let pathinfos = nix_utils::query_path_infos(outputs).await?;
+    let pathinfos = store.query_path_infos(outputs);
 
     let nix_support = nix_utils::parse_nix_support_from_outputs(&drv_info.outputs).await?;
     Ok(crate::runner_v1::BuildResultInfo {
@@ -743,7 +745,7 @@ async fn new_success_build_result_info(
                                 crate::runner_v1::OutputWithPath {
                                     name: o.name,
                                     path: p.base_name().to_owned(),
-                                    closure_size: info.closure_size,
+                                    closure_size: store.compute_closure_size(&p),
                                     nar_size: info.nar_size,
                                     nar_hash: info.nar_hash.clone(),
                                 },

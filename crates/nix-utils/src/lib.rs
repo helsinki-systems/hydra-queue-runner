@@ -1,6 +1,5 @@
 mod drv;
 mod nix_support;
-mod pathinfo;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -29,16 +28,13 @@ pub enum Error {
     Exception(#[from] cxx::Exception),
 }
 
+use ahash::AHashMap;
 pub use drv::{
     BuildOptions, Derivation, Output as DerivationOutput, get_outputs_for_drv,
     get_outputs_for_drvs, query_drv, query_drvs, query_missing_outputs, realise_drv, realise_drvs,
     topo_sort_drvs,
 };
 pub use nix_support::{BuildMetric, BuildProduct, NixSupport, parse_nix_support_from_outputs};
-pub use pathinfo::{
-    PathInfo, check_if_storepath_exists_using_pathinfo, clear_query_path_cache, query_path_info,
-    query_path_infos,
-};
 
 pub const HASH_LEN: usize = 32;
 
@@ -126,6 +122,17 @@ pub fn add_root(root_dir: &std::path::Path, store_path: &StorePath) {
 #[cxx::bridge(namespace = "nix_utils")]
 mod ffi {
     #[derive(Debug)]
+    struct InternalPathInfo {
+        deriver: String,
+        nar_hash: String,
+        registration_time: i64,
+        nar_size: u64,
+        refs: Vec<String>,
+        sigs: Vec<String>,
+        ca: String,
+    }
+
+    #[derive(Debug)]
     struct S3Stats {
         put: u64,
         put_bytes: u64,
@@ -154,6 +161,9 @@ mod ffi {
         fn set_verbosity(level: i32);
 
         fn is_valid_path(store: &StoreWrapper, path: &str) -> Result<bool>;
+        fn query_path_info(store: &StoreWrapper, path: &str) -> Result<InternalPathInfo>;
+        fn compute_closure_size(store: &StoreWrapper, path: &str) -> Result<u64>;
+        fn clear_path_info_cache(store: &StoreWrapper) -> Result<()>;
         fn compute_fs_closure(
             store: &StoreWrapper,
             path: &str,
@@ -269,10 +279,49 @@ pub fn copy_paths(
     )
 }
 
+#[derive(Debug)]
+pub struct PathInfo {
+    pub deriver: Option<StorePath>,
+    pub nar_hash: String,
+    pub registration_time: i64,
+    pub nar_size: u64,
+    pub refs: Vec<StorePath>,
+    pub sigs: Vec<String>,
+    pub ca: Option<String>,
+}
+
+impl From<crate::ffi::InternalPathInfo> for PathInfo {
+    fn from(val: crate::ffi::InternalPathInfo) -> Self {
+        Self {
+            deriver: if val.deriver.is_empty() {
+                None
+            } else {
+                Some(StorePath::new(&val.deriver))
+            },
+            nar_hash: val.nar_hash,
+            registration_time: val.registration_time,
+            nar_size: val.nar_size,
+            refs: val.refs.iter().map(|v| StorePath::new(v)).collect(),
+            sigs: val.sigs,
+            ca: if val.ca.is_empty() {
+                None
+            } else {
+                Some(val.ca)
+            },
+        }
+    }
+}
+
 pub trait BaseStore {
     #[must_use]
     /// Check whether a path is valid.
     fn is_valid_path(&self, path: &str) -> bool;
+
+    fn query_path_info(&self, path: &StorePath) -> Option<PathInfo>;
+    fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo>;
+    fn compute_closure_size(&self, path: &StorePath) -> u64;
+
+    fn clear_path_info_cache(&self);
 
     fn compute_fs_closure(
         &self,
@@ -344,6 +393,34 @@ impl BaseStore for BaseStoreImpl {
     #[inline]
     fn is_valid_path(&self, path: &str) -> bool {
         ffi::is_valid_path(&self.wrapper, path).unwrap_or(false)
+    }
+
+    #[inline]
+    fn query_path_info(&self, path: &StorePath) -> Option<PathInfo> {
+        ffi::query_path_info(&self.wrapper, &path.get_full_path())
+            .ok()
+            .map(Into::into)
+    }
+
+    #[inline]
+    fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo> {
+        let mut res = AHashMap::new();
+        for p in paths {
+            if let Some(info) = self.query_path_info(p) {
+                res.insert((*p).to_owned(), info);
+            }
+        }
+        res
+    }
+
+    #[inline]
+    fn compute_closure_size(&self, path: &StorePath) -> u64 {
+        ffi::compute_closure_size(&self.wrapper, &path.get_full_path()).unwrap_or_default()
+    }
+
+    #[inline]
+    fn clear_path_info_cache(&self) {
+        let _ = ffi::clear_path_info_cache(&self.wrapper);
     }
 
     #[inline]
@@ -450,6 +527,26 @@ impl BaseStore for LocalStore {
     #[inline]
     fn is_valid_path(&self, path: &str) -> bool {
         self.base.is_valid_path(path)
+    }
+
+    #[inline]
+    fn query_path_info(&self, path: &StorePath) -> Option<PathInfo> {
+        self.base.query_path_info(path)
+    }
+
+    #[inline]
+    fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo> {
+        self.base.query_path_infos(paths)
+    }
+
+    #[inline]
+    fn compute_closure_size(&self, path: &StorePath) -> u64 {
+        self.base.compute_closure_size(path)
+    }
+
+    #[inline]
+    fn clear_path_info_cache(&self) {
+        self.base.clear_path_info_cache();
     }
 
     #[inline]
@@ -563,6 +660,26 @@ impl BaseStore for RemoteStore {
     #[inline]
     fn is_valid_path(&self, path: &str) -> bool {
         self.base.is_valid_path(path)
+    }
+
+    #[inline]
+    fn query_path_info(&self, path: &StorePath) -> Option<PathInfo> {
+        self.base.query_path_info(path)
+    }
+
+    #[inline]
+    fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo> {
+        self.base.query_path_infos(paths)
+    }
+
+    #[inline]
+    fn compute_closure_size(&self, path: &StorePath) -> u64 {
+        self.base.compute_closure_size(path)
+    }
+
+    #[inline]
+    fn clear_path_info_cache(&self) {
+        self.base.clear_path_info_cache();
     }
 
     #[inline]

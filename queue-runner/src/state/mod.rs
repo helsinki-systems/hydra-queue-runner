@@ -19,6 +19,7 @@ use std::{sync::Arc, sync::Weak};
 
 use ahash::{AHashMap, AHashSet};
 use futures::TryStreamExt as _;
+use nix_utils::BaseStore as _;
 use secrecy::ExposeSecret as _;
 
 use crate::config::{App, Args};
@@ -544,7 +545,7 @@ impl State {
 
         loop {
             let before_work = Instant::now();
-            nix_utils::clear_query_path_cache().await;
+            self.store.clear_path_info_cache();
             if let Err(e) = self.get_queued_builds().await {
                 log::error!("get_queue_builds failed inside queue monitor loop: {e}");
                 continue;
@@ -1970,7 +1971,7 @@ impl State {
             }
         }
 
-        BuildOutput::new(drv.outputs).await
+        BuildOutput::new(&self.store, drv.outputs).await
     }
 
     fn add_root(&self, drv_path: &nix_utils::StorePath) {

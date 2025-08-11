@@ -15,7 +15,15 @@
 
 static std::atomic<bool> initializedNix = false;
 
-#define STR(rstr) std::string(rstr.data(), rstr.length())
+#define AS_VIEW(rstr) std::string_view(rstr.data(), rstr.length())
+#define AS_STRING(rstr) std::string(rstr.data(), rstr.length())
+
+static inline rust::String
+extract_opt_path(const nix::Store &store,
+                 const std::optional<nix::StorePath> &v) {
+  // TODO(conni2461): Replace with option
+  return v ? store.printStorePath(*v) : "";
+}
 
 static inline rust::Vec<rust::String>
 extract_path_set(const nix::Store &store, const nix::StorePathSet &set) {
@@ -39,7 +47,7 @@ std::shared_ptr<StoreWrapper> init(rust::Str uri) {
     nix::ref<nix::Store> _store = nix::openStore();
     return std::make_shared<StoreWrapper>(_store);
   } else {
-    nix::ref<nix::Store> _store = nix::openStore(STR(uri));
+    nix::ref<nix::Store> _store = nix::openStore(AS_STRING(uri));
     return std::make_shared<StoreWrapper>(_store);
   }
 }
@@ -77,7 +85,52 @@ void set_verbosity(int32_t level) { nix::verbosity = (nix::Verbosity)level; }
 
 bool is_valid_path(const StoreWrapper &wrapper, rust::Str path) {
   auto store = wrapper._store;
-  return store->isValidPath(store->parseStorePath(STR(path)));
+  return store->isValidPath(store->parseStorePath(AS_VIEW(path)));
+}
+
+InternalPathInfo query_path_info(const StoreWrapper &wrapper, rust::Str path) {
+  auto store = wrapper._store;
+  auto info = store->queryPathInfo(store->parseStorePath(AS_VIEW(path)));
+
+  std::string narhash = info->narHash.to_string(nix::HashFormat::Nix32, true);
+
+  rust::Vec<rust::String> refs = extract_path_set(*store, info->references);
+
+  rust::Vec<rust::String> sigs;
+  sigs.reserve(info->sigs.size());
+  for (const std::string &sig : info->sigs) {
+    sigs.push_back(sig);
+  }
+
+  // TODO(conni2461): Replace "" with option
+  return InternalPathInfo{
+      extract_opt_path(*store, info->deriver),
+      narhash,
+      info->registrationTime,
+      info->narSize,
+      refs,
+      sigs,
+      info->ca ? nix::renderContentAddress(*info->ca) : "",
+  };
+}
+
+long unsigned int compute_closure_size(const StoreWrapper &wrapper,
+                                       rust::Str path) {
+  auto store = wrapper._store;
+  nix::StorePathSet closure;
+  store->computeFSClosure(store->parseStorePath(AS_VIEW(path)), closure, false,
+                          false);
+
+  uint64_t totalNarSize = 0;
+  for (auto &p : closure) {
+    totalNarSize += store->queryPathInfo(p)->narSize;
+  }
+  return totalNarSize;
+}
+
+void clear_path_info_cache(const StoreWrapper &wrapper) {
+  auto store = wrapper._store;
+  store->clearPathInfoCache();
 }
 
 rust::Vec<rust::String> compute_fs_closure(const StoreWrapper &wrapper,
@@ -86,7 +139,7 @@ rust::Vec<rust::String> compute_fs_closure(const StoreWrapper &wrapper,
                                            bool include_derivers) {
   auto store = wrapper._store;
   nix::StorePathSet path_set;
-  store->computeFSClosure(store->parseStorePath(STR(path)), path_set,
+  store->computeFSClosure(store->parseStorePath(AS_VIEW(path)), path_set,
                           flip_direction, include_outputs, include_derivers);
   return extract_path_set(*store, path_set);
 }
@@ -97,7 +150,7 @@ void upsert_file(const StoreWrapper &wrapper, rust::Str path, rust::Str data,
   if (!store) {
     throw nix::Error("Not a binary chache store");
   }
-  store->upsertFile(STR(path), STR(data), STR(mime_type));
+  store->upsertFile(AS_STRING(path), AS_STRING(data), AS_STRING(mime_type));
 }
 
 S3Stats get_s3_stats(const StoreWrapper &wrapper) {
@@ -119,7 +172,7 @@ void copy_paths(const StoreWrapper &src_store, const StoreWrapper &dst_store,
                 bool check_sigs, bool substitute) {
   nix::StorePathSet path_set;
   for (auto &path : paths) {
-    path_set.insert(src_store._store->parseStorePath(STR(path)));
+    path_set.insert(src_store._store->parseStorePath(AS_VIEW(path)));
   }
   nix::copyPaths(*src_store._store, *dst_store._store, path_set,
                  (nix::RepairFlag)repair, (nix::CheckSigsFlag)check_sigs,
@@ -177,7 +230,7 @@ void export_paths(
   auto store = wrapper._store;
   nix::StorePathSet path_set;
   for (auto &path : paths) {
-    path_set.insert(store->parseStorePath(STR(path)));
+    path_set.insert(store->parseStorePath(AS_VIEW(path)));
   }
   try {
     store->exportPaths(path_set, sink);

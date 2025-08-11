@@ -13,6 +13,7 @@ use chrono::TimeZone;
 
 use super::jobset::{Jobset, JobsetID};
 use crate::db::models::BuildStatus;
+use nix_utils::BaseStore as _;
 
 pub type BuildID = i32;
 pub type AtomicBuildID = AtomicI32;
@@ -687,13 +688,16 @@ impl From<crate::server::grpc::runner_v1::BuildResultInfo> for BuildOutput {
 }
 
 impl BuildOutput {
-    #[tracing::instrument(skip(outputs), err)]
-    pub async fn new(outputs: Vec<nix_utils::DerivationOutput>) -> anyhow::Result<Self> {
+    #[tracing::instrument(skip(store, outputs), err)]
+    pub async fn new(
+        store: &nix_utils::LocalStore,
+        outputs: Vec<nix_utils::DerivationOutput>,
+    ) -> anyhow::Result<Self> {
         let flat_outputs = outputs
             .iter()
             .filter_map(|o| o.path.as_ref())
             .collect::<Vec<_>>();
-        let pathinfos = nix_utils::query_path_infos(&flat_outputs).await?;
+        let pathinfos = store.query_path_infos(&flat_outputs);
         let nix_support = nix_utils::parse_nix_support_from_outputs(&outputs).await?;
 
         let mut outputs_map = AHashMap::new();
@@ -703,9 +707,9 @@ impl BuildOutput {
         for o in outputs {
             if let Some(path) = o.path {
                 if let Some(info) = pathinfos.get(&path) {
-                    outputs_map.insert(o.name, path);
-                    closure_size += info.closure_size;
+                    closure_size += store.compute_closure_size(&path);
                     nar_size += info.nar_size;
+                    outputs_map.insert(o.name, path);
                 }
             }
         }
