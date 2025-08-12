@@ -1,9 +1,18 @@
-use std::os::unix::fs::MetadataExt as _;
+use std::{os::unix::fs::MetadataExt as _, sync::LazyLock};
 
 use sha2::{Digest as _, Sha256};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, BufReader};
 
 use crate::StorePath;
+
+static VALIDATE_METRICS_NAME: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new("[a-zA-Z0-9._-]+").expect("Failed to compile regex"));
+static VALIDATE_METRICS_UNIT: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new("[a-zA-Z0-9._%-]+").expect("Failed to compile regex"));
+static VALIDATE_RELEASE_NAME: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new("[a-zA-Z0-9.@:_-]+").expect("Failed to compile regex"));
+static VALIDATE_PRODUCT_NAME: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new("[a-zA-Z0-9.@:_ -]*").expect("Failed to compile regex"));
 
 pub struct BuildProduct {
     pub path: String,
@@ -56,7 +65,7 @@ pub async fn parse_nix_support_from_outputs(
 
         while let Some(line) = lines.next_line().await? {
             let fields: Vec<String> = line.split_whitespace().map(ToOwned::to_owned).collect();
-            if fields.len() < 2 {
+            if fields.len() < 2 || !VALIDATE_METRICS_NAME.is_match(&fields[0]) {
                 continue;
             }
 
@@ -64,7 +73,7 @@ pub async fn parse_nix_support_from_outputs(
                 path: output_full_path.clone(),
                 name: fields[0].clone(),
                 value: fields[1].parse::<f64>().unwrap_or(0.0),
-                unit: if fields.len() >= 3 {
+                unit: if fields.len() >= 3 && VALIDATE_METRICS_UNIT.is_match(&fields[2]) {
                     Some(fields[2].clone())
                 } else {
                     None
@@ -86,7 +95,7 @@ pub async fn parse_nix_support_from_outputs(
             std::path::Path::new(&output.get_full_path()).join("nix-support/hydra-release-name");
         if let Ok(v) = tokio::fs::read_to_string(file_path).await {
             let v = v.trim();
-            if !v.is_empty() {
+            if !v.is_empty() && VALIDATE_RELEASE_NAME.is_match(v) {
                 hydra_release_name = Some(v.to_owned());
                 break;
             }
@@ -94,7 +103,7 @@ pub async fn parse_nix_support_from_outputs(
     }
 
     let regex = regex::Regex::new(
-        r#"([a-zA-Z0-9_-]+)\s+([a-zA-Z0-9_-]+)\s+(\"[^\"]+\"|[^\"\s]+)(\s+([^\"\s]+))?"#,
+        r#"([a-zA-Z0-9_-]+)\s+([a-zA-Z0-9_-]+)\s+(\"[^\"]+\"|[^\"\s<>]+)(\s+([^\"\s<>]+))?"#,
     )?;
     let mut explicit_products = false;
     let mut products = Vec::new();
@@ -116,7 +125,7 @@ pub async fn parse_nix_support_from_outputs(
             };
 
             let s = captures[3].to_string();
-            let path = if s.starts_with('"') {
+            let path = if s.starts_with('"') && s.ends_with('"') {
                 s[1..s.len() - 1].to_string()
             } else {
                 s
@@ -135,14 +144,22 @@ pub async fn parse_nix_support_from_outputs(
             };
             let is_regular = metadata.is_file();
 
-            let name = if &path == *output {
-                String::new()
-            } else {
-                std::path::Path::new(&path_full_path)
-                    .file_name()
-                    .and_then(|f| f.to_str())
-                    .map(ToOwned::to_owned)
-                    .unwrap_or_default()
+            let name = {
+                let name = if &path == *output {
+                    String::new()
+                } else {
+                    std::path::Path::new(&path_full_path)
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_default()
+                };
+
+                if VALIDATE_PRODUCT_NAME.is_match(&name) {
+                    name
+                } else {
+                    "".into()
+                }
             };
 
             let sha256hash = if is_regular {
