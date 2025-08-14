@@ -59,4 +59,6 @@ void export_paths(
     const StoreWrapper &src_store, rust::Slice<const rust::Str> paths,
     rust::Fn<bool(rust::Slice<const uint8_t>, long unsigned int)> callback,
     size_t userdata);
+
+rust::String try_resolve_drv(const StoreWrapper &wrapper, rust::Str path);
 } // namespace nix_utils

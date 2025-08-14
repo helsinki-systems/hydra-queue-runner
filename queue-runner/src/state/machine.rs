@@ -417,15 +417,21 @@ impl Machines {
 #[derive(Debug, Clone)]
 pub struct Job {
     pub path: nix_utils::StorePath,
+    pub resolved_drv: Option<nix_utils::StorePath>,
     pub build_id: BuildID,
     pub step_nr: i32,
     pub result: RemoteBuild,
 }
 
 impl Job {
-    pub fn new(build_id: BuildID, path: nix_utils::StorePath) -> Self {
+    pub fn new(
+        build_id: BuildID,
+        path: nix_utils::StorePath,
+        resolved_drv: Option<nix_utils::StorePath>,
+    ) -> Self {
         Self {
             path,
+            resolved_drv,
             build_id,
             step_nr: 0,
             result: RemoteBuild::new(),
@@ -436,6 +442,7 @@ impl Job {
 pub enum Message {
     BuildMessage {
         drv: nix_utils::StorePath,
+        resolved_drv: Option<nix_utils::StorePath>,
         max_log_size: u64,
         max_silent_time: i32,
         build_timeout: i32,
@@ -450,11 +457,13 @@ impl Message {
         let msg = match self {
             Message::BuildMessage {
                 drv,
+                resolved_drv,
                 max_log_size,
                 max_silent_time,
                 build_timeout,
             } => runner_request::Message::Build(BuildMessage {
                 drv: drv.into_base_name(),
+                resolved_drv: resolved_drv.map(nix_utils::StorePath::into_base_name),
                 max_log_size,
                 max_silent_time,
                 build_timeout,
@@ -546,6 +555,7 @@ impl Machine {
         self.msg_queue
             .send(Message::BuildMessage {
                 drv,
+                resolved_drv: job.resolved_drv.clone(),
                 max_log_size: opts.get_max_log_size(),
                 max_silent_time: opts.get_max_silent_time(),
                 build_timeout: opts.get_build_timeout(),

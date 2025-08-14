@@ -212,6 +212,8 @@ mod ffi {
             callback: unsafe extern "C" fn(data: &[u8], user_data: usize) -> bool,
             user_data: usize,
         ) -> Result<()>;
+
+        fn try_resolve_drv(store: &StoreWrapper, path: &str) -> Result<String>;
     }
 }
 
@@ -398,6 +400,8 @@ pub trait BaseStore {
     fn export_paths<F>(&self, paths: &[StorePath], callback: F) -> Result<(), cxx::Exception>
     where
         F: FnMut(&[u8]) -> bool;
+
+    fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath>;
 }
 
 unsafe impl Send for crate::ffi::StoreWrapper {}
@@ -583,6 +587,11 @@ impl BaseStore for BaseStoreImpl {
             std::ptr::addr_of!(callback).cast::<std::ffi::c_void>() as usize,
         )
     }
+    #[inline]
+    fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath> {
+        let v = ffi::try_resolve_drv(&self.wrapper, &path.get_full_path()).ok()?;
+        v.is_empty().then_some(v).map(|v| StorePath::new(&v))
+    }
 }
 
 #[derive(Clone)]
@@ -709,6 +718,11 @@ impl BaseStore for LocalStore {
         F: FnMut(&[u8]) -> bool,
     {
         self.base.export_paths(paths, callback)
+    }
+
+    #[inline]
+    fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath> {
+        self.base.try_resolve_drv(path)
     }
 }
 
@@ -892,5 +906,10 @@ impl BaseStore for RemoteStore {
         F: FnMut(&[u8]) -> bool,
     {
         self.base.export_paths(paths, callback)
+    }
+
+    #[inline]
+    fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath> {
+        self.base.try_resolve_drv(path)
     }
 }

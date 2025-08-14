@@ -333,6 +333,10 @@ impl State {
 
         let machine_id = self.id;
         let drv = nix_utils::StorePath::new(&m.drv);
+        let resolved_drv = m
+            .resolved_drv
+            .as_ref()
+            .map(|v| nix_utils::StorePath::new(v));
 
         let before_import = Instant::now();
         let gcroot_prefix = uuid::Uuid::new_v4().to_string();
@@ -349,7 +353,7 @@ impl State {
             .await;
         let requisites = client
             .fetch_drv_requisites(crate::runner_v1::FetchRequisitesRequest {
-                path: drv.base_name().to_owned(),
+                path: resolved_drv.as_ref().unwrap_or(&drv).base_name().to_owned(),
                 include_outputs: false,
             })
             .await
@@ -361,7 +365,7 @@ impl State {
             &mut client,
             self.store.clone(),
             &gcroot,
-            &drv,
+            resolved_drv.as_ref().unwrap_or(&drv),
             requisites
                 .into_iter()
                 .map(|s| nix_utils::StorePath::new(&s)),
@@ -371,6 +375,7 @@ impl State {
         .map_err(JobFailure::Import)?;
         *import_elapsed = before_import.elapsed();
 
+        // Resolved drv and drv output paths are the same
         let drv_info = nix_utils::query_drv(&drv)
             .await
             .map_err(|e| JobFailure::Import(e.into()))?
@@ -385,7 +390,7 @@ impl State {
             .await;
         let before_build = Instant::now();
         let (mut child, mut log_output) = nix_utils::realise_drv(
-            &drv,
+            resolved_drv.as_ref().unwrap_or(&drv),
             &nix_utils::BuildOptions::complete(m.max_log_size, m.max_silent_time, m.build_timeout),
             true,
         )

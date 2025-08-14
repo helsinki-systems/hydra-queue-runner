@@ -4,6 +4,8 @@ use std::sync::{Arc, atomic::AtomicBool};
 
 use ahash::{AHashMap, AHashSet};
 
+use nix_utils::BaseStore as _;
+
 use super::System;
 use super::build::{BuildID, Step};
 
@@ -11,6 +13,7 @@ type Counter = std::sync::atomic::AtomicU64;
 
 pub struct StepInfo {
     pub step: Arc<Step>,
+    pub resolved_drv_path: Option<nix_utils::StorePath>,
     already_scheduled: AtomicBool,
     cancelled: AtomicBool,
     pub runnable_since: chrono::DateTime<chrono::Utc>,
@@ -22,7 +25,7 @@ pub struct StepInfo {
 }
 
 impl StepInfo {
-    pub fn new(step: Arc<Step>) -> Self {
+    pub fn new(store: &nix_utils::LocalStore, step: Arc<Step>) -> Self {
         let (lowest_share_used, runnable_since) = {
             let state = step.state.read();
 
@@ -36,6 +39,7 @@ impl StepInfo {
         };
 
         Self {
+            resolved_drv_path: store.try_resolve_drv(step.get_drv_path()),
             already_scheduled: false.into(),
             cancelled: false.into(),
             runnable_since,

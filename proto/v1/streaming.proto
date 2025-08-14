@@ -92,9 +92,10 @@ message JoinResponse {
 
 message BuildMessage {
   string drv = 1;
-  uint64 max_log_size = 2;
-  int32 max_silent_time = 3;
-  int32 build_timeout = 4;
+  optional string resolved_drv = 2;
+  uint64 max_log_size = 3;
+  int32 max_silent_time = 4;
+  int32 build_timeout = 5;
   // bool is_deterministic = 5;
   // bool enforce_determinism = 6;
 }

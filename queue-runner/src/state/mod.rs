@@ -216,19 +216,20 @@ impl State {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, step, system), err)]
+    #[tracing::instrument(skip(self, step_info, system), err)]
     async fn realise_drv_on_valid_machine(
         &self,
-        step: Arc<Step>,
+        step_info: Arc<StepInfo>,
         system: &System,
     ) -> anyhow::Result<RealiseStepResult> {
-        let drv = step.get_drv_path();
+        let drv = step_info.step.get_drv_path();
         let free_fn = self.config.get_free_fn();
 
-        let Some(machine) =
-            self.machines
-                .get_machine_for_system(system, &step.get_required_features(), free_fn)
-        else {
+        let Some(machine) = self.machines.get_machine_for_system(
+            system,
+            &step_info.step.get_required_features(),
+            free_fn,
+        ) else {
             log::debug!("No free machine found for system={system} drv={drv}");
             return Ok(RealiseStepResult::None);
         };
@@ -237,7 +238,7 @@ impl State {
         let build_id = {
             let mut dependents = AHashSet::new();
             let mut steps = AHashSet::new();
-            step.get_dependents(&mut dependents, &mut steps);
+            step_info.step.get_dependents(&mut dependents, &mut steps);
 
             if dependents.is_empty() {
                 // Apparently all builds that depend on this derivation are gone (e.g. cancelled). So
@@ -246,7 +247,7 @@ impl State {
                 // created a reference to this step. So to handle that possibility, we retry this step
                 // (putting it back in the runnable queue). If there are really no strong pointers to
                 // the step, it will be deleted.
-                log::info!("maybe cancelling build step {}", step.get_drv_path());
+                log::info!("maybe cancelling build step {drv}");
                 return Ok(RealiseStepResult::MaybeCancelled);
             }
 
@@ -264,11 +265,16 @@ impl State {
             build.id
         };
 
-        let mut job = machine::Job::new(build_id, drv.to_owned());
+        let mut job = machine::Job::new(
+            build_id,
+            drv.to_owned(),
+            step_info.resolved_drv_path.clone(),
+        );
         job.result.start_time = Some(chrono::Utc::now());
-        if self.check_cached_failure(step.clone()).await {
+        if self.check_cached_failure(step_info.step.clone()).await {
             job.result.step_status = BuildStatus::CachedFailure;
-            self.inner_fail_job(drv, None, job, step.clone()).await?;
+            self.inner_fail_job(drv, None, job, step_info.step.clone())
+                .await?;
             return Ok(RealiseStepResult::CachedFailure);
         }
 
@@ -285,7 +291,7 @@ impl State {
                 .create_build_step(
                     job.result.start_time.map(|s| s.timestamp()),
                     build_id,
-                    step.clone(),
+                    step_info.step.clone(),
                     machine.hostname.clone(),
                     BuildStatus::Busy,
                     None,
@@ -825,11 +831,12 @@ impl State {
             if r.atomic_state.tries.load(Ordering::Relaxed) > 0 {
                 continue;
             }
+            let step_info = StepInfo::new(&self.store, r.clone());
 
             new_queues
                 .entry(system)
                 .or_insert_with(Vec::new)
-                .push(StepInfo::new(r.clone()));
+                .push(step_info);
         }
 
         {
@@ -882,7 +889,7 @@ impl State {
                     }
 
                     match self
-                        .realise_drv_on_valid_machine(job.step.clone(), &system)
+                        .realise_drv_on_valid_machine(job.clone(), &system)
                         .await
                     {
                         Ok(RealiseStepResult::Valid(m)) => {
@@ -2070,7 +2077,7 @@ impl State {
                 continue;
             };
 
-            let mut job = machine::Job::new(build.id, drv.to_owned());
+            let mut job = machine::Job::new(build.id, drv.to_owned(), None);
             job.result.start_time = Some(now);
             job.result.stop_time = Some(now);
             job.result.step_status = BuildStatus::Unsupported;

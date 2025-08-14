@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <nix/store/derivations.hh>
 #include <nix/store/remote-store.hh>
 #include <nix/store/store-api.hh>
 #include <nix/store/store-open.hh>
@@ -268,5 +269,19 @@ void export_paths(
     // Intentionally do nothing. We're only using the exception as a
     // short-circuiting mechanism.
   }
+}
+
+rust::String try_resolve_drv(const StoreWrapper &wrapper, rust::Str path) {
+  auto store = wrapper._store;
+
+  auto drv = store->readDerivation(store->parseStorePath(AS_VIEW(path)));
+  auto resolved = drv.tryResolve(*store);
+  if (!resolved) {
+    return "";
+  }
+
+  auto resolved_path = writeDerivation(*store, *resolved, nix::NoRepair, false);
+  // TODO: return drv not drv path
+  return extract_opt_path(*store, resolved_path);
 }
 } // namespace nix_utils
