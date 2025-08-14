@@ -92,7 +92,8 @@ pub async fn substitute_output(
             false,
             true,
             false,
-        )?;
+        )
+        .await?;
     }
     let stoptime = i32::try_from(chrono::Utc::now().timestamp())?; // TODO
 

@@ -239,7 +239,7 @@ pub struct PreparedApp {
     machine_free_fn: MachineFreeFn,
     dispatch_trigger_timer: Option<tokio::time::Duration>,
     queue_trigger_timer: Option<tokio::time::Duration>,
-    remote_store_addr: Vec<String>,
+    pub remote_store_addr: Vec<String>,
     use_substitutes: bool,
     roots_dir: std::path::PathBuf,
     max_retries: u32,

@@ -2,7 +2,8 @@ use nix_utils::{self, copy_paths};
 
 // requires env vars: AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let local = nix_utils::LocalStore::init();
     let remote =
         nix_utils::RemoteStore::init("s3://store?region=unknown&endpoint=http://localhost:9000");
@@ -17,7 +18,7 @@ fn main() {
         false,
         false,
         false,
-    );
+    ).await;
     println!("copy res={res:?}");
 
     let stats = remote.get_s3_stats().unwrap();

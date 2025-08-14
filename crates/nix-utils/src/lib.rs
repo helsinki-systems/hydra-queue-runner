@@ -258,39 +258,39 @@ pub fn set_verbosity(level: i32) {
     ffi::set_verbosity(level);
 }
 
-pub(crate) async fn asyncify<F, T>(f: F) -> std::io::Result<T>
+pub(crate) async fn asyncify<F, T>(f: F) -> Result<T, Error>
 where
     F: FnOnce() -> Result<T, cxx::Exception> + Send + 'static,
     T: Send + 'static,
 {
     match tokio::task::spawn_blocking(f).await {
-        Ok(res) => res.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+        Ok(res) => Ok(res?),
         Err(_) => Err(std::io::Error::new(
             std::io::ErrorKind::Other,
             "background task failed",
-        )),
+        ))?,
     }
 }
 
 #[inline]
-pub fn copy_paths(
+pub async fn copy_paths(
     src: &BaseStoreImpl,
     dst: &BaseStoreImpl,
     paths: &[StorePath],
     repair: bool,
     check_sigs: bool,
     substitute: bool,
-) -> Result<(), cxx::Exception> {
+) -> Result<(), Error> {
     let paths = paths.iter().map(|v| v.get_full_path()).collect::<Vec<_>>();
-    let slice = paths.iter().map(|v| v.as_str()).collect::<Vec<_>>();
-    ffi::copy_paths(
-        &src.wrapper,
-        &dst.wrapper,
-        &slice,
-        repair,
-        check_sigs,
-        substitute,
-    )
+
+    let src = src.wrapper.clone();
+    let dst = dst.wrapper.clone();
+
+    asyncify(move || {
+        let slice = paths.iter().map(|v| v.as_str()).collect::<Vec<_>>();
+        ffi::copy_paths(&src, &dst, &slice, repair, check_sigs, substitute)
+    })
+    .await
 }
 
 #[derive(Debug)]
@@ -622,6 +622,8 @@ impl BaseStore for LocalStore {
 #[derive(Clone)]
 pub struct RemoteStore {
     base: BaseStoreImpl,
+
+    pub uri: String,
 }
 
 impl RemoteStore {
@@ -630,6 +632,7 @@ impl RemoteStore {
     pub fn init(uri: &str) -> Self {
         Self {
             base: BaseStoreImpl::new(ffi::init(uri)),
+            uri: uri.into(),
         }
     }
 
@@ -638,13 +641,20 @@ impl RemoteStore {
     }
 
     #[inline]
-    pub fn upsert_file(
+    pub async fn upsert_file(
         &self,
-        path: &str,
-        data: &str,
-        mime_type: &str,
-    ) -> Result<(), cxx::Exception> {
-        ffi::upsert_file(&self.base.wrapper, path, data, mime_type)
+        path: String,
+        local_path: std::path::PathBuf,
+        mime_type: &'static str,
+    ) -> Result<(), Error> {
+        let store = self.base.wrapper.clone();
+        asyncify(move || {
+            if let Ok(data) = std::fs::read_to_string(local_path) {
+                ffi::upsert_file(&store, &path, &data, mime_type)?
+            }
+            Ok(())
+        })
+        .await
     }
 
     #[inline]

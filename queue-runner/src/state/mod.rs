@@ -12,6 +12,7 @@ pub use build::{
 pub use jobset::{Jobset, JobsetID, SCHEDULING_WINDOW};
 pub use machine::{Machine, Message as MachineMessage, Pressure, Stats as MachineStats};
 pub use queue::{BuildQueueStats, StepInfo};
+use tracing::Instrument;
 
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Instant;
@@ -44,6 +45,7 @@ enum RealiseStepResult {
 
 pub struct State {
     pub store: nix_utils::LocalStore,
+    pub remote_stores: parking_lot::RwLock<Vec<nix_utils::RemoteStore>>,
     pub config: App,
     pub args: Args,
     pub db: crate::db::Database,
@@ -93,6 +95,13 @@ impl State {
         let _ = tokio::fs::create_dir_all(&log_dir).await;
         Ok(Arc::new(Self {
             store,
+            remote_stores: parking_lot::RwLock::new(
+                config
+                    .get_remote_store_addrs()
+                    .iter()
+                    .map(|v| nix_utils::RemoteStore::init(v))
+                    .collect(),
+            ),
             config,
             args,
             db,
@@ -118,12 +127,21 @@ impl State {
 
         let curr_db_url = self.config.get_db_url();
         let curr_sort_fn = self.config.get_sort_fn();
+        let curr_remote_stores = self.config.get_remote_store_addrs();
         if curr_db_url.expose_secret() != new_config.db_url.expose_secret() {
             self.db
                 .reconfigure_pool(new_config.db_url.expose_secret())?;
         }
         if curr_sort_fn != new_config.machine_sort_fn {
             self.machines.sort(new_config.machine_sort_fn);
+        }
+        if curr_remote_stores != new_config.remote_store_addr {
+            let mut remote_stores = self.remote_stores.write();
+            *remote_stores = new_config
+                .remote_store_addr
+                .iter()
+                .map(|v| nix_utils::RemoteStore::init(v))
+                .collect();
         }
         Ok(())
     }
@@ -1019,38 +1037,52 @@ impl State {
             self.add_root(path);
         }
 
-        let remote_store_urls = self.config.get_remote_store_addrs();
-        if !remote_store_urls.is_empty() {
+        let has_stores = {
+            let r = self.remote_stores.read();
+            !r.is_empty()
+        };
+        if has_stores {
+            // TODO: we need retries for this! We can not affored to have a failure on cache push
             let outputs = output
                 .outputs
                 .values()
                 .map(Clone::clone)
                 .collect::<Vec<_>>();
             let local_store = self.store.clone();
-            tokio::spawn(async move {
-                for url in remote_store_urls {
-                    let remote_store = nix_utils::RemoteStore::init(&url);
+            let remote_stores = {
+                let r = self.remote_stores.read();
+                r.clone()
+            };
+            tokio::spawn(
+                async move {
+                    for remote_store in remote_stores {
+                        if let Err(e) = remote_store
+                            .upsert_file(
+                                format!("log/{}", job.path.base_name()),
+                                std::path::PathBuf::from(job.result.log_file.clone()),
+                                "text/plain; charset=utf-8",
+                            )
+                            .await
+                        {
+                            log::error!("Failed to copy path to remote store: {e}");
+                        }
 
-                    if let Ok(log_data) = std::fs::read_to_string(&job.result.log_file) {
-                        let _ = remote_store.upsert_file(
-                            &format!("log/{}", job.path.base_name()),
-                            &log_data,
-                            "text/plain; charset=utf-8",
-                        );
-                    }
-
-                    if let Err(e) = nix_utils::copy_paths(
-                        local_store.as_base_store(),
-                        remote_store.as_base_store(),
-                        &outputs,
-                        false,
-                        false,
-                        false,
-                    ) {
-                        log::error!("Failed to copy path to remote store: {e}");
+                        if let Err(e) = nix_utils::copy_paths(
+                            local_store.as_base_store(),
+                            remote_store.as_base_store(),
+                            &outputs,
+                            false,
+                            false,
+                            false,
+                        )
+                        .await
+                        {
+                            log::error!("Failed to copy path to remote store: {e}");
+                        }
                     }
                 }
-            });
+                .in_current_span(),
+            );
         }
 
         let mut direct = Vec::new();
@@ -1739,14 +1771,12 @@ impl State {
 
         let use_substitutes = self.config.get_use_substitutes();
         // TODO: check all remote stores
-        let remote_store_url = self
-            .config
-            .get_remote_store_addrs()
-            .first()
-            .map(ToOwned::to_owned);
-        let missing_outputs = if let Some(remote_store_url) = remote_store_url.as_deref() {
-            let store = nix_utils::RemoteStore::init(remote_store_url);
-            store
+        let remote_store = {
+            let r = self.remote_stores.read();
+            r.first().cloned()
+        };
+        let missing_outputs = if let Some(ref remote_store) = remote_store {
+            remote_store
                 .query_missing_remote_outputs(drv.outputs.clone())
                 .await
         } else {
@@ -1768,9 +1798,6 @@ impl State {
             let missing_outputs_len = missing_outputs.len();
             let build_opts = nix_utils::BuildOptions::substitute_only();
 
-            let remote_store = remote_store_url
-                .as_deref()
-                .map(nix_utils::RemoteStore::init);
             let mut stream = futures::StreamExt::map(tokio_stream::iter(missing_outputs), |o| {
                 self.metrics.nr_substitutes_started.inc();
                 crate::utils::substitute_output(
