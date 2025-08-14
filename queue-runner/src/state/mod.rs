@@ -1746,7 +1746,9 @@ impl State {
             .map(ToOwned::to_owned);
         let missing_outputs = if let Some(remote_store_url) = remote_store_url.as_deref() {
             let store = nix_utils::RemoteStore::init(remote_store_url);
-            store.query_missing_remote_outputs(drv.outputs.clone())
+            store
+                .query_missing_remote_outputs(drv.outputs.clone())
+                .await
         } else {
             nix_utils::query_missing_outputs(drv.outputs.clone()).await
         };

@@ -258,6 +258,20 @@ pub fn set_verbosity(level: i32) {
     ffi::set_verbosity(level);
 }
 
+pub(crate) async fn asyncify<F, T>(f: F) -> std::io::Result<T>
+where
+    F: FnOnce() -> Result<T, cxx::Exception> + Send + 'static,
+    T: Send + 'static,
+{
+    match tokio::task::spawn_blocking(f).await {
+        Ok(res) => res.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+        Err(_) => Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "background task failed",
+        )),
+    }
+}
+
 #[inline]
 pub fn copy_paths(
     src: &BaseStoreImpl,
@@ -315,7 +329,7 @@ impl From<crate::ffi::InternalPathInfo> for PathInfo {
 pub trait BaseStore {
     #[must_use]
     /// Check whether a path is valid.
-    fn is_valid_path(&self, path: &str) -> bool;
+    fn is_valid_path(&self, path: StorePath) -> impl std::future::Future<Output = bool>;
 
     fn query_path_info(&self, path: &StorePath) -> Option<PathInfo>;
     fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo>;
@@ -391,8 +405,11 @@ where
 
 impl BaseStore for BaseStoreImpl {
     #[inline]
-    fn is_valid_path(&self, path: &str) -> bool {
-        ffi::is_valid_path(&self.wrapper, path).unwrap_or(false)
+    async fn is_valid_path(&self, path: StorePath) -> bool {
+        let store = self.wrapper.clone();
+        asyncify(move || ffi::is_valid_path(&store, &path.get_full_path()))
+            .await
+            .unwrap_or(false)
     }
 
     #[inline]
@@ -525,8 +542,8 @@ impl LocalStore {
 
 impl BaseStore for LocalStore {
     #[inline]
-    fn is_valid_path(&self, path: &str) -> bool {
-        self.base.is_valid_path(path)
+    async fn is_valid_path(&self, path: StorePath) -> bool {
+        self.base.is_valid_path(path).await
     }
 
     #[inline]
@@ -636,30 +653,34 @@ impl RemoteStore {
     }
 
     #[tracing::instrument(skip(self, outputs))]
-    pub fn query_missing_remote_outputs(
+    pub async fn query_missing_remote_outputs(
         &self,
         outputs: Vec<DerivationOutput>,
     ) -> Vec<DerivationOutput> {
-        outputs
-            .into_iter()
-            .filter_map(|o| {
+        use futures::stream::StreamExt as _;
+
+        tokio_stream::iter(outputs)
+            .map(|o| async move {
                 let Some(path) = &o.path else {
                     return None;
                 };
-                if !self.is_valid_path(&path.get_full_path()) {
+                if !self.is_valid_path(path.clone()).await {
                     Some(o)
                 } else {
                     None
                 }
             })
+            .buffered(50)
+            .filter_map(|o| async { o })
             .collect()
+            .await
     }
 }
 
 impl BaseStore for RemoteStore {
     #[inline]
-    fn is_valid_path(&self, path: &str) -> bool {
-        self.base.is_valid_path(path)
+    async fn is_valid_path(&self, path: StorePath) -> bool {
+        self.base.is_valid_path(path).await
     }
 
     #[inline]
