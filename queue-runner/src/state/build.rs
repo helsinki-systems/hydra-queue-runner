@@ -345,7 +345,13 @@ impl Step {
     pub fn get_required_features(&self) -> Vec<String> {
         let drv = self.drv.load_full();
         drv.as_ref()
-            .map(|drv| drv.env.required_system_features.clone())
+            .map(|drv| {
+                drv.env
+                    .get_required_system_features()
+                    .into_iter()
+                    .map(ToOwned::to_owned)
+                    .collect()
+            })
             .unwrap_or_default()
     }
 

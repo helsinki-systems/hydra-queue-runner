@@ -26,12 +26,15 @@ pub enum Error {
 
     #[error("Exception was thrown `{0}`")]
     Exception(#[from] cxx::Exception),
+
+    #[error("anyhow error: `{0}`")]
+    Anyhow(#[from] anyhow::Error),
 }
 
 use ahash::AHashMap;
 pub use drv::{
     BuildOptions, Derivation, Output as DerivationOutput, get_outputs_for_drv,
-    get_outputs_for_drvs, query_drv, query_drvs, query_missing_outputs, realise_drv, realise_drvs,
+    get_outputs_for_drvs, query_drv, query_missing_outputs, realise_drv, realise_drvs,
     topo_sort_drvs,
 };
 pub use nix_support::{BuildMetric, BuildProduct, NixSupport, parse_nix_support_from_outputs};

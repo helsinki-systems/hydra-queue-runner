@@ -4,116 +4,110 @@ use tokio_stream::wrappers::LinesStream;
 
 use crate::StorePath;
 
-fn deserialize_input_drvs<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let x: AHashMap<String, serde_json::Value> = serde::Deserialize::deserialize(deserializer)?;
-    Ok(x.into_keys().collect())
-}
-
-#[derive(Debug, serde::Deserialize)]
-pub struct OutputPath {
-    path: Option<String>,
-    method: Option<String>,
-    hash: Option<String>,
-    #[serde(rename = "hashAlgo")]
-    hash_algo: Option<String>,
-}
-
 #[derive(Debug, Clone)]
 pub struct Output {
     pub name: String,
     pub path: Option<StorePath>,
-    pub method: Option<String>,
     pub hash: Option<String>,
     pub hash_algo: Option<String>,
 }
 
-fn deserialize_outputs<'de, D>(deserializer: D) -> Result<Vec<Output>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let x: AHashMap<String, OutputPath> = serde::Deserialize::deserialize(deserializer)?;
-    Ok(x.into_iter()
-        .map(|(k, v)| Output {
-            name: k,
-            path: v.path.map(|v| StorePath::new(&v)),
-            method: v.method,
-            hash: v.hash,
-            hash_algo: v.hash_algo,
-        })
-        .collect())
+#[derive(Debug, Clone)]
+pub struct DerivationEnv {
+    inner: AHashMap<String, String>,
 }
 
-fn deserialize_system_features<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let x: Option<String> = serde::Deserialize::deserialize(deserializer)?;
-    Ok(x.map(|v| {
-        v.split(' ')
+impl DerivationEnv {
+    fn new(v: AHashMap<String, String>) -> Self {
+        Self { inner: v }
+    }
+
+    pub fn get(&self, k: &str) -> Option<&str> {
+        self.inner.get(k).map(|v| v.as_str())
+    }
+
+    pub fn get_required_system_features(&self) -> Vec<&str> {
+        self.inner
+            .get("requiredSystemFeatures")
+            .map(|v| v.as_str())
+            .unwrap_or_default()
+            .split(' ')
             .filter(|v| !v.is_empty())
-            .map(ToOwned::to_owned)
             .collect()
-    })
-    .unwrap_or_default())
+    }
+
+    pub fn get_output_hash(&self) -> Option<&str> {
+        self.inner.get("outputHash").map(|v| v.as_str())
+    }
+
+    pub fn get_output_hash_mode(&self) -> Option<&str> {
+        self.inner.get("outputHash").map(|v| v.as_str())
+    }
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct DerivationOptions {
-    #[serde(
-        rename = "requiredSystemFeatures",
-        deserialize_with = "deserialize_system_features",
-        default
-    )]
-    pub required_system_features: Vec<String>,
-
-    #[serde(rename = "outputHash", default)]
-    pub output_hash: Option<String>,
-
-    #[serde(rename = "outputHashMode", default)]
-    pub output_hash_mode: Option<String>,
-}
-
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Derivation {
-    // Missing `args`, `builder`, `inputSrcs`,
-    // we dont need env right now, so we dont need to extract it and keep it in memory
-    // pub env: AHashMap<String, String>,
-    pub env: DerivationOptions,
-    #[serde(rename = "inputDrvs", deserialize_with = "deserialize_input_drvs")]
+    pub env: DerivationEnv,
     pub input_drvs: Vec<String>,
-    #[serde(deserialize_with = "deserialize_outputs")]
     pub outputs: Vec<Output>,
     pub name: String,
     pub system: String,
 }
 
-#[tracing::instrument(err)]
-pub async fn query_drvs(drvs: &[&StorePath]) -> Result<Vec<Derivation>, crate::Error> {
-    let cmd = &tokio::process::Command::new("nix")
-        .args(["derivation", "show"])
-        .args(drvs.iter().map(|v| v.get_full_path()))
-        .output()
-        .await?;
-    if cmd.status.success() {
-        let drvs = serde_json::from_slice::<AHashMap<String, Option<Derivation>>>(&cmd.stdout)?;
-        Ok(drvs.into_values().flatten().collect())
-    } else {
-        log::warn!(
-            "nix derivation show returned exit={} stdout={:?} stderr={:?}",
-            cmd.status,
-            std::str::from_utf8(&cmd.stdout),
-            std::str::from_utf8(&cmd.stderr),
-        );
-        Ok(vec![])
+impl Derivation {
+    fn new(path: String, v: nix_diff::types::Derivation) -> Result<Self, std::str::Utf8Error> {
+        Ok(Self {
+            env: DerivationEnv::new(
+                v.env
+                    .into_iter()
+                    .filter_map(|(k, v)| {
+                        Some((String::from_utf8(k).ok()?, String::from_utf8(v).ok()?))
+                    })
+                    .collect(),
+            ),
+            input_drvs: v
+                .input_derivations
+                .into_keys()
+                .filter_map(|v| String::from_utf8(v).ok())
+                .collect(),
+            outputs: v
+                .outputs
+                .into_iter()
+                .filter_map(|(k, v)| {
+                    Some(Output {
+                        name: String::from_utf8(k).ok()?,
+                        path: if v.path.is_empty() {
+                            None
+                        } else {
+                            String::from_utf8(v.path).ok().map(|p| StorePath::new(&p))
+                        },
+                        hash: v.hash.map(String::from_utf8).transpose().ok()?,
+                        hash_algo: v.hash_algorithm.map(String::from_utf8).transpose().ok()?,
+                    })
+                })
+                .collect(),
+            name: path,
+            system: String::from_utf8(v.platform).unwrap_or_default(),
+        })
     }
 }
 
 #[tracing::instrument(fields(%drv), err)]
 pub async fn query_drv(drv: &StorePath) -> Result<Option<Derivation>, crate::Error> {
-    Ok(query_drvs(&[drv]).await?.into_iter().next())
+    if !drv.is_drv() {
+        return Ok(None);
+    }
+
+    let full_path = drv.get_full_path();
+    if !tokio::fs::try_exists(&full_path).await? {
+        return Ok(None);
+    }
+
+    let input = tokio::fs::read_to_string(&full_path).await?;
+    Ok(Some(Derivation::new(
+        full_path,
+        nix_diff::parser::parse_derivation_string(&input)?,
+    )?))
 }
 
 #[tracing::instrument(err)]

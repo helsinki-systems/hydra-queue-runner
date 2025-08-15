@@ -52,6 +52,7 @@
 
           LIBCLANG_PATH = "${pkgs.libclang.lib}/lib/libclang.so";
           RUST_SRC_PATH = "${rustPackages.rustPlatform.rustLibSrc}";
+          NIX_CFLAGS_COMPILE = "-Wno-error";
         };
         packages = {
           queue-runner = pkgs.callPackage ./. { };
