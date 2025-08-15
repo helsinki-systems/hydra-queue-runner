@@ -148,21 +148,23 @@ pub async fn get_outputs_for_drv(drv: &StorePath) -> Result<Vec<StorePath>, crat
     get_outputs_for_drvs(&[drv]).await
 }
 
-#[tracing::instrument(fields(%drv), err)]
+#[tracing::instrument(err)]
 pub async fn topo_sort_drvs(
-    drv: &StorePath,
+    drvs: &[&StorePath],
     include_outputs: bool,
 ) -> Result<Vec<String>, crate::Error> {
     use std::io::BufRead as _;
 
     let cmd = if include_outputs {
         tokio::process::Command::new("nix-store")
-            .args(["-qR", "--include-outputs", &drv.get_full_path()])
+            .args(["-qR", "--include-outputs"])
+            .args(drvs.iter().map(|v| v.get_full_path()))
             .output()
             .await?
     } else {
         tokio::process::Command::new("nix-store")
-            .args(["-qR", &drv.get_full_path()])
+            .args(["-qR"])
+            .args(drvs.iter().map(|v| v.get_full_path()))
             .output()
             .await?
     };

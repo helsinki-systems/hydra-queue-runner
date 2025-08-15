@@ -85,10 +85,16 @@ pub async fn substitute_output(
     let (mut child, _) = nix_utils::realise_drv(path, build_opts, false).await?;
     nix_utils::validate_statuscode(child.wait().await?)?;
     if let Some(remote_store) = remote_store {
+        let paths_to_copy = nix_utils::topo_sort_drvs(&[path], false)
+            .await
+            .unwrap_or_default();
         nix_utils::copy_paths(
             store.as_base_store(),
             remote_store.as_base_store(),
-            &[path.to_owned()],
+            &paths_to_copy
+                .into_iter()
+                .map(|v| nix_utils::StorePath::new(&v))
+                .collect::<Vec<_>>(),
             false,
             true,
             false,

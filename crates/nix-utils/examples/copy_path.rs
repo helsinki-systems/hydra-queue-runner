@@ -18,7 +18,8 @@ async fn main() {
         false,
         false,
         false,
-    ).await;
+    )
+    .await;
     println!("copy res={res:?}");
 
     let stats = remote.get_s3_stats().unwrap();
