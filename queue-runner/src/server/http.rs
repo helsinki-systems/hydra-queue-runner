@@ -191,7 +191,16 @@ mod handler {
                     .map(|v| (v.full_name(), v.clone().into()))
                     .collect()
             };
-            construct_json_ok_response(&io::DumpResponse::new(queue_stats, machines, jobsets))
+            let remote_stores = {
+                let stores = state.remote_stores.read();
+                stores.clone()
+            };
+            construct_json_ok_response(&io::DumpResponse::new(
+                queue_stats,
+                machines,
+                jobsets,
+                &remote_stores,
+            ))
         }
 
         #[allow(clippy::no_effect_underscore_binding)]

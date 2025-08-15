@@ -412,6 +412,49 @@ impl Process {
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct S3Stats {
+    put: u64,
+    put_bytes: u64,
+    put_time_ms: u64,
+    put_speed: f64,
+    get: u64,
+    get_bytes: u64,
+    get_time_ms: u64,
+    get_speed: f64,
+    head: u64,
+    cost_dollar_approx: f64,
+}
+
+impl S3Stats {
+    fn new(v: &nix_utils::S3Stats) -> Self {
+        #[allow(clippy::cast_precision_loss)]
+        Self {
+            put: v.put,
+            put_bytes: v.put_bytes,
+            put_time_ms: v.put_time_ms,
+            put_speed: if v.put_time_ms > 0 {
+                v.put_bytes as f64 / v.put_time_ms as f64 * 1000.0 / (1024.0 * 1024.0)
+            } else {
+                0.0
+            },
+            get: v.get,
+            get_bytes: v.get_bytes,
+            get_time_ms: v.get_time_ms,
+            get_speed: if v.get_time_ms > 0 {
+                v.get_bytes as f64 / v.get_time_ms as f64 * 1000.0 / (1024.0 * 1024.0)
+            } else {
+                0.0
+            },
+            head: v.head,
+            cost_dollar_approx: (v.get as f64 + v.head as f64) / 10000.0 * 0.004
+                + v.put as f64 / 1000.0 * 0.005
+                + v.get_bytes as f64 / (1024.0 * 1024.0 * 1024.0) * 0.09,
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QueueRunnerStats {
     status: &'static str,
     time: chrono::DateTime<chrono::Utc>,
@@ -545,6 +588,7 @@ pub struct DumpResponse {
     queue_runner: QueueRunnerStats,
     machines: AHashMap<String, Machine>,
     jobsets: AHashMap<String, Jobset>,
+    s3: AHashMap<String, S3Stats>,
 }
 
 impl DumpResponse {
@@ -552,11 +596,16 @@ impl DumpResponse {
         queue_runner: QueueRunnerStats,
         machines: AHashMap<String, Machine>,
         jobsets: AHashMap<String, Jobset>,
+        remote_stores: &[nix_utils::RemoteStore],
     ) -> Self {
         Self {
             queue_runner,
             machines,
             jobsets,
+            s3: remote_stores
+                .iter()
+                .filter_map(|s| Some((s.base_uri.clone(), S3Stats::new(&s.get_s3_stats().ok()?))))
+                .collect(),
         }
     }
 }

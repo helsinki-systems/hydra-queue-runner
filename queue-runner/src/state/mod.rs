@@ -706,7 +706,12 @@ impl State {
                     .map(|v| (v.full_name(), v.clone().into()))
                     .collect()
             };
-            let dump_status = crate::io::DumpResponse::new(queue_stats, machines, jobsets);
+            let remote_stores = {
+                let stores = state.remote_stores.read();
+                stores.clone()
+            };
+            let dump_status =
+                crate::io::DumpResponse::new(queue_stats, machines, jobsets, &remote_stores);
             {
                 let Ok(mut db) = self.db.get().await else {
                     continue;

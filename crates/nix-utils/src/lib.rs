@@ -204,6 +204,8 @@ mod ffi {
     }
 }
 
+pub use ffi::S3Stats;
+
 #[inline]
 #[must_use]
 pub fn get_nix_prefix() -> String {
@@ -624,15 +626,22 @@ pub struct RemoteStore {
     base: BaseStoreImpl,
 
     pub uri: String,
+    pub base_uri: String,
 }
 
 impl RemoteStore {
     #[inline]
     /// Initialise a new store with uri
     pub fn init(uri: &str) -> Self {
+        let base_uri = url::Url::parse(uri)
+            .ok()
+            .and_then(|v| v.host_str().map(ToOwned::to_owned))
+            .unwrap_or_default();
+
         Self {
             base: BaseStoreImpl::new(ffi::init(uri)),
             uri: uri.into(),
+            base_uri,
         }
     }
 
