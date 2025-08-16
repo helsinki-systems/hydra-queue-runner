@@ -454,13 +454,13 @@ impl Message {
                 max_silent_time,
                 build_timeout,
             } => runner_request::Message::Build(BuildMessage {
-                drv: drv.base_name().to_owned(),
+                drv: drv.into_base_name(),
                 max_log_size,
                 max_silent_time,
                 build_timeout,
             }),
             Message::AbortMessage { drv } => runner_request::Message::Abort(AbortMessage {
-                drv: drv.base_name().to_owned(),
+                drv: drv.into_base_name(),
             }),
         };
 

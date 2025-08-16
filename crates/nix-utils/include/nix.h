@@ -38,6 +38,10 @@ rust::Vec<rust::String> compute_fs_closure(const StoreWrapper &wrapper,
                                            rust::Str path, bool flip_direction,
                                            bool include_outputs,
                                            bool include_derivers);
+rust::Vec<rust::String>
+compute_fs_closures(const StoreWrapper &wrapper,
+                    rust::Slice<const rust::Str> paths, bool flip_direction,
+                    bool include_outputs, bool include_derivers, bool toposort);
 void upsert_file(const StoreWrapper &wrapper, rust::Str path, rust::Str data,
                  rust::Str mime_type);
 S3Stats get_s3_stats(const StoreWrapper &wrapper);

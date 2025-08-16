@@ -35,6 +35,16 @@ extract_path_set(const nix::Store &store, const nix::StorePathSet &set) {
   return data;
 }
 
+static inline rust::Vec<rust::String>
+extract_paths(const nix::Store &store, const nix::StorePaths &set) {
+  rust::Vec<rust::String> data;
+  data.reserve(set.size());
+  for (const nix::StorePath &path : set) {
+    data.emplace_back(store.printStorePath(path));
+  }
+  return data;
+}
+
 namespace nix_utils {
 StoreWrapper::StoreWrapper(nix::ref<nix::Store> _store) : _store(_store) {}
 
@@ -142,6 +152,26 @@ rust::Vec<rust::String> compute_fs_closure(const StoreWrapper &wrapper,
   store->computeFSClosure(store->parseStorePath(AS_VIEW(path)), path_set,
                           flip_direction, include_outputs, include_derivers);
   return extract_path_set(*store, path_set);
+}
+
+rust::Vec<rust::String> compute_fs_closures(const StoreWrapper &wrapper,
+                                            rust::Slice<const rust::Str> paths,
+                                            bool flip_direction,
+                                            bool include_outputs,
+                                            bool include_derivers,
+                                            bool toposort) {
+  auto store = wrapper._store;
+  nix::StorePathSet path_set;
+  for (auto &path : paths) {
+    store->computeFSClosure(store->parseStorePath(AS_VIEW(path)), path_set,
+                            flip_direction, include_outputs, include_derivers);
+  }
+  if (toposort) {
+    auto sorted = store->topoSortPaths(path_set);
+    return extract_paths(*store, sorted);
+  } else {
+    return extract_path_set(*store, path_set);
+  }
 }
 
 void upsert_file(const StoreWrapper &wrapper, rust::Str path, rust::Str data,

@@ -110,69 +110,6 @@ pub async fn query_drv(drv: &StorePath) -> Result<Option<Derivation>, crate::Err
     )?))
 }
 
-#[tracing::instrument(err)]
-pub async fn get_outputs_for_drvs(drvs: &[&StorePath]) -> Result<Vec<StorePath>, crate::Error> {
-    use std::io::BufRead as _;
-
-    let cmd = &tokio::process::Command::new("nix-store")
-        .args(["-q", "--outputs"])
-        .args(drvs.iter().map(|v| v.get_full_path()))
-        .output()
-        .await?;
-    if cmd.status.success() {
-        let cursor = std::io::Cursor::new(&cmd.stdout);
-        Ok(std::io::BufReader::new(cursor)
-            .lines()
-            .map_while(Result::ok)
-            .map(|v| StorePath::new(&v))
-            .collect::<Vec<StorePath>>())
-    } else {
-        log::warn!(
-            "nix-store -q --outputs returned exit={} stdout={:?} stderr={:?}",
-            cmd.status,
-            std::str::from_utf8(&cmd.stdout),
-            std::str::from_utf8(&cmd.stderr),
-        );
-        Ok(vec![])
-    }
-}
-
-#[tracing::instrument(fields(%drv), err)]
-pub async fn get_outputs_for_drv(drv: &StorePath) -> Result<Vec<StorePath>, crate::Error> {
-    get_outputs_for_drvs(&[drv]).await
-}
-
-#[tracing::instrument(err)]
-pub async fn topo_sort_drvs(
-    drvs: &[&StorePath],
-    include_outputs: bool,
-) -> Result<Vec<String>, crate::Error> {
-    use std::io::BufRead as _;
-
-    let cmd = if include_outputs {
-        tokio::process::Command::new("nix-store")
-            .args(["-qR", "--include-outputs"])
-            .args(drvs.iter().map(|v| v.get_full_path()))
-            .output()
-            .await?
-    } else {
-        tokio::process::Command::new("nix-store")
-            .args(["-qR"])
-            .args(drvs.iter().map(|v| v.get_full_path()))
-            .output()
-            .await?
-    };
-    if cmd.status.success() {
-        let cursor = std::io::Cursor::new(&cmd.stdout);
-        Ok(std::io::BufReader::new(cursor)
-            .lines()
-            .map_while(Result::ok)
-            .collect::<Vec<String>>())
-    } else {
-        Ok(vec![])
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct BuildOptions {
     max_log_size: u64,

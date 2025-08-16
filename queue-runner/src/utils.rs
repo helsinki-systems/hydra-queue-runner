@@ -1,3 +1,5 @@
+use nix_utils::BaseStore as _;
+
 use crate::{
     db::Transaction,
     state::{BuildID, RemoteBuild},
@@ -85,16 +87,14 @@ pub async fn substitute_output(
     let (mut child, _) = nix_utils::realise_drv(path, build_opts, false).await?;
     nix_utils::validate_statuscode(child.wait().await?)?;
     if let Some(remote_store) = remote_store {
-        let paths_to_copy = nix_utils::topo_sort_drvs(&[path], false)
+        let paths_to_copy = store
+            .query_requisites(vec![path.to_owned()], false)
             .await
             .unwrap_or_default();
         nix_utils::copy_paths(
             store.as_base_store(),
             remote_store.as_base_store(),
-            &paths_to_copy
-                .into_iter()
-                .map(|v| nix_utils::StorePath::new(&v))
-                .collect::<Vec<_>>(),
+            &paths_to_copy,
             false,
             true,
             false,

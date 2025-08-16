@@ -1072,17 +1072,14 @@ impl State {
                             log::error!("Failed to copy path to remote store: {e}");
                         }
 
-                        let paths_to_copy =
-                            nix_utils::topo_sort_drvs(&outputs.iter().collect::<Vec<_>>(), false)
-                                .await
-                                .unwrap_or_default();
+                        let paths_to_copy = local_store
+                            .query_requisites(outputs.clone(), false)
+                            .await
+                            .unwrap_or_default();
                         if let Err(e) = nix_utils::copy_paths(
                             local_store.as_base_store(),
                             remote_store.as_base_store(),
-                            &paths_to_copy
-                                .into_iter()
-                                .map(|v| nix_utils::StorePath::new(&v))
-                                .collect::<Vec<_>>(),
+                            &paths_to_copy,
                             false,
                             false,
                             false,

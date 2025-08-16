@@ -370,16 +370,21 @@ impl RunnerService for Server {
         &self,
         req: tonic::Request<FetchRequisitesRequest>,
     ) -> BuilderResult<runner_v1::DrvRequisitesMessage> {
+        let state = self.state.clone();
         let req = req.into_inner();
         let drv = nix_utils::StorePath::new(&req.path);
-        let include_outputs = req.include_outputs;
 
-        let requisites = nix_utils::topo_sort_drvs(&[&drv], include_outputs)
+        let requisites = state
+            .store
+            .query_requisites(vec![drv], req.include_outputs)
             .await
             .map_err(|e| {
                 log::error!("failed to toposort drv e={e}");
                 tonic::Status::internal("failed to toposort drv.")
-            })?;
+            })?
+            .into_iter()
+            .map(nix_utils::StorePath::into_base_name)
+            .collect();
 
         Ok(tonic::Response::new(runner_v1::DrvRequisitesMessage {
             requisites,

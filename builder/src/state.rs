@@ -239,7 +239,7 @@ impl State {
                         self_.remove_build(&drv);
                         let failed_build = crate::runner_v1::BuildResultInfo {
                             machine_id: self_.id.to_string(),
-                            drv: drv.base_name().to_owned(),
+                            drv: drv.into_base_name(),
                             import_time_ms: u64::try_from(import_elapsed.as_millis())
                                 .unwrap_or_default(),
                             build_time_ms: u64::try_from(build_elapsed.as_millis())
@@ -744,8 +744,8 @@ async fn new_success_build_result_info(
                             crate::runner_v1::output::Output::Withpath(
                                 crate::runner_v1::OutputWithPath {
                                     name: o.name,
-                                    path: p.base_name().to_owned(),
                                     closure_size: store.compute_closure_size(&p),
+                                    path: p.into_base_name(),
                                     nar_size: info.nar_size,
                                     nar_hash: info.nar_hash.clone(),
                                 },
