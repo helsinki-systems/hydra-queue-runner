@@ -158,6 +158,10 @@ fn default_stop_queue_run_after_in_s() -> i64 {
     60
 }
 
+fn default_max_concurrent_downloads() -> u32 {
+    5
+}
+
 #[derive(Debug, Default, serde::Deserialize, Copy, Clone, PartialEq, Eq)]
 pub enum MachineSortFn {
     SpeedFactorOnly,
@@ -224,6 +228,9 @@ struct AppConfig {
 
     #[serde(default = "default_stop_queue_run_after_in_s")]
     stop_queue_run_after_in_s: i64,
+
+    #[serde(default = "default_max_concurrent_downloads")]
+    max_concurrent_downloads: u32,
 }
 
 /// Prepared configuration of the application
@@ -247,6 +254,7 @@ pub struct PreparedApp {
     retry_backoff: f32,
     max_unsupported_time: chrono::Duration,
     stop_queue_run_after: Option<chrono::Duration>,
+    max_concurrent_downloads: u32,
 }
 
 impl TryFrom<AppConfig> for PreparedApp {
@@ -318,6 +326,7 @@ impl TryFrom<AppConfig> for PreparedApp {
             } else {
                 Some(chrono::Duration::seconds(val.stop_queue_run_after_in_s))
             },
+            max_concurrent_downloads: val.max_concurrent_downloads,
         })
     }
 }
@@ -421,6 +430,11 @@ impl App {
     pub fn get_stop_queue_run_after(&self) -> Option<chrono::Duration> {
         let inner = self.inner.load();
         inner.stop_queue_run_after
+    }
+
+    pub fn get_max_concurrent_downloads(&self) -> u32 {
+        let inner = self.inner.load();
+        inner.max_concurrent_downloads
     }
 }
 

@@ -165,6 +165,7 @@ impl RunnerService for Server {
             .send(Ok(RunnerRequest {
                 message: Some(runner_v1::runner_request::Message::Join(JoinResponse {
                     machine_id: machine_id.to_string(),
+                    max_concurrent_downloads: state.config.get_max_concurrent_downloads(),
                 })),
             }))
             .await

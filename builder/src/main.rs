@@ -39,7 +39,13 @@ async fn handle_request(
         runner_request::Message::Abort(m) => {
             state.abort_build(&m);
         }
-        runner_request::Message::Join(_) | runner_request::Message::Ping(_) => (),
+        runner_request::Message::Join(m) => {
+            state.max_concurrent_downloads.store(
+                m.max_concurrent_downloads,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
+        runner_request::Message::Ping(_) => (),
     }
     Ok(())
 }

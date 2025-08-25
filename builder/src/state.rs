@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::{Arc, atomic},
+    time::Instant,
+};
 
 use ahash::AHashMap;
 use anyhow::Context;
@@ -8,10 +11,6 @@ use tracing::Instrument;
 
 use crate::runner_v1::{BuildResultState, StepStatus, StepUpdate};
 use nix_utils::BaseStore as _;
-
-// increasing this number will result in increased memory usage of the queue runner as it has to
-// increase file streaming!
-const MAX_DOWNLOAD_NARS: usize = 10;
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::enum_variant_names)]
@@ -74,6 +73,8 @@ pub struct State {
 
     pub config: Config,
     pub store: nix_utils::LocalStore,
+
+    pub max_concurrent_downloads: atomic::AtomicU32,
 }
 
 #[derive(Debug)]
@@ -135,6 +136,7 @@ impl State {
                 use_substitutes: args.use_substitutes,
             },
             store,
+            max_concurrent_downloads: 5.into(),
         }))
     }
 
@@ -369,6 +371,11 @@ impl State {
             requisites
                 .into_iter()
                 .map(|s| nix_utils::StorePath::new(&s)),
+            usize::try_from(
+                self.max_concurrent_downloads
+                    .load(atomic::Ordering::Relaxed),
+            )
+            .unwrap_or(5),
             self.config.use_substitutes,
         )
         .await
@@ -601,6 +608,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     gcroot: &Gcroot,
     drv: &nix_utils::StorePath,
     requisites: T,
+    max_concurrent_downloads: usize,
     use_substitutes: bool,
 ) -> anyhow::Result<()> {
     use futures::stream::StreamExt as _;
@@ -623,7 +631,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
         .into_iter()
         .partition(nix_utils::StorePath::is_drv);
 
-    for srcs in input_srcs.chunks(MAX_DOWNLOAD_NARS) {
+    for srcs in input_srcs.chunks(max_concurrent_downloads) {
         import_paths(
             client.clone(),
             store.clone(),
@@ -635,7 +643,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
         .await?;
     }
 
-    for drvs in input_drvs.chunks(MAX_DOWNLOAD_NARS) {
+    for drvs in input_drvs.chunks(max_concurrent_downloads) {
         import_paths(
             client.clone(),
             store.clone(),
@@ -667,7 +675,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     .collect::<Vec<_>>()
     .await;
 
-    for other in full_requisites.chunks(MAX_DOWNLOAD_NARS) {
+    for other in full_requisites.chunks(max_concurrent_downloads) {
         // we can skip filtering here as we already done that
         import_paths(
             client.clone(),
