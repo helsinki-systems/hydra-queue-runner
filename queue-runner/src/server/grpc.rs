@@ -414,7 +414,7 @@ impl RunnerService for Server {
             tx.send(Ok(NarData { chunk: data })).is_ok()
         };
 
-        tokio::task::spawn_blocking(move || async move {
+        tokio::task::spawn(async move {
             let _ = store.export_paths(&[path], closure);
         });
 
@@ -446,7 +446,7 @@ impl RunnerService for Server {
             tx.send(Ok(NarData { chunk: data })).is_ok()
         };
 
-        tokio::task::spawn_blocking(move || async move {
+        tokio::task::spawn(async move {
             let _ = store.export_paths(&paths, closure.clone());
         });
 
