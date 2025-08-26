@@ -31,6 +31,9 @@ pub mod runner_v1 {
     #![allow(clippy::pedantic)]
 
     tonic::include_proto!("runner.v1");
+
+    pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
+        tonic::include_file_descriptor_set!("streaming_descriptor");
 }
 
 fn match_for_io_error(err_status: &tonic::Status) -> Option<&std::io::Error> {
@@ -102,7 +105,10 @@ impl Server {
                 .client_ca_root(client_ca_cert);
             server = server.tls_config(tls)?;
         }
-        let server = server.add_service(service);
+        let reflection_service = tonic_reflection::server::Builder::configure()
+            .register_encoded_file_descriptor_set(runner_v1::FILE_DESCRIPTOR_SET)
+            .build_v1()?;
+        let server = server.add_service(reflection_service).add_service(service);
 
         match addr {
             BindSocket::Tcp(s) => server.serve(s).await?,

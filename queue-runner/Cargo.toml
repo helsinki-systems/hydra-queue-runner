@@ -37,6 +37,7 @@ byte-unit = "5.1.6"
 tokio-stream = "0.1"
 prost = "0.14"
 tonic = { version = "0.14", features = ["zstd", "tls-ring"] }
+tonic-reflection = "0.14"
 tonic-prost = "0.14"
 listenfd = "1"
 async-stream = "0.3"
