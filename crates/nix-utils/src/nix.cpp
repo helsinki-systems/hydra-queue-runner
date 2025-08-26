@@ -206,8 +206,9 @@ void copy_paths(const StoreWrapper &src_store, const StoreWrapper &dst_store,
     path_set.insert(src_store._store->parseStorePath(AS_VIEW(path)));
   }
   nix::copyPaths(*src_store._store, *dst_store._store, path_set,
-                 (nix::RepairFlag)repair, (nix::CheckSigsFlag)check_sigs,
-                 (nix::SubstituteFlag)substitute);
+                 repair ? nix::Repair : nix::NoRepair,
+                 check_sigs ? nix::CheckSigs : nix::NoCheckSigs,
+                 substitute ? nix::Substitute : nix::NoSubstitute);
 }
 
 void import_paths(
@@ -226,7 +227,7 @@ void import_paths(
 
   try {
     auto store = wrapper._store;
-    store->importPaths(source, (nix::CheckSigsFlag)check_sigs);
+    store->importPaths(source, check_sigs ? nix::CheckSigs : nix::NoCheckSigs);
   } catch (nix::EndOfFile &e) {
     // Intentionally do nothing. We're only using the exception as a
     // short-circuiting mechanism.
@@ -238,7 +239,7 @@ void import_paths_with_fd(const StoreWrapper &wrapper, bool check_sigs,
   nix::FdSource source(fd);
 
   auto store = wrapper._store;
-  store->importPaths(source, (nix::CheckSigsFlag)check_sigs);
+  store->importPaths(source, check_sigs ? nix::CheckSigs : nix::NoCheckSigs);
 }
 
 class StopExport : public std::exception {
