@@ -49,11 +49,12 @@ void copy_paths(const StoreWrapper &src_store, const StoreWrapper &dst_store,
                 rust::Slice<const rust::Str> paths, bool repair,
                 bool check_sigs, bool substitute);
 
-void import_paths(
-    const StoreWrapper &wrapper, bool check_sigs, size_t runtime,
-    rust::Fn<size_t(rust::Slice<uint8_t>, long unsigned int, long unsigned int)>
-        callback,
-    size_t user_data);
+void import_paths(const StoreWrapper &wrapper, bool check_sigs, size_t runtime,
+                  size_t reader,
+                  rust::Fn<size_t(rust::Slice<uint8_t>, long unsigned int,
+                                  long unsigned int, long unsigned int)>
+                      callback,
+                  size_t user_data);
 void import_paths_with_fd(const StoreWrapper &wrapper, bool check_sigs, int fd);
 void export_paths(
     const StoreWrapper &src_store, rust::Slice<const rust::Str> paths,

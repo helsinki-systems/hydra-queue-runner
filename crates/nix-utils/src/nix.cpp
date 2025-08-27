@@ -211,14 +211,15 @@ void copy_paths(const StoreWrapper &src_store, const StoreWrapper &dst_store,
                  substitute ? nix::Substitute : nix::NoSubstitute);
 }
 
-void import_paths(
-    const StoreWrapper &wrapper, bool check_sigs, size_t runtime,
-    rust::Fn<size_t(rust::Slice<uint8_t>, long unsigned int, long unsigned int)>
-        callback,
-    size_t user_data) {
+void import_paths(const StoreWrapper &wrapper, bool check_sigs, size_t runtime,
+                  size_t reader,
+                  rust::Fn<size_t(rust::Slice<uint8_t>, long unsigned int,
+                                  long unsigned int, long unsigned int)>
+                      callback,
+                  size_t user_data) {
   nix::LambdaSource source([=](char *out, size_t out_len) {
     auto data = rust::Slice<uint8_t>((uint8_t *)out, out_len);
-    size_t ret = (*callback)(data, runtime, user_data);
+    size_t ret = (*callback)(data, runtime, reader, user_data);
     if (!ret) {
       throw nix::EndOfFile("End of stream reached");
     }

@@ -198,9 +198,11 @@ mod ffi {
             store: &StoreWrapper,
             check_sigs: bool,
             runtime: usize,
+            reader: usize,
             callback: unsafe extern "C" fn(
                 data: &mut [u8],
                 runtime: usize,
+                reader: usize,
                 user_data: usize,
             ) -> usize,
             user_data: usize,
@@ -375,10 +377,6 @@ pub trait BaseStore {
         include_outputs: bool,
     ) -> impl std::future::Future<Output = Result<Vec<StorePath>, crate::Error>>;
 
-    fn import_paths_with_cb<F>(&self, callback: F, check_sigs: bool) -> Result<(), cxx::Exception>
-    where
-        F: FnMut(&tokio::runtime::Runtime, &mut [u8]) -> usize;
-
     /// Import paths from nar
     fn import_paths<S>(
         &self,
@@ -418,13 +416,29 @@ impl BaseStoreImpl {
     }
 }
 
-fn import_paths_trampoline<F>(data: &mut [u8], runtime: usize, userdata: usize) -> usize
+fn import_paths_trampoline<F, S, E>(
+    data: &mut [u8],
+    runtime: usize,
+    reader: usize,
+    userdata: usize,
+) -> usize
 where
-    F: FnMut(&tokio::runtime::Runtime, &mut [u8]) -> usize,
+    F: FnMut(
+        &tokio::runtime::Runtime,
+        &mut Box<tokio_util::io::StreamReader<S, bytes::Bytes>>,
+        &mut [u8],
+    ) -> usize,
+    S: futures::stream::Stream<Item = Result<bytes::Bytes, E>>,
+    E: Into<std::io::Error>,
 {
-    let runtime = unsafe { *(runtime as *mut std::ffi::c_void).cast::<&tokio::runtime::Runtime>() };
+    let runtime =
+        unsafe { &*(runtime as *mut std::ffi::c_void).cast::<Box<tokio::runtime::Runtime>>() };
+    let reader = unsafe {
+        &mut *(reader as *mut std::ffi::c_void)
+            .cast::<Box<tokio_util::io::StreamReader<S, bytes::Bytes>>>()
+    };
     let closure = unsafe { &mut *(userdata as *mut std::ffi::c_void).cast::<F>() };
-    closure(runtime, data)
+    closure(runtime, reader, data)
 }
 
 fn export_paths_trampoline<F>(data: &[u8], userdata: usize) -> bool
@@ -527,22 +541,6 @@ impl BaseStore for BaseStoreImpl {
     }
 
     #[inline]
-    #[tracing::instrument(skip(self, callback), err)]
-    fn import_paths_with_cb<F>(&self, callback: F, check_sigs: bool) -> Result<(), cxx::Exception>
-    where
-        F: FnMut(&tokio::runtime::Runtime, &mut [u8]) -> usize,
-    {
-        let runtime = Box::pin(tokio::runtime::Runtime::new().unwrap());
-        ffi::import_paths(
-            &self.wrapper,
-            check_sigs,
-            std::ptr::addr_of!(runtime).cast::<std::ffi::c_void>() as usize,
-            import_paths_trampoline::<F>,
-            std::ptr::addr_of!(callback).cast::<std::ffi::c_void>() as usize,
-        )
-    }
-
-    #[inline]
     #[tracing::instrument(skip(self, stream), err)]
     async fn import_paths<S>(&self, stream: S, check_sigs: bool) -> Result<(), Error>
     where
@@ -553,13 +551,18 @@ impl BaseStore for BaseStoreImpl {
     {
         use tokio::io::AsyncReadExt as _;
 
-        let mut reader = tokio_util::io::StreamReader::new(stream);
-        let callback = move |runtime: &tokio::runtime::Runtime, data: &mut [u8]| {
+        let callback = |runtime: &tokio::runtime::Runtime,
+                        reader: &mut Box<tokio_util::io::StreamReader<_, bytes::Bytes>>,
+                        data: &mut [u8]| {
             runtime.block_on(async { reader.read(data).await.unwrap_or(0) })
         };
+
+        let reader = Box::new(tokio_util::io::StreamReader::new(stream));
         let store = self.clone();
-        tokio::task::spawn_blocking(move || store.import_paths_with_cb(callback, check_sigs))
-            .await??;
+        tokio::task::spawn_blocking(move || {
+            store.import_paths_with_cb(callback, reader, check_sigs)
+        })
+        .await??;
         Ok(())
     }
 
@@ -591,6 +594,39 @@ impl BaseStore for BaseStoreImpl {
     fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath> {
         let v = ffi::try_resolve_drv(&self.wrapper, &path.get_full_path()).ok()?;
         v.is_empty().then_some(v).map(|v| StorePath::new(&v))
+    }
+}
+
+impl BaseStoreImpl {
+    #[inline]
+    #[tracing::instrument(skip(self, callback, reader), err)]
+    fn import_paths_with_cb<F, S, E>(
+        &self,
+        callback: F,
+        reader: Box<tokio_util::io::StreamReader<S, bytes::Bytes>>,
+        check_sigs: bool,
+    ) -> Result<(), cxx::Exception>
+    where
+        F: FnMut(
+            &tokio::runtime::Runtime,
+            &mut Box<tokio_util::io::StreamReader<S, bytes::Bytes>>,
+            &mut [u8],
+        ) -> usize,
+        S: futures::stream::Stream<Item = Result<bytes::Bytes, E>>,
+        E: Into<std::io::Error>,
+    {
+        let runtime = Box::new(tokio::runtime::Runtime::new().unwrap());
+        ffi::import_paths(
+            &self.wrapper,
+            check_sigs,
+            std::ptr::addr_of!(runtime).cast::<std::ffi::c_void>() as usize,
+            std::ptr::addr_of!(reader).cast::<std::ffi::c_void>() as usize,
+            import_paths_trampoline::<F, S, E>,
+            std::ptr::addr_of!(callback).cast::<std::ffi::c_void>() as usize,
+        )?;
+        drop(reader);
+        drop(runtime);
+        Ok(())
     }
 }
 
@@ -679,15 +715,6 @@ impl BaseStore for LocalStore {
         include_outputs: bool,
     ) -> Result<Vec<StorePath>, Error> {
         self.base.query_requisites(drvs, include_outputs).await
-    }
-
-    #[inline]
-    #[tracing::instrument(skip(self, callback), err)]
-    fn import_paths_with_cb<F>(&self, callback: F, check_sigs: bool) -> Result<(), cxx::Exception>
-    where
-        F: FnMut(&tokio::runtime::Runtime, &mut [u8]) -> usize,
-    {
-        self.base.import_paths_with_cb::<F>(callback, check_sigs)
     }
 
     #[inline]
@@ -867,15 +894,6 @@ impl BaseStore for RemoteStore {
         include_outputs: bool,
     ) -> Result<Vec<StorePath>, Error> {
         self.base.query_requisites(drvs, include_outputs).await
-    }
-
-    #[inline]
-    #[tracing::instrument(skip(self, callback), err)]
-    fn import_paths_with_cb<F>(&self, callback: F, check_sigs: bool) -> Result<(), cxx::Exception>
-    where
-        F: FnMut(&tokio::runtime::Runtime, &mut [u8]) -> usize,
-    {
-        self.base.import_paths_with_cb::<F>(callback, check_sigs)
     }
 
     #[inline]
