@@ -44,6 +44,8 @@ impl Uploader {
         msg: Message,
     ) {
         // TODO: we need retries for this! We can not affored to have a failure on cache push
+        log::info!("Uploading paths: {:?}", msg.store_paths);
+
         for remote_store in remote_stores {
             if let Err(e) = remote_store
                 .upsert_file(
