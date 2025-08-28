@@ -278,11 +278,12 @@ impl RunnerService for Server {
         &self,
         req: tonic::Request<tonic::Streaming<NarData>>,
     ) -> BuilderResult<runner_v1::Empty> {
-        let state = self.state.clone();
-
         let stream = req.into_inner();
-        state
-            .store
+        // TODO: we leak memory if we use the store from state, so we open and close a new
+        // connection for each import. This sucks but using the state.store will result in the path
+        // not being closed!
+        let store = nix_utils::LocalStore::init();
+        store
             .import_paths(
                 tokio_stream::StreamExt::map(stream, |s| {
                     s.map(|v| v.chunk.into())

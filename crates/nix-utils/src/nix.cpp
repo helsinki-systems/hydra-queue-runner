@@ -246,13 +246,9 @@ void import_paths(const StoreWrapper &wrapper, bool check_sigs, size_t runtime,
     return ret;
   });
 
-  try {
-    auto store = wrapper._store;
-    store->importPaths(source, check_sigs ? nix::CheckSigs : nix::NoCheckSigs);
-  } catch (nix::EndOfFile &e) {
-    // Intentionally do nothing. We're only using the exception as a
-    // short-circuiting mechanism.
-  }
+  auto store = wrapper._store;
+  auto paths = store->importPaths(source, check_sigs ? nix::CheckSigs
+                                                     : nix::NoCheckSigs);
 }
 
 void import_paths_with_fd(const StoreWrapper &wrapper, bool check_sigs,
