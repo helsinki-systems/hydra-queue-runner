@@ -803,6 +803,24 @@ impl RemoteStore {
         ffi::get_s3_stats(&self.base.wrapper)
     }
 
+    #[tracing::instrument(skip(self, paths))]
+    pub async fn query_missing_paths(&self, paths: Vec<StorePath>) -> Vec<StorePath> {
+        use futures::stream::StreamExt as _;
+
+        tokio_stream::iter(paths)
+            .map(|p| async move {
+                if !self.is_valid_path(p.clone()).await {
+                    Some(p)
+                } else {
+                    None
+                }
+            })
+            .buffered(50)
+            .filter_map(|p| async { p })
+            .collect()
+            .await
+    }
+
     #[tracing::instrument(skip(self, outputs))]
     pub async fn query_missing_remote_outputs(
         &self,

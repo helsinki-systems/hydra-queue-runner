@@ -91,6 +91,7 @@ pub async fn substitute_output(
             .query_requisites(vec![path.to_owned()], false)
             .await
             .unwrap_or_default();
+        let paths_to_copy = remote_store.query_missing_paths(paths_to_copy).await;
         nix_utils::copy_paths(
             store.as_base_store(),
             remote_store.as_base_store(),

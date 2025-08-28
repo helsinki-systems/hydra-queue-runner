@@ -1083,6 +1083,7 @@ impl State {
                             .query_requisites(outputs.clone(), false)
                             .await
                             .unwrap_or_default();
+                        let paths_to_copy = remote_store.query_missing_paths(paths_to_copy).await;
                         if let Err(e) = nix_utils::copy_paths(
                             local_store.as_base_store(),
                             remote_store.as_base_store(),
