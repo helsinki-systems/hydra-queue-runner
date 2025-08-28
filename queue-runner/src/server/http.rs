@@ -199,6 +199,7 @@ mod handler {
                 queue_stats,
                 machines,
                 jobsets,
+                &state.store,
                 &remote_stores,
             ))
         }

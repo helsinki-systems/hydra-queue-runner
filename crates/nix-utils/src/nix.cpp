@@ -184,6 +184,26 @@ void upsert_file(const StoreWrapper &wrapper, rust::Str path, rust::Str data,
   store->upsertFile(AS_STRING(path), AS_STRING(data), AS_STRING(mime_type));
 }
 
+StoreStats get_store_stats(const StoreWrapper &wrapper) {
+  auto store = wrapper._store;
+  auto &stats = store->getStats();
+  return StoreStats{
+      stats.narInfoRead.load(),
+      stats.narInfoReadAverted.load(),
+      stats.narInfoMissing.load(),
+      stats.narInfoWrite.load(),
+      stats.pathInfoCacheSize.load(),
+      stats.narRead.load(),
+      stats.narReadBytes.load(),
+      stats.narReadCompressedBytes.load(),
+      stats.narWrite.load(),
+      stats.narWriteAverted.load(),
+      stats.narWriteBytes.load(),
+      stats.narWriteCompressedBytes.load(),
+      stats.narWriteCompressionTimeMs.load(),
+  };
+}
+
 S3Stats get_s3_stats(const StoreWrapper &wrapper) {
   auto store = wrapper._store;
   auto s3Store = dynamic_cast<nix::S3BinaryCacheStore *>(&*store);

@@ -136,6 +136,23 @@ mod ffi {
     }
 
     #[derive(Debug)]
+    struct StoreStats {
+        nar_info_read: u64,
+        nar_info_read_averted: u64,
+        nar_info_missing: u64,
+        nar_info_write: u64,
+        path_info_cache_size: u64,
+        nar_read: u64,
+        nar_read_bytes: u64,
+        nar_read_compressed_bytes: u64,
+        nar_write: u64,
+        nar_write_averted: u64,
+        nar_write_bytes: u64,
+        nar_write_compressed_bytes: u64,
+        nar_write_compression_time_ms: u64,
+    }
+
+    #[derive(Debug)]
     struct S3Stats {
         put: u64,
         put_bytes: u64,
@@ -184,6 +201,7 @@ mod ffi {
         ) -> Result<Vec<String>>;
         fn upsert_file(store: &StoreWrapper, path: &str, data: &str, mime_type: &str)
         -> Result<()>;
+        fn get_store_stats(store: &StoreWrapper) -> Result<StoreStats>;
         fn get_s3_stats(store: &StoreWrapper) -> Result<S3Stats>;
         fn copy_paths(
             src_store: &StoreWrapper,
@@ -219,7 +237,7 @@ mod ffi {
     }
 }
 
-pub use ffi::S3Stats;
+pub use ffi::{S3Stats, StoreStats};
 
 #[inline]
 #[must_use]
@@ -376,6 +394,8 @@ pub trait BaseStore {
         drvs: Vec<StorePath>,
         include_outputs: bool,
     ) -> impl std::future::Future<Output = Result<Vec<StorePath>, crate::Error>>;
+
+    fn get_store_stats(&self) -> Result<crate::ffi::StoreStats, cxx::Exception>;
 
     /// Import paths from nar
     fn import_paths<S>(
@@ -538,6 +558,10 @@ impl BaseStore for BaseStoreImpl {
         let mut out = self.compute_fs_closures(&slice, false, include_outputs, false, true)?;
         out.reverse();
         Ok(out)
+    }
+
+    fn get_store_stats(&self) -> Result<crate::ffi::StoreStats, cxx::Exception> {
+        ffi::get_store_stats(&self.wrapper)
     }
 
     #[inline]
@@ -715,6 +739,11 @@ impl BaseStore for LocalStore {
         include_outputs: bool,
     ) -> Result<Vec<StorePath>, Error> {
         self.base.query_requisites(drvs, include_outputs).await
+    }
+
+    #[inline]
+    fn get_store_stats(&self) -> Result<crate::ffi::StoreStats, cxx::Exception> {
+        self.base.get_store_stats()
     }
 
     #[inline]
@@ -912,6 +941,11 @@ impl BaseStore for RemoteStore {
         include_outputs: bool,
     ) -> Result<Vec<StorePath>, Error> {
         self.base.query_requisites(drvs, include_outputs).await
+    }
+
+    #[inline]
+    fn get_store_stats(&self) -> Result<crate::ffi::StoreStats, cxx::Exception> {
+        self.base.get_store_stats()
     }
 
     #[inline]

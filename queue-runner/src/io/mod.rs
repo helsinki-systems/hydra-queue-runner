@@ -1,7 +1,8 @@
 use std::sync::{Arc, atomic::Ordering};
 
 use ahash::AHashMap;
-use anyhow::Context;
+use anyhow::Context as _;
+use nix_utils::BaseStore as _;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -412,6 +413,58 @@ impl Process {
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct StoreStats {
+    nar_info_read: u64,
+    nar_info_read_averted: u64,
+    nar_info_missing: u64,
+    nar_info_write: u64,
+    path_info_cache_size: u64,
+    nar_read: u64,
+    nar_read_bytes: u64,
+    nar_read_compressed_bytes: u64,
+    nar_write: u64,
+    nar_write_averted: u64,
+    nar_write_bytes: u64,
+    nar_write_compressed_bytes: u64,
+    nar_write_compression_time_ms: u64,
+    nar_compression_savings: f64,
+    nar_compression_speed: f64,
+}
+
+impl StoreStats {
+    fn new(v: &nix_utils::StoreStats) -> Self {
+        #[allow(clippy::cast_precision_loss)]
+        Self {
+            nar_info_read: v.nar_info_read,
+            nar_info_read_averted: v.nar_info_read_averted,
+            nar_info_missing: v.nar_info_missing,
+            nar_info_write: v.nar_info_write,
+            path_info_cache_size: v.path_info_cache_size,
+            nar_read: v.nar_read,
+            nar_read_bytes: v.nar_read_bytes,
+            nar_read_compressed_bytes: v.nar_read_compressed_bytes,
+            nar_write: v.nar_write,
+            nar_write_averted: v.nar_write_averted,
+            nar_write_bytes: v.nar_write_bytes,
+            nar_write_compressed_bytes: v.nar_write_compressed_bytes,
+            nar_write_compression_time_ms: v.nar_write_compression_time_ms,
+            nar_compression_savings: if v.nar_write_bytes > 0 {
+                1.0 - (v.nar_write_compressed_bytes as f64 / v.nar_write_bytes as f64)
+            } else {
+                0.0
+            },
+            nar_compression_speed: if v.nar_write_compression_time_ms > 0 {
+                v.nar_write_bytes as f64 / v.nar_write_compression_time_ms as f64 * 1000.0
+                    / (1024.0 * 1024.0)
+            } else {
+                0.0
+            },
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct S3Stats {
     put: u64,
     put_bytes: u64,
@@ -588,6 +641,7 @@ pub struct DumpResponse {
     queue_runner: QueueRunnerStats,
     machines: AHashMap<String, Machine>,
     jobsets: AHashMap<String, Jobset>,
+    store: AHashMap<String, StoreStats>,
     s3: AHashMap<String, S3Stats>,
 }
 
@@ -596,12 +650,27 @@ impl DumpResponse {
         queue_runner: QueueRunnerStats,
         machines: AHashMap<String, Machine>,
         jobsets: AHashMap<String, Jobset>,
+        local_store: &nix_utils::LocalStore,
         remote_stores: &[nix_utils::RemoteStore],
     ) -> Self {
+        let mut store_stats = remote_stores
+            .iter()
+            .filter_map(|s| {
+                Some((
+                    s.base_uri.clone(),
+                    StoreStats::new(&s.get_store_stats().ok()?),
+                ))
+            })
+            .collect::<AHashMap<_, _>>();
+        if let Ok(s) = local_store.get_store_stats() {
+            store_stats.insert("local".into(), StoreStats::new(&s));
+        }
+
         Self {
             queue_runner,
             machines,
             jobsets,
+            store: store_stats,
             s3: remote_stores
                 .iter()
                 .filter_map(|s| Some((s.base_uri.clone(), S3Stats::new(&s.get_s3_stats().ok()?))))

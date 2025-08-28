@@ -13,4 +13,6 @@ fn main() {
     println!("closure_size {p1}: {}", local.compute_closure_size(&p1));
     println!("closure_size {p2}: {}", local.compute_closure_size(&p2));
     println!("closure_size {p3}: {}", local.compute_closure_size(&p3));
+
+    println!("stats: {:?}", local.get_store_stats());
 }

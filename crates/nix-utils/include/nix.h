@@ -44,6 +44,7 @@ compute_fs_closures(const StoreWrapper &wrapper,
                     bool include_outputs, bool include_derivers, bool toposort);
 void upsert_file(const StoreWrapper &wrapper, rust::Str path, rust::Str data,
                  rust::Str mime_type);
+StoreStats get_store_stats(const StoreWrapper &wrapper);
 S3Stats get_s3_stats(const StoreWrapper &wrapper);
 void copy_paths(const StoreWrapper &src_store, const StoreWrapper &dst_store,
                 rust::Slice<const rust::Str> paths, bool repair,
