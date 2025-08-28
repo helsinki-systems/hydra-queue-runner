@@ -17,7 +17,8 @@ fn start_task_loops(state: std::sync::Arc<State>) -> Vec<tokio::task::AbortHandl
         spawn_config_reloader(state.clone(), state.config.clone(), &state.args.config_path),
         state.clone().start_queue_monitor_loop(),
         state.clone().start_dispatch_loop(),
-        state.start_dump_status_loop(),
+        state.clone().start_dump_status_loop(),
+        state.start_uploader_queue(),
     ]
 }
 

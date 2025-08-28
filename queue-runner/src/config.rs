@@ -183,6 +183,10 @@ fn default_max_concurrent_downloads() -> u32 {
     5
 }
 
+fn default_concurrent_upload_limit() -> usize {
+    5
+}
+
 #[derive(Debug, Default, serde::Deserialize, Copy, Clone, PartialEq, Eq)]
 pub enum MachineSortFn {
     SpeedFactorOnly,
@@ -252,6 +256,9 @@ struct AppConfig {
 
     #[serde(default = "default_max_concurrent_downloads")]
     max_concurrent_downloads: u32,
+
+    #[serde(default = "default_concurrent_upload_limit")]
+    concurrent_upload_limit: usize,
 }
 
 /// Prepared configuration of the application
@@ -276,6 +283,7 @@ pub struct PreparedApp {
     max_unsupported_time: chrono::Duration,
     stop_queue_run_after: Option<chrono::Duration>,
     max_concurrent_downloads: u32,
+    concurrent_upload_limit: usize,
 }
 
 impl TryFrom<AppConfig> for PreparedApp {
@@ -348,6 +356,7 @@ impl TryFrom<AppConfig> for PreparedApp {
                 Some(chrono::Duration::seconds(val.stop_queue_run_after_in_s))
             },
             max_concurrent_downloads: val.max_concurrent_downloads,
+            concurrent_upload_limit: val.concurrent_upload_limit,
         })
     }
 }
@@ -456,6 +465,11 @@ impl App {
     pub fn get_max_concurrent_downloads(&self) -> u32 {
         let inner = self.inner.load();
         inner.max_concurrent_downloads
+    }
+
+    pub fn get_concurrent_upload_limit(&self) -> usize {
+        let inner = self.inner.load();
+        inner.concurrent_upload_limit
     }
 }
 

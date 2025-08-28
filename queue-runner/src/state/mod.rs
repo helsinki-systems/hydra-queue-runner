@@ -4,6 +4,7 @@ mod jobset;
 mod machine;
 mod metrics;
 mod queue;
+mod uploader;
 
 pub use atomic::AtomicDateTime;
 pub use build::{
@@ -12,7 +13,6 @@ pub use build::{
 pub use jobset::{Jobset, JobsetID, SCHEDULING_WINDOW};
 pub use machine::{Machine, Message as MachineMessage, Pressure, Stats as MachineStats};
 pub use queue::{BuildQueueStats, StepInfo};
-use tracing::Instrument;
 
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Instant;
@@ -67,6 +67,7 @@ pub struct State {
 
     pub metrics: metrics::PromMetrics,
     pub notify_dispatch: tokio::sync::Notify,
+    pub uploader: uploader::Uploader,
 }
 
 impl State {
@@ -114,6 +115,7 @@ impl State {
             started_at: chrono::Utc::now(),
             metrics: metrics::PromMetrics::new()?,
             notify_dispatch: tokio::sync::Notify::new(),
+            uploader: uploader::Uploader::new(),
         }))
     }
 
@@ -760,6 +762,28 @@ impl State {
     }
 
     #[tracing::instrument(skip(self))]
+    pub fn start_uploader_queue(self: Arc<Self>) -> tokio::task::AbortHandle {
+        let task = tokio::task::spawn({
+            async move {
+                let local_store = self.store.clone();
+                let remote_stores = {
+                    let r = self.remote_stores.read();
+                    r.clone()
+                };
+                let limit = self.config.get_concurrent_upload_limit();
+                if limit < 2 {
+                    self.uploader.upload_once(local_store, remote_stores).await;
+                } else {
+                    self.uploader
+                        .upload_many(local_store, remote_stores, limit)
+                        .await;
+                }
+            }
+        });
+        task.abort_handle()
+    }
+
+    #[tracing::instrument(skip(self))]
     pub async fn get_status_from_main_process(self: Arc<Self>) -> anyhow::Result<()> {
         let mut db = self.db.get().await?;
 
@@ -1054,51 +1078,17 @@ impl State {
             !r.is_empty()
         };
         if has_stores {
-            // TODO: we need retries for this! We can not affored to have a failure on cache push
             let outputs = output
                 .outputs
                 .values()
                 .map(Clone::clone)
                 .collect::<Vec<_>>();
-            let local_store = self.store.clone();
-            let remote_stores = {
-                let r = self.remote_stores.read();
-                r.clone()
-            };
-            tokio::spawn(
-                async move {
-                    for remote_store in remote_stores {
-                        if let Err(e) = remote_store
-                            .upsert_file(
-                                format!("log/{}", job.path.base_name()),
-                                std::path::PathBuf::from(job.result.log_file.clone()),
-                                "text/plain; charset=utf-8",
-                            )
-                            .await
-                        {
-                            log::error!("Failed to copy path to remote store: {e}");
-                        }
 
-                        let paths_to_copy = local_store
-                            .query_requisites(outputs.clone(), false)
-                            .await
-                            .unwrap_or_default();
-                        let paths_to_copy = remote_store.query_missing_paths(paths_to_copy).await;
-                        if let Err(e) = nix_utils::copy_paths(
-                            local_store.as_base_store(),
-                            remote_store.as_base_store(),
-                            &paths_to_copy,
-                            false,
-                            false,
-                            false,
-                        )
-                        .await
-                        {
-                            log::error!("Failed to copy path to remote store: {e}");
-                        }
-                    }
-                }
-                .in_current_span(),
+            self.uploader.schedule_upload(
+                outputs,
+                format!("log/{}", job.path.base_name()),
+                // TODO: handle compression
+                job.result.log_file,
             );
         }
 
