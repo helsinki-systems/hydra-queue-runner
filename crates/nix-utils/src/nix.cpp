@@ -52,7 +52,7 @@ StoreWrapper::StoreWrapper(nix::ref<nix::Store> _store) : _store(_store) {}
 std::shared_ptr<StoreWrapper> init(rust::Str uri) {
   if (!initializedNix) {
     initializedNix = true;
-    nix::initLibStore();
+    nix::initNix();
   }
   if (uri.empty()) {
     nix::ref<nix::Store> _store = nix::openStore();
@@ -279,7 +279,7 @@ void export_paths(
   auto store = wrapper._store;
   nix::StorePathSet path_set;
   for (auto &path : paths) {
-    path_set.insert(store->parseStorePath(AS_VIEW(path)));
+    path_set.insert(store->followLinksToStorePath(AS_VIEW(path)));
   }
   try {
     store->exportPaths(path_set, sink);
