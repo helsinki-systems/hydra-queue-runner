@@ -770,18 +770,20 @@ impl State {
     pub fn start_uploader_queue(self: Arc<Self>) -> tokio::task::AbortHandle {
         let task = tokio::task::spawn({
             async move {
-                let local_store = self.store.clone();
-                let remote_stores = {
-                    let r = self.remote_stores.read();
-                    r.clone()
-                };
-                let limit = self.config.get_concurrent_upload_limit();
-                if limit < 2 {
-                    self.uploader.upload_once(local_store, remote_stores).await;
-                } else {
-                    self.uploader
-                        .upload_many(local_store, remote_stores, limit)
-                        .await;
+                loop {
+                    let local_store = self.store.clone();
+                    let remote_stores = {
+                        let r = self.remote_stores.read();
+                        r.clone()
+                    };
+                    let limit = self.config.get_concurrent_upload_limit();
+                    if limit < 2 {
+                        self.uploader.upload_once(local_store, remote_stores).await;
+                    } else {
+                        self.uploader
+                            .upload_many(local_store, remote_stores, limit)
+                            .await;
+                    }
                 }
             }
         });
