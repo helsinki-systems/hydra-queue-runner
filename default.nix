@@ -51,9 +51,11 @@ rustPlatform.buildRustPackage {
 
   postInstall = ''
     wrapProgram $out/bin/queue-runner \
-      --prefix PATH : ${lib.makeBinPath [ nixVersions.nix_2_29 ]}
+      --prefix PATH : ${lib.makeBinPath [ nixVersions.nix_2_29 ]} \
+      --set-default JEMALLOC_SYS_WITH_MALLOC_CONF "background_thread:true,narenas:1,tcache:false,dirty_decay_ms:0,muzzy_decay_ms:0,abort_conf:true"
     wrapProgram $out/bin/builder \
-      --prefix PATH : ${lib.makeBinPath [ nixVersions.nix_2_29 ]}
+      --prefix PATH : ${lib.makeBinPath [ nixVersions.nix_2_29 ]} \
+      --set-default JEMALLOC_SYS_WITH_MALLOC_CONF "background_thread:true,narenas:1,tcache:false,dirty_decay_ms:0,muzzy_decay_ms:0,abort_conf:true"
   '';
 
   meta = with lib; {

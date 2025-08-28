@@ -66,6 +66,9 @@ sqlx = { version = "0.8", features = [
 
 nix-utils = { path = "../crates/nix-utils" }
 
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.6"
+
 [build-dependencies]
 tonic-prost-build = "0.14"
 

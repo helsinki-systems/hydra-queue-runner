@@ -10,6 +10,10 @@ mod server;
 mod state;
 mod utils;
 
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 fn start_task_loops(state: std::sync::Arc<State>) -> Vec<tokio::task::AbortHandle> {
     log::info!("QueueRunner starting task loops");
 

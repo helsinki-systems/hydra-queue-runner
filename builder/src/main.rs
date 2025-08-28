@@ -25,6 +25,10 @@ mod runner_v1 {
     tonic::include_proto!("runner.v1");
 }
 
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[tracing::instrument(skip(state, client, request), err)]
 async fn handle_request(
     state: Arc<State>,
