@@ -1788,12 +1788,30 @@ impl State {
             r.first().cloned()
         };
         let missing_outputs = if let Some(ref remote_store) = remote_store {
-            remote_store
+            let mut missing = remote_store
                 .query_missing_remote_outputs(drv.outputs.clone())
-                .await
+                .await;
+            if !missing.is_empty()
+                && nix_utils::query_missing_outputs(drv.outputs.clone())
+                    .await
+                    .is_empty()
+            {
+                // we have all paths locally, so we can just upload them to the remote_store
+                if let Ok(log_file) = self.construct_log_file_path(&drv_path).await {
+                    self.uploader.schedule_upload(
+                        missing.into_iter().filter_map(|v| v.path).collect(),
+                        format!("log/{}", drv_path.base_name()),
+                        log_file.to_string_lossy().to_string(),
+                    );
+                    missing = vec![];
+                }
+            }
+
+            missing
         } else {
             nix_utils::query_missing_outputs(drv.outputs.clone()).await
         };
+
         step.set_drv(drv);
 
         if self.check_cached_failure(step.clone()).await {
