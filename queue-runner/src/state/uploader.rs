@@ -24,17 +24,20 @@ impl Uploader {
         }
     }
 
+    #[tracing::instrument(skip(self), err)]
     pub fn schedule_upload(
         &self,
         store_paths: Vec<nix_utils::StorePath>,
         log_remote_path: String,
         log_local_path: String,
-    ) {
-        let _ = self.upload_queue_sender.send(Message {
+    ) -> anyhow::Result<()> {
+        log::info!("Scheduling new path upload: {:?}", store_paths);
+        self.upload_queue_sender.send(Message {
             store_paths,
             log_remote_path,
             log_local_path,
-        });
+        })?;
+        Ok(())
     }
 
     async fn upload_msg(
@@ -76,6 +79,8 @@ impl Uploader {
                 log::error!("Failed to copy path to remote store: {e}");
             }
         }
+
+        log::info!("Finished uploading paths: {:?}", msg.store_paths);
     }
 
     pub async fn upload_once(

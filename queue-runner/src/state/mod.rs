@@ -1089,7 +1089,7 @@ impl State {
                 .map(Clone::clone)
                 .collect::<Vec<_>>();
 
-            self.uploader.schedule_upload(
+            let _ = self.uploader.schedule_upload(
                 outputs,
                 format!("log/{}", job.path.base_name()),
                 // TODO: handle compression
@@ -1798,7 +1798,7 @@ impl State {
             {
                 // we have all paths locally, so we can just upload them to the remote_store
                 if let Ok(log_file) = self.construct_log_file_path(&drv_path).await {
-                    self.uploader.schedule_upload(
+                    let _ = self.uploader.schedule_upload(
                         missing.into_iter().filter_map(|v| v.path).collect(),
                         format!("log/{}", drv_path.base_name()),
                         log_file.to_string_lossy().to_string(),
