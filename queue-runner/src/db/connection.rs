@@ -59,7 +59,7 @@ impl Connection {
               priority
             FROM builds
             INNER JOIN jobsets ON builds.jobset_id = jobsets.id
-            WHERE finished = 0 ORDER BY globalPriority desc, random();"#
+            WHERE finished = 0 ORDER BY globalPriority desc, schedulingshares, random();"#
         )
         .fetch_all(&mut *self.conn)
         .await
