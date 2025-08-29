@@ -212,10 +212,3 @@ message BuildResultInfo {
   NixSupport nix_support = 6;
   repeated Output outputs = 7;
 }
-
-message FailResultInfo {
-  string machine_id = 1;
-  string drv = 2;
-  uint64 import_time_ms = 3;
-  uint64 build_time_ms = 4;
-}
