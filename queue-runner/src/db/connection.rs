@@ -20,7 +20,7 @@ impl Connection {
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn begin_transaction(&mut self) -> sqlx::Result<Transaction> {
+    pub async fn begin_transaction(&mut self) -> sqlx::Result<Transaction<'_>> {
         let tx = self.conn.begin().await?;
         Ok(Transaction { tx })
     }
