@@ -262,8 +262,14 @@ impl State {
                 return Ok(RealiseStepResult::MaybeCancelled);
             };
 
-            build_options.set_max_silent_time(build.max_silent_time);
-            build_options.set_build_timeout(build.timeout);
+            // We want the biggest timeout otherwise we could build a step like llvm with a timeout
+            // of 180 because a nixostest with a timeout got scheduled and needs this step
+            let biggest_max_silent_time = dependents.iter().map(|x| x.max_silent_time).max();
+            let biggest_build_timeout = dependents.iter().map(|x| x.timeout).max();
+
+            build_options
+                .set_max_silent_time(biggest_max_silent_time.unwrap_or(build.max_silent_time));
+            build_options.set_build_timeout(biggest_build_timeout.unwrap_or(build.timeout));
             build.id
         };
 
