@@ -25,8 +25,8 @@ pub enum Error {
     #[error("anyhow error: `{0}`")]
     Anyhow(#[from] anyhow::Error),
 
-    #[error("sqlx error: `{0}`")]
-    Sqlx(#[from] sqlx::Error),
+    #[error("db error: `{0}`")]
+    Sqlx(#[from] db::Error),
 
     #[error("Not found")]
     NotFound,

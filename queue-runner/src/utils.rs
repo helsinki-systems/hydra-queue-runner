@@ -1,9 +1,8 @@
+use db::Transaction;
+use db::models::BuildID;
 use nix_utils::BaseStore as _;
 
-use crate::{
-    db::Transaction,
-    state::{BuildID, RemoteBuild},
-};
+use crate::state::RemoteBuild;
 
 #[tracing::instrument(skip(tx, res), err)]
 pub async fn finish_build_step(
@@ -15,7 +14,7 @@ pub async fn finish_build_step(
 ) -> anyhow::Result<()> {
     debug_assert!(res.start_time.is_some());
     debug_assert!(res.stop_time.is_some());
-    tx.update_build_step_in_finish(crate::db::models::UpdateBuildStepInFinish {
+    tx.update_build_step_in_finish(db::models::UpdateBuildStepInFinish {
         build_id,
         step_nr,
         status: res.step_status,
@@ -46,7 +45,7 @@ pub async fn finish_build_step(
     tx.notify_step_finished(build_id, step_nr, &res.log_file)
         .await?;
 
-    if res.step_status == crate::db::models::BuildStatus::Success {
+    if res.step_status == db::models::BuildStatus::Success {
         // Update the corresponding `BuildStepOutputs` row to add the output path
         let drv_path = tx.get_drv_path_from_build_step(build_id, step_nr).await?;
         if let Some(drv_path) = drv_path {
@@ -71,7 +70,7 @@ pub async fn finish_build_step(
 
 #[tracing::instrument(skip(db, store, o, build_opts, remote_store), fields(%drv_path), err(level=tracing::Level::WARN))]
 pub async fn substitute_output(
-    db: crate::db::Database,
+    db: db::Database,
     store: nix_utils::LocalStore,
     o: nix_utils::DerivationOutput,
     build_id: BuildID,
@@ -106,8 +105,14 @@ pub async fn substitute_output(
 
     let mut db = db.get().await?;
     let mut tx = db.begin_transaction().await?;
-    tx.create_substitution_step(starttime, stoptime, build_id, &drv_path.get_full_path(), o)
-        .await?;
+    tx.create_substitution_step(
+        starttime,
+        stoptime,
+        build_id,
+        &drv_path.get_full_path(),
+        (o.name, o.path.map(|p| p.get_full_path())),
+    )
+    .await?;
     tx.commit().await?;
 
     Ok(())

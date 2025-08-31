@@ -3,8 +3,10 @@ use std::sync::{Arc, atomic::Ordering};
 use ahash::{AHashMap, AHashSet};
 use tokio::sync::mpsc;
 
+use db::models::BuildID;
+
 use super::System;
-use super::build::{BuildID, RemoteBuild};
+use super::build::RemoteBuild;
 use crate::config::MachineFreeFn;
 use crate::{
     config::MachineSortFn,

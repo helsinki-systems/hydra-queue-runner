@@ -12,10 +12,9 @@ use ahash::{AHashMap, AHashSet};
 use chrono::TimeZone;
 
 use super::jobset::{Jobset, JobsetID};
-use crate::db::models::BuildStatus;
+use db::models::{BuildID, BuildStatus};
 use nix_utils::BaseStore as _;
 
-pub type BuildID = i32;
 pub type AtomicBuildID = AtomicI32;
 
 #[derive(Debug)]
@@ -73,7 +72,7 @@ impl Build {
     }
 
     #[tracing::instrument(skip(v, jobset), err)]
-    pub fn new(v: crate::db::models::Build, jobset: Arc<Jobset>) -> anyhow::Result<Arc<Self>> {
+    pub fn new(v: db::models::Build, jobset: Arc<Jobset>) -> anyhow::Result<Arc<Self>> {
         Ok(Arc::new(Self {
             id: v.id,
             drv_path: nix_utils::StorePath::new(&v.drvpath),
@@ -545,8 +544,8 @@ pub struct BuildProduct {
     pub file_size: Option<u64>,
 }
 
-impl From<crate::db::models::BuildProduct> for BuildProduct {
-    fn from(v: crate::db::models::BuildProduct) -> Self {
+impl From<db::models::OwnedBuildProduct> for BuildProduct {
+    fn from(v: db::models::OwnedBuildProduct) -> Self {
         Self {
             path: v.path.map(|v| nix_utils::StorePath::new(&v)),
             default_path: v.defaultpath,
@@ -597,6 +596,16 @@ pub struct BuildMetric {
     pub value: f64,
 }
 
+impl From<db::models::OwnedBuildMetric> for BuildMetric {
+    fn from(v: db::models::OwnedBuildMetric) -> Self {
+        Self {
+            name: v.name,
+            unit: v.unit,
+            value: v.value,
+        }
+    }
+}
+
 pub struct BuildOutput {
     pub failed: bool,
     pub import_elapsed: std::time::Duration,
@@ -612,10 +621,10 @@ pub struct BuildOutput {
     pub metrics: AHashMap<String, BuildMetric>,
 }
 
-impl TryFrom<crate::db::models::BuildOutput> for BuildOutput {
+impl TryFrom<db::models::BuildOutput> for BuildOutput {
     type Error = anyhow::Error;
 
-    fn try_from(v: crate::db::models::BuildOutput) -> anyhow::Result<Self> {
+    fn try_from(v: db::models::BuildOutput) -> anyhow::Result<Self> {
         let build_status = BuildStatus::from_i32(
             v.buildstatus
                 .ok_or(anyhow::anyhow!("buildstatus missing"))?,
@@ -744,5 +753,55 @@ impl BuildOutput {
                 })
                 .collect(),
         })
+    }
+}
+
+pub fn get_mark_build_sccuess_data<'a>(
+    b: &'a Arc<crate::state::Build>,
+    res: &'a crate::state::BuildOutput,
+) -> db::models::MarkBuildSuccessData<'a> {
+    db::models::MarkBuildSuccessData {
+        id: b.id,
+        name: &b.name,
+        project_name: &b.jobset.project_name,
+        jobset_name: &b.jobset.name,
+        finished_in_db: b.get_finished_in_db(),
+        timestamp: b.timestamp,
+        failed: res.failed,
+        closure_size: res.closure_size,
+        size: res.size,
+        release_name: res.release_name.as_deref(),
+        outputs: res
+            .outputs
+            .iter()
+            .map(|(name, path)| (name.clone(), path.get_full_path()))
+            .collect(),
+        products: res
+            .products
+            .iter()
+            .map(|v| db::models::BuildProduct {
+                r#type: &v.r#type,
+                subtype: &v.subtype,
+                filesize: v.file_size.and_then(|v| i64::try_from(v).ok()),
+                sha256hash: v.sha256hash.as_deref(),
+                path: v.path.as_ref().map(nix_utils::StorePath::get_full_path),
+                name: &v.name,
+                defaultpath: v.default_path.as_deref(),
+            })
+            .collect(),
+        metrics: res
+            .metrics
+            .iter()
+            .map(|(name, m)| {
+                (
+                    name.as_str(),
+                    db::models::BuildMetric {
+                        name: &m.name,
+                        unit: m.unit.as_deref(),
+                        value: m.value,
+                    },
+                )
+            })
+            .collect(),
     }
 }

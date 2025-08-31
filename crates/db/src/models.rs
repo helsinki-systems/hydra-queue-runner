@@ -1,3 +1,5 @@
+pub type BuildID = i32;
+
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildStatus {
@@ -50,22 +52,6 @@ pub enum StepStatus {
     PostProcessing = 50,
 }
 
-impl From<crate::server::grpc::runner_v1::StepStatus> for StepStatus {
-    fn from(item: crate::server::grpc::runner_v1::StepStatus) -> Self {
-        match item {
-            crate::server::grpc::runner_v1::StepStatus::Preparing => Self::Preparing,
-            crate::server::grpc::runner_v1::StepStatus::Connecting => Self::Connecting,
-            crate::server::grpc::runner_v1::StepStatus::SeningInputs => Self::SendingInputs,
-            crate::server::grpc::runner_v1::StepStatus::Building => Self::Building,
-            crate::server::grpc::runner_v1::StepStatus::WaitingForLocalSlot => {
-                Self::WaitingForLocalSlot
-            }
-            crate::server::grpc::runner_v1::StepStatus::ReceivingOutputs => Self::ReceivingOutputs,
-            crate::server::grpc::runner_v1::StepStatus::PostProcessing => Self::PostProcessing,
-        }
-    }
-}
-
 pub struct Jobset {
     pub project: String,
     pub name: String,
@@ -73,12 +59,12 @@ pub struct Jobset {
 }
 
 pub struct BuildSmall {
-    pub id: i32,
+    pub id: BuildID,
     pub globalpriority: i32,
 }
 
 pub struct Build {
-    pub id: i32,
+    pub id: BuildID,
     pub jobset_id: i32,
     pub project: String,
     pub jobset: String,
@@ -103,18 +89,18 @@ pub enum BuildType {
     Substitution = 1,
 }
 
-pub struct UpdateBuild {
+pub struct UpdateBuild<'a> {
     pub status: BuildStatus,
     pub start_time: i32,
     pub stop_time: i32,
     pub size: i64,
     pub closure_size: i64,
-    pub release_name: Option<String>,
+    pub release_name: Option<&'a str>,
     pub is_cached_build: bool,
 }
 
 pub struct InsertBuildStep<'a> {
-    pub build_id: i32,
+    pub build_id: BuildID,
     pub step_nr: i32,
     pub r#type: BuildType,
     pub drv_path: &'a str,
@@ -129,20 +115,20 @@ pub struct InsertBuildStep<'a> {
 }
 
 pub struct InsertBuildStepOutput {
-    pub build_id: i32,
+    pub build_id: BuildID,
     pub step_nr: i32,
     pub name: String,
     pub path: Option<String>,
 }
 
 pub struct UpdateBuildStep {
-    pub build_id: i32,
+    pub build_id: BuildID,
     pub step_nr: i32,
     pub status: StepStatus,
 }
 
 pub struct UpdateBuildStepInFinish<'a> {
-    pub build_id: i32,
+    pub build_id: BuildID,
     pub step_nr: i32,
     pub status: BuildStatus,
     pub error_msg: Option<&'a str>,
@@ -154,26 +140,26 @@ pub struct UpdateBuildStepInFinish<'a> {
     pub is_non_deterministic: Option<bool>,
 }
 
-pub struct InsertBuildProduct {
-    pub build_id: i32,
+pub struct InsertBuildProduct<'a> {
+    pub build_id: BuildID,
     pub product_nr: i32,
-    pub r#type: String,
-    pub subtype: String,
+    pub r#type: &'a str,
+    pub subtype: &'a str,
     pub file_size: Option<i64>,
-    pub sha256hash: Option<String>,
-    pub path: String,
-    pub name: String,
-    pub default_path: String,
+    pub sha256hash: Option<&'a str>,
+    pub path: &'a str,
+    pub name: &'a str,
+    pub default_path: &'a str,
 }
 
-pub struct InsertBuildMetric {
-    pub build_id: i32,
-    pub name: String,
-    pub unit: Option<String>,
+pub struct InsertBuildMetric<'a> {
+    pub build_id: BuildID,
+    pub name: &'a str,
+    pub unit: Option<&'a str>,
     pub value: f64,
-    pub project: String,
-    pub jobset: String,
-    pub job: String,
+    pub project: &'a str,
+    pub jobset: &'a str,
+    pub job: &'a str,
     pub timestamp: i32,
 }
 
@@ -185,7 +171,7 @@ pub struct BuildOutput {
     pub size: Option<i64>,
 }
 
-pub struct BuildProduct {
+pub struct OwnedBuildProduct {
     pub r#type: String,
     pub subtype: String,
     pub filesize: Option<i64>,
@@ -193,4 +179,43 @@ pub struct BuildProduct {
     pub path: Option<String>,
     pub name: String,
     pub defaultpath: Option<String>,
+}
+
+pub struct BuildProduct<'a> {
+    pub r#type: &'a str,
+    pub subtype: &'a str,
+    pub filesize: Option<i64>,
+    pub sha256hash: Option<&'a str>,
+    pub path: Option<String>,
+    pub name: &'a str,
+    pub defaultpath: Option<&'a str>,
+}
+
+pub struct OwnedBuildMetric {
+    pub name: String,
+    pub unit: Option<String>,
+    pub value: f64,
+}
+
+pub struct BuildMetric<'a> {
+    pub name: &'a str,
+    pub unit: Option<&'a str>,
+    pub value: f64,
+}
+
+pub struct MarkBuildSuccessData<'a> {
+    pub id: BuildID,
+    pub name: &'a str,
+    pub project_name: &'a str,
+    pub jobset_name: &'a str,
+    pub finished_in_db: bool,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+
+    pub failed: bool,
+    pub closure_size: u64,
+    pub size: u64,
+    pub release_name: Option<&'a str>,
+    pub outputs: ahash::AHashMap<String, String>,
+    pub products: Vec<BuildProduct<'a>>,
+    pub metrics: ahash::AHashMap<&'a str, BuildMetric<'a>>,
 }

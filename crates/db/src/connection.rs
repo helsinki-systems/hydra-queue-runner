@@ -98,6 +98,7 @@ impl Connection {
     pub async fn get_jobset_build_steps(
         &mut self,
         jobset_id: i32,
+        scheduling_window: i64,
     ) -> sqlx::Result<Vec<BuildSteps>> {
         #[allow(clippy::cast_precision_loss)]
         sqlx::query_as!(
@@ -109,7 +110,7 @@ impl Connection {
               to_timestamp(s.stopTime) > (NOW() - (interval '1 second' * $1)) AND
               jobset_id = $2
             "#,
-            Some((crate::state::SCHEDULING_WINDOW * 10) as f64),
+            Some((scheduling_window * 10) as f64),
             jobset_id,
         )
         .fetch_all(&mut *self.conn)
@@ -233,9 +234,9 @@ impl Connection {
     pub async fn get_build_products_for_build_id(
         &mut self,
         build_id: i32,
-    ) -> sqlx::Result<Vec<crate::state::BuildProduct>> {
-        Ok(sqlx::query_as!(
-            super::models::BuildProduct,
+    ) -> sqlx::Result<Vec<crate::models::OwnedBuildProduct>> {
+        sqlx::query_as!(
+            super::models::OwnedBuildProduct,
             r#"
             SELECT
               type,
@@ -250,18 +251,15 @@ impl Connection {
             build_id
         )
         .fetch_all(&mut *self.conn)
-        .await?
-        .into_iter()
-        .map(Into::into)
-        .collect())
+        .await
     }
 
     pub async fn get_build_metrics_for_build_id(
         &mut self,
         build_id: i32,
-    ) -> sqlx::Result<ahash::AHashMap<String, crate::state::BuildMetric>> {
-        Ok(sqlx::query_as!(
-            crate::state::BuildMetric,
+    ) -> sqlx::Result<Vec<crate::models::OwnedBuildMetric>> {
+        sqlx::query_as!(
+            crate::models::OwnedBuildMetric,
             r#"
             SELECT
               name, unit, value
@@ -270,10 +268,7 @@ impl Connection {
             build_id
         )
         .fetch_all(&mut *self.conn)
-        .await?
-        .into_iter()
-        .map(|v| (v.name.clone(), v))
-        .collect())
+        .await
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -294,7 +289,7 @@ impl Transaction<'_> {
     }
 
     #[tracing::instrument(skip(self, v), err)]
-    pub async fn update_build(&mut self, build_id: i32, v: UpdateBuild) -> sqlx::Result<()> {
+    pub async fn update_build(&mut self, build_id: i32, v: UpdateBuild<'_>) -> sqlx::Result<()> {
         sqlx::query!(
             r#"
             UPDATE builds SET
@@ -620,7 +615,7 @@ impl Transaction<'_> {
     }
 
     #[tracing::instrument(skip(self, p), err)]
-    pub async fn insert_build_product(&mut self, p: InsertBuildProduct) -> sqlx::Result<()> {
+    pub async fn insert_build_product(&mut self, p: InsertBuildProduct<'_>) -> sqlx::Result<()> {
         sqlx::query!(
             r#"
               INSERT INTO buildproducts (
@@ -661,7 +656,7 @@ impl Transaction<'_> {
     }
 
     #[tracing::instrument(skip(self, metric), err)]
-    pub async fn insert_build_metric(&mut self, metric: InsertBuildMetric) -> sqlx::Result<()> {
+    pub async fn insert_build_metric(&mut self, metric: InsertBuildMetric<'_>) -> sqlx::Result<()> {
         sqlx::query!(
             r#"
               INSERT INTO buildmetrics (
@@ -722,7 +717,7 @@ impl Transaction<'_> {
             self,
             start_time,
             build_id,
-            step,
+            platform,
             machine,
             status,
             error_msg,
@@ -733,32 +728,34 @@ impl Transaction<'_> {
     pub async fn create_build_step(
         &mut self,
         start_time: Option<i64>,
-        build_id: crate::state::BuildID,
-        step: std::sync::Arc<crate::state::Step>,
+        build_id: crate::models::BuildID,
+        drv_path: &str,
+        platform: Option<&str>,
         machine: String,
-        status: crate::db::models::BuildStatus,
+        status: crate::models::BuildStatus,
         error_msg: Option<String>,
-        propagated_from: Option<crate::state::BuildID>,
+        propagated_from: Option<crate::models::BuildID>,
+        outputs: Vec<(String, Option<String>)>,
     ) -> sqlx::Result<i32> {
         let start_time = start_time.and_then(|start_time| i32::try_from(start_time).ok()); // TODO
 
         let step_nr = loop {
             let step_nr = self.alloc_build_step(build_id).await?;
             if self
-                .insert_build_step(crate::db::models::InsertBuildStep {
+                .insert_build_step(crate::models::InsertBuildStep {
                     build_id,
                     step_nr,
-                    r#type: crate::db::models::BuildType::Build,
-                    drv_path: &step.get_drv_path().get_full_path(),
+                    r#type: crate::models::BuildType::Build,
+                    drv_path,
                     status,
-                    busy: status == crate::db::models::BuildStatus::Busy,
+                    busy: status == crate::models::BuildStatus::Busy,
                     start_time,
-                    stop_time: if status == crate::db::models::BuildStatus::Busy {
+                    stop_time: if status == crate::models::BuildStatus::Busy {
                         None
                     } else {
                         start_time
                     },
-                    platform: step.get_system().as_deref(),
+                    platform,
                     propagated_from,
                     error_msg: error_msg.as_deref(),
                     machine: &machine,
@@ -770,21 +767,19 @@ impl Transaction<'_> {
         };
 
         self.insert_build_step_outputs(
-            &step
-                .get_outputs()
-                .unwrap_or_default()
+            &outputs
                 .into_iter()
-                .map(|o| crate::db::models::InsertBuildStepOutput {
+                .map(|(name, path)| crate::models::InsertBuildStepOutput {
                     build_id,
                     step_nr,
-                    name: o.name,
-                    path: o.path.map(|s| s.get_full_path()),
+                    name,
+                    path,
                 })
                 .collect::<Vec<_>>(),
         )
         .await?;
 
-        if status == crate::db::models::BuildStatus::Busy {
+        if status == crate::models::BuildStatus::Busy {
             self.notify_step_started(build_id, step_nr).await?;
         }
 
@@ -800,19 +795,19 @@ impl Transaction<'_> {
         &mut self,
         start_time: i32,
         stop_time: i32,
-        build_id: crate::state::BuildID,
+        build_id: crate::models::BuildID,
         drv_path: &str,
-        output: nix_utils::DerivationOutput,
+        output: (String, Option<String>),
     ) -> anyhow::Result<i32> {
         let step_nr = loop {
             let step_nr = self.alloc_build_step(build_id).await?;
             if self
-                .insert_build_step(crate::db::models::InsertBuildStep {
+                .insert_build_step(crate::models::InsertBuildStep {
                     build_id,
                     step_nr,
-                    r#type: crate::db::models::BuildType::Substitution,
+                    r#type: crate::models::BuildType::Substitution,
                     drv_path,
-                    status: crate::db::models::BuildStatus::Success,
+                    status: crate::models::BuildStatus::Success,
                     busy: false,
                     start_time: Some(start_time),
                     stop_time: Some(stop_time),
@@ -827,27 +822,26 @@ impl Transaction<'_> {
             }
         };
 
-        self.insert_build_step_outputs(&[crate::db::models::InsertBuildStepOutput {
+        self.insert_build_step_outputs(&[crate::models::InsertBuildStepOutput {
             build_id,
             step_nr,
-            name: output.name,
-            path: output.path.map(|s| s.get_full_path()),
+            name: output.0,
+            path: output.1,
         }])
         .await?;
 
         Ok(step_nr)
     }
 
-    #[tracing::instrument(skip(self, build, res, is_cached_build, start_time, stop_time,), err)]
+    #[tracing::instrument(skip(self, build, is_cached_build, start_time, stop_time,), err)]
     pub async fn mark_succeeded_build(
         &mut self,
-        build: std::sync::Arc<crate::state::Build>,
-        res: &crate::state::BuildOutput,
+        build: crate::models::MarkBuildSuccessData<'_>,
         is_cached_build: bool,
         start_time: i32,
         stop_time: i32,
     ) -> anyhow::Result<()> {
-        if build.get_finished_in_db() {
+        if build.finished_in_db {
             return Ok(());
         }
 
@@ -857,58 +851,53 @@ impl Transaction<'_> {
 
         self.update_build(
             build.id,
-            crate::db::models::UpdateBuild {
-                status: if res.failed {
-                    crate::db::models::BuildStatus::FailedWithOutput
+            crate::models::UpdateBuild {
+                status: if build.failed {
+                    crate::models::BuildStatus::FailedWithOutput
                 } else {
-                    crate::db::models::BuildStatus::Success
+                    crate::models::BuildStatus::Success
                 },
                 start_time,
                 stop_time,
-                size: i64::try_from(res.size)?,
-                closure_size: i64::try_from(res.closure_size)?,
-                release_name: res.release_name.clone(),
+                size: i64::try_from(build.size)?,
+                closure_size: i64::try_from(build.closure_size)?,
+                release_name: build.release_name,
                 is_cached_build,
             },
         )
         .await?;
 
-        for (name, path) in &res.outputs {
-            self.update_build_output(build.id, name, &path.get_full_path())
-                .await?;
+        for (name, path) in &build.outputs {
+            self.update_build_output(build.id, name, path).await?;
         }
 
         self.delete_build_products_by_build_id(build.id).await?;
 
-        for (nr, p) in res.products.iter().enumerate() {
-            self.insert_build_product(crate::db::models::InsertBuildProduct {
+        for (nr, p) in build.products.iter().enumerate() {
+            self.insert_build_product(crate::models::InsertBuildProduct {
                 build_id: build.id,
                 product_nr: i32::try_from(nr + 1)?,
-                r#type: p.r#type.clone(),
-                subtype: p.subtype.clone(),
-                file_size: p.file_size.and_then(|v| i64::try_from(v).ok()),
-                sha256hash: p.sha256hash.clone(),
-                path: p
-                    .path
-                    .as_ref()
-                    .map(nix_utils::StorePath::get_full_path)
-                    .unwrap_or_default(),
-                name: p.name.clone(),
-                default_path: p.default_path.clone().unwrap_or_default(),
+                r#type: p.r#type,
+                subtype: p.subtype,
+                file_size: p.filesize,
+                sha256hash: p.sha256hash,
+                path: p.path.as_deref().unwrap_or_default(),
+                name: p.name,
+                default_path: p.defaultpath.unwrap_or_default(),
             })
             .await?;
         }
 
         self.delete_build_metrics_by_build_id(build.id).await?;
-        for m in &res.metrics {
-            self.insert_build_metric(crate::db::models::InsertBuildMetric {
+        for m in &build.metrics {
+            self.insert_build_metric(crate::models::InsertBuildMetric {
                 build_id: build.id,
-                name: m.1.name.clone(),
-                unit: m.1.unit.clone(),
+                name: m.1.name,
+                unit: m.1.unit,
                 value: m.1.value,
-                project: build.jobset.project_name.clone(),
-                jobset: build.jobset.name.clone(),
-                job: build.name.clone(),
+                project: build.project_name,
+                jobset: build.jobset_name,
+                job: build.name,
                 timestamp: i32::try_from(build.timestamp.timestamp())?, // TODO
             })
             .await?;

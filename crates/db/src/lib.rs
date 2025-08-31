@@ -3,8 +3,8 @@ pub mod models;
 
 use std::str::FromStr as _;
 
-pub use connection::Connection;
-pub use connection::Transaction;
+pub use connection::{Connection, Transaction};
+pub use sqlx::Error;
 
 #[derive(Clone)]
 pub struct Database {

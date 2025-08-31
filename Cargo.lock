@@ -766,6 +766,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "db"
+version = "0.1.0"
+dependencies = [
+ "ahash 0.8.12",
+ "anyhow",
+ "chrono",
+ "futures",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tracing",
+]
+
+[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2258,6 +2272,7 @@ dependencies = [
  "chrono",
  "clap",
  "console-subscriber",
+ "db",
  "futures",
  "futures-util",
  "h2",
@@ -2268,7 +2283,6 @@ dependencies = [
  "lockfile",
  "log",
  "nix-utils",
- "os_pipe",
  "parking_lot",
  "procfs",
  "prometheus",
@@ -2278,7 +2292,6 @@ dependencies = [
  "serde",
  "serde_json",
  "shared",
- "sqlx",
  "thiserror 2.0.16",
  "tikv-jemallocator",
  "tokio",

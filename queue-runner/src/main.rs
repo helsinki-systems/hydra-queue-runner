@@ -4,7 +4,6 @@
 use state::State;
 
 mod config;
-mod db;
 mod io;
 mod server;
 mod state;

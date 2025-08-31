@@ -7,10 +7,8 @@ mod queue;
 mod uploader;
 
 pub use atomic::AtomicDateTime;
-pub use build::{
-    Build, BuildID, BuildMetric, BuildOutput, BuildProduct, BuildResultState, RemoteBuild, Step,
-};
-pub use jobset::{Jobset, JobsetID, SCHEDULING_WINDOW};
+pub use build::{Build, BuildOutput, BuildResultState, RemoteBuild, Step};
+pub use jobset::{Jobset, JobsetID};
 pub use machine::{Machine, Message as MachineMessage, Pressure, Stats as MachineStats};
 pub use queue::{BuildQueueStats, StepInfo};
 
@@ -19,12 +17,14 @@ use std::time::Instant;
 use std::{sync::Arc, sync::Weak};
 
 use ahash::{AHashMap, AHashSet};
+use db::models::{BuildID, BuildStatus};
 use futures::TryStreamExt as _;
 use nix_utils::BaseStore as _;
 use secrecy::ExposeSecret as _;
 
 use crate::config::{App, Args};
-use crate::db::models::BuildStatus;
+use crate::state::build::get_mark_build_sccuess_data;
+use crate::state::jobset::SCHEDULING_WINDOW;
 use crate::utils::finish_build_step;
 use machine::Machines;
 
@@ -48,7 +48,7 @@ pub struct State {
     pub remote_stores: parking_lot::RwLock<Vec<nix_utils::RemoteStore>>,
     pub config: App,
     pub args: Args,
-    pub db: crate::db::Database,
+    pub db: db::Database,
 
     pub machines: Machines,
 
@@ -87,7 +87,7 @@ impl State {
 
         let config = App::init(&args.config_path)?;
         let log_dir = config.get_hydra_log_dir();
-        let db = crate::db::Database::new(
+        let db = db::Database::new(
             config.get_db_url().expose_secret(),
             config.get_max_db_connections(),
         )
@@ -299,11 +299,19 @@ impl State {
                 .create_build_step(
                     job.result.start_time.map(|s| s.timestamp()),
                     build_id,
-                    step_info.step.clone(),
+                    &step_info.step.get_drv_path().get_full_path(),
+                    step_info.step.get_system().as_deref(),
                     machine.hostname.clone(),
                     BuildStatus::Busy,
                     None,
                     None,
+                    step_info
+                        .step
+                        .get_outputs()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|o| (o.name, o.path.map(|s| s.get_full_path())))
+                        .collect(),
                 )
                 .await?;
             tx.commit().await?;
@@ -319,10 +327,10 @@ impl State {
         self.db
             .get()
             .await?
-            .update_build_step(crate::db::models::UpdateBuildStep {
+            .update_build_step(db::models::UpdateBuildStep {
                 build_id,
                 step_nr,
-                status: crate::db::models::StepStatus::Connecting,
+                status: db::models::StepStatus::Connecting,
             })
             .await?;
         machine.build_drv(job, &build_options).await?;
@@ -979,7 +987,7 @@ impl State {
         &self,
         machine_id: Option<uuid::Uuid>,
         drv_path: &nix_utils::StorePath,
-        step_status: crate::db::models::StepStatus,
+        step_status: db::models::StepStatus,
     ) -> anyhow::Result<()> {
         let build_id_and_step_nr = if let Some(machine_id) = machine_id {
             if let Some(m) = self.machines.get_machine_by_id(machine_id) {
@@ -1001,7 +1009,7 @@ impl State {
         self.db
             .get()
             .await?
-            .update_build_step(crate::db::models::UpdateBuildStep {
+            .update_build_step(db::models::UpdateBuildStep {
                 build_id,
                 step_nr,
                 status: step_status,
@@ -1129,8 +1137,7 @@ impl State {
             for b in &direct {
                 let is_cached = job.build_id != b.id || job.result.is_cached;
                 tx.mark_succeeded_build(
-                    b.clone(),
-                    &output,
+                    get_mark_build_sccuess_data(b, &output),
                     is_cached,
                     i32::try_from(
                         job.result
@@ -1351,7 +1358,8 @@ impl State {
                     tx.create_build_step(
                         None,
                         b.id,
-                        step.clone(),
+                        &step.get_drv_path().get_full_path(),
+                        step.get_system().as_deref(),
                         machine
                             .as_deref()
                             .map(|m| m.hostname.clone())
@@ -1363,6 +1371,11 @@ impl State {
                         } else {
                             Some(job.build_id)
                         },
+                        step.get_outputs()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|o| (o.name, o.path.map(|s| s.get_full_path())))
+                            .collect(),
                     )
                     .await?;
                 }
@@ -1461,7 +1474,7 @@ impl State {
     #[tracing::instrument(skip(self, conn), err)]
     async fn create_jobset(
         &self,
-        conn: &mut crate::db::Connection,
+        conn: &mut db::Connection,
         jobset_id: i32,
         project_name: &str,
         jobset_name: &str,
@@ -1483,7 +1496,10 @@ impl State {
         let jobset = Jobset::new(jobset_id, project_name, jobset_name);
         jobset.set_shares(shares)?;
 
-        for step in conn.get_jobset_build_steps(jobset_id).await? {
+        for step in conn
+            .get_jobset_build_steps(jobset_id, SCHEDULING_WINDOW)
+            .await?
+        {
             let Some(starttime) = step.starttime else {
                 continue;
             };
@@ -1555,11 +1571,17 @@ impl State {
         tx.create_build_step(
             None,
             build.id,
-            step.clone(),
+            &step.get_drv_path().get_full_path(),
+            step.get_system().as_deref(),
             String::new(),
             BuildStatus::CachedFailure,
             None,
             Some(propagated_from),
+            step.get_outputs()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|o| (o.name, o.path.map(|s| s.get_full_path())))
+                .collect(),
         )
         .await?;
         tx.update_build_after_previous_failure(
@@ -1988,8 +2010,7 @@ impl State {
             log::info!("marking build {} as succeeded (cached)", build.id);
             let now = chrono::Utc::now().timestamp();
             tx.mark_succeeded_build(
-                build.clone(),
-                &res,
+                get_mark_build_sccuess_data(&build, &res),
                 true,
                 i32::try_from(now)?, // TODO
                 i32::try_from(now)?, // TODO
@@ -2031,8 +2052,18 @@ impl State {
                     continue;
                 };
 
-                res.products = db.get_build_products_for_build_id(build_id).await?;
-                res.metrics = db.get_build_metrics_for_build_id(build_id).await?;
+                res.products = db
+                    .get_build_products_for_build_id(build_id)
+                    .await?
+                    .into_iter()
+                    .map(Into::into)
+                    .collect();
+                res.metrics = db
+                    .get_build_metrics_for_build_id(build_id)
+                    .await?
+                    .into_iter()
+                    .map(|v| (v.name.clone(), v.into()))
+                    .collect();
 
                 return Ok(res);
             }

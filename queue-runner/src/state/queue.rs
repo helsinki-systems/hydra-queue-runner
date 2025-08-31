@@ -4,10 +4,11 @@ use std::sync::{Arc, atomic::AtomicBool};
 
 use ahash::{AHashMap, AHashSet};
 
+use db::models::BuildID;
 use nix_utils::BaseStore as _;
 
 use super::System;
-use super::build::{BuildID, Step};
+use super::build::Step;
 
 type Counter = std::sync::atomic::AtomicU64;
 

@@ -34,6 +34,20 @@ pub mod runner_v1 {
 
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("streaming_descriptor");
+
+    impl From<StepStatus> for db::models::StepStatus {
+        fn from(item: StepStatus) -> Self {
+            match item {
+                StepStatus::Preparing => Self::Preparing,
+                StepStatus::Connecting => Self::Connecting,
+                StepStatus::SeningInputs => Self::SendingInputs,
+                StepStatus::Building => Self::Building,
+                StepStatus::WaitingForLocalSlot => Self::WaitingForLocalSlot,
+                StepStatus::ReceivingOutputs => Self::ReceivingOutputs,
+                StepStatus::PostProcessing => Self::PostProcessing,
+            }
+        }
+    }
 }
 
 fn match_for_io_error(err_status: &tonic::Status) -> Option<&std::io::Error> {
@@ -307,7 +321,7 @@ impl RunnerService for Server {
         let req = req.into_inner();
         let drv = req.drv.clone();
         let machine_id = uuid::Uuid::parse_str(&req.machine_id);
-        let step_status = crate::db::models::StepStatus::from(req.step_status());
+        let step_status = db::models::StepStatus::from(req.step_status());
 
         tokio::spawn({
             async move {

@@ -2,6 +2,8 @@ use std::sync::{Arc, atomic::Ordering};
 
 use ahash::AHashMap;
 use anyhow::Context as _;
+
+use db::models::BuildID;
 use nix_utils::BaseStore as _;
 
 #[derive(Debug, serde::Serialize)]
@@ -737,7 +739,7 @@ impl JobsetsResponse {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Build {
-    id: crate::state::BuildID,
+    id: BuildID,
     drv_path: nix_utils::StorePath,
     jobset_id: crate::state::JobsetID,
     name: String,
@@ -796,7 +798,7 @@ pub struct Step {
     highest_global_priority: i32,
     highest_local_priority: i32,
 
-    lowest_build_id: crate::state::BuildID,
+    lowest_build_id: BuildID,
     deps_count: usize,
 }
 
@@ -855,7 +857,7 @@ pub struct StepInfo {
     lowest_share_used: f64,
     highest_global_priority: i32,
     highest_local_priority: i32,
-    lowest_build_id: crate::state::BuildID,
+    lowest_build_id: BuildID,
 }
 
 impl From<std::sync::Arc<crate::state::StepInfo>> for StepInfo {
