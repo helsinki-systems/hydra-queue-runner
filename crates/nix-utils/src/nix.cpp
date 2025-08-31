@@ -125,8 +125,7 @@ InternalPathInfo query_path_info(const StoreWrapper &wrapper, rust::Str path) {
   };
 }
 
-long unsigned int compute_closure_size(const StoreWrapper &wrapper,
-                                       rust::Str path) {
+uint64_t compute_closure_size(const StoreWrapper &wrapper, rust::Str path) {
   auto store = wrapper._store;
   nix::StorePathSet closure;
   store->computeFSClosure(store->parseStorePath(AS_VIEW(path)), closure, false,
@@ -231,12 +230,11 @@ void copy_paths(const StoreWrapper &src_store, const StoreWrapper &dst_store,
                  substitute ? nix::Substitute : nix::NoSubstitute);
 }
 
-void import_paths(const StoreWrapper &wrapper, bool check_sigs, size_t runtime,
-                  size_t reader,
-                  rust::Fn<size_t(rust::Slice<uint8_t>, long unsigned int,
-                                  long unsigned int, long unsigned int)>
-                      callback,
-                  size_t user_data) {
+void import_paths(
+    const StoreWrapper &wrapper, bool check_sigs, size_t runtime, size_t reader,
+    rust::Fn<size_t(rust::Slice<uint8_t>, size_t, size_t, size_t)>
+        callback,
+    size_t user_data) {
   nix::LambdaSource source([=](char *out, size_t out_len) {
     auto data = rust::Slice<uint8_t>((uint8_t *)out, out_len);
     size_t ret = (*callback)(data, runtime, reader, user_data);
@@ -252,7 +250,7 @@ void import_paths(const StoreWrapper &wrapper, bool check_sigs, size_t runtime,
 }
 
 void import_paths_with_fd(const StoreWrapper &wrapper, bool check_sigs,
-                          int fd) {
+                          int32_t fd) {
   nix::FdSource source(fd);
 
   auto store = wrapper._store;
@@ -264,10 +262,10 @@ public:
   const char *what() { return "Stop exporting nar"; }
 };
 
-void export_paths(
-    const StoreWrapper &wrapper, rust::Slice<const rust::Str> paths,
-    rust::Fn<bool(rust::Slice<const uint8_t>, long unsigned int)> callback,
-    size_t user_data) {
+void export_paths(const StoreWrapper &wrapper,
+                  rust::Slice<const rust::Str> paths,
+                  rust::Fn<bool(rust::Slice<const uint8_t>, size_t)> callback,
+                  size_t user_data) {
   nix::LambdaSink sink([=](std::string_view v) {
     auto data = rust::Slice<const uint8_t>((const uint8_t *)v.data(), v.size());
     bool ret = (*callback)(data, user_data);

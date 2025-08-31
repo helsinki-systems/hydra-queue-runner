@@ -171,8 +171,8 @@ pub struct SystemLoad {
 pub fn get_mount_free_percent(dest: &str) -> anyhow::Result<f64> {
     let stat = nix::sys::statvfs::statvfs(dest)?;
 
-    let total_bytes = stat.blocks() * stat.block_size();
-    let free_bytes = stat.blocks_available() * stat.block_size();
+    let total_bytes = (stat.blocks() as u64) * stat.block_size();
+    let free_bytes = (stat.blocks_available() as u64) * stat.block_size();
     #[allow(clippy::cast_precision_loss)]
     Ok(free_bytes as f64 / total_bytes as f64 * 100.0)
 }
