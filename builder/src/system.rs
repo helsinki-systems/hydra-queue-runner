@@ -1,4 +1,4 @@
-use procfs::Current as _;
+use procfs_core::FromRead as _;
 
 pub struct BaseSystemInfo {
     pub cpu_count: usize,
@@ -7,9 +7,10 @@ pub struct BaseSystemInfo {
 }
 
 impl BaseSystemInfo {
+    #[cfg(target_os = "linux")]
     pub fn new() -> anyhow::Result<Self> {
-        let cpuinfo = procfs::CpuInfo::current()?;
-        let meminfo = procfs::Meminfo::current()?;
+        let cpuinfo = procfs_core::CpuInfo::from_file("/proc/cpuinfo")?;
+        let meminfo = procfs_core::Meminfo::from_file("/proc/meminfo")?;
         let bogomips = cpuinfo
             .fields
             .get("bogomips")
@@ -22,6 +23,19 @@ impl BaseSystemInfo {
             total_memory: meminfo.mem_total,
         })
     }
+
+    #[cfg(target_os = "macos")]
+    pub fn new() -> anyhow::Result<Self> {
+        let mut sys = sysinfo::System::new_all();
+        sys.refresh_memory();
+        sys.refresh_cpu_all();
+
+        Ok(Self {
+            cpu_count: sys.cpus().len(),
+            bogomips: 0.0,
+            total_memory: sys.total_memory(),
+        })
+    }
 }
 
 pub struct Pressure {
@@ -31,8 +45,9 @@ pub struct Pressure {
     pub total: u64,
 }
 
+#[cfg(target_os = "linux")]
 impl Pressure {
-    fn new(record: &procfs::PressureRecord) -> Self {
+    fn new(record: &procfs_core::PressureRecord) -> Self {
         Self {
             avg10: record.avg10,
             avg60: record.avg60,
@@ -65,31 +80,37 @@ pub struct PressureState {
 // TODO: remove once https://github.com/eminence/procfs/issues/351 is resolved
 // Next 3 Functions are copied from https://github.com/eminence/procfs/blob/v0.17.0/procfs-core/src/pressure.rs#L93
 // LICENSE is Apache2.0/MIT
-fn get_f32(map: &std::collections::HashMap<&str, &str>, value: &str) -> procfs::ProcResult<f32> {
+#[cfg(target_os = "linux")]
+fn get_f32(
+    map: &std::collections::HashMap<&str, &str>,
+    value: &str,
+) -> procfs_core::ProcResult<f32> {
     map.get(value).map_or_else(
-        || Err(procfs::ProcError::Incomplete(None)),
+        || Err(procfs_core::ProcError::Incomplete(None)),
         |v| {
             v.parse::<f32>()
-                .map_err(|_| procfs::ProcError::Incomplete(None))
+                .map_err(|_| procfs_core::ProcError::Incomplete(None))
         },
     )
 }
 
-fn get_total(map: &std::collections::HashMap<&str, &str>) -> procfs::ProcResult<u64> {
+#[cfg(target_os = "linux")]
+fn get_total(map: &std::collections::HashMap<&str, &str>) -> procfs_core::ProcResult<u64> {
     map.get("total").map_or_else(
-        || Err(procfs::ProcError::Incomplete(None)),
+        || Err(procfs_core::ProcError::Incomplete(None)),
         |v| {
             v.parse::<u64>()
-                .map_err(|_| procfs::ProcError::Incomplete(None))
+                .map_err(|_| procfs_core::ProcError::Incomplete(None))
         },
     )
 }
 
-fn parse_pressure_record(line: &str) -> procfs::ProcResult<procfs::PressureRecord> {
+#[cfg(target_os = "linux")]
+fn parse_pressure_record(line: &str) -> procfs_core::ProcResult<procfs_core::PressureRecord> {
     let mut parsed = std::collections::HashMap::new();
 
     if !line.starts_with("some") && !line.starts_with("full") {
-        return Err(procfs::ProcError::Incomplete(None));
+        return Err(procfs_core::ProcError::Incomplete(None));
     }
 
     let values = &line[5..];
@@ -102,7 +123,7 @@ fn parse_pressure_record(line: &str) -> procfs::ProcResult<procfs::PressureRecor
         }
     }
 
-    Ok(procfs::PressureRecord {
+    Ok(procfs_core::PressureRecord {
         avg10: get_f32(&parsed, "avg10")?,
         avg60: get_f32(&parsed, "avg60")?,
         avg300: get_f32(&parsed, "avg300")?,
@@ -110,15 +131,16 @@ fn parse_pressure_record(line: &str) -> procfs::ProcResult<procfs::PressureRecor
     })
 }
 
+#[cfg(target_os = "linux")]
 impl PressureState {
     pub fn new() -> Option<Self> {
         if !std::fs::exists("/proc/pressure").unwrap_or_default() {
             return None;
         }
 
-        let cpu_psi = procfs::CpuPressure::current().ok();
-        let mem_psi = procfs::MemoryPressure::current().ok();
-        let io_psi = procfs::IoPressure::current().ok();
+        let cpu_psi = procfs_core::CpuPressure::from_file("proc/pressure/cpu").ok();
+        let mem_psi = procfs_core::MemoryPressure::from_file("/proc/pressure/memory").ok();
+        let io_psi = procfs_core::IoPressure::from_file("/proc/pressure/io").ok();
         let irq_psi_full = std::fs::read_to_string("/proc/pressure/irq")
             .ok()
             .and_then(|v| parse_pressure_record(&v).ok());
@@ -156,9 +178,10 @@ pub fn get_mount_free_percent(dest: &str) -> anyhow::Result<f64> {
 }
 
 impl SystemLoad {
+    #[cfg(target_os = "linux")]
     pub fn new() -> anyhow::Result<Self> {
-        let meminfo = procfs::Meminfo::current()?;
-        let load = procfs::LoadAverage::current()?;
+        let meminfo = procfs_core::Meminfo::from_file("/proc/meminfo")?;
+        let load = procfs_core::LoadAverage::from_file("/proc/loadavg")?;
 
         // TODO: prefix
         let nix_store_dir = std::env::var("NIX_STORE_DIR").unwrap_or("/nix/store".to_owned());
@@ -169,6 +192,26 @@ impl SystemLoad {
             load_avg_15: load.fifteen,
             mem_usage: meminfo.mem_total - meminfo.mem_available.unwrap_or(0),
             pressure: PressureState::new(),
+            tmp_free_percent: get_mount_free_percent("/tmp").unwrap_or(0.),
+            store_free_percent: get_mount_free_percent(&nix_store_dir).unwrap_or(0.),
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn new() -> anyhow::Result<Self> {
+        let mut sys = sysinfo::System::new_all();
+        sys.refresh_memory();
+        let load = sysinfo::System::load_average();
+
+        // TODO: prefix
+        let nix_store_dir = std::env::var("NIX_STORE_DIR").unwrap_or("/nix/store".to_owned());
+
+        Ok(Self {
+            load_avg_1: load.one as f32,
+            load_avg_5: load.five as f32,
+            load_avg_15: load.fifteen as f32,
+            mem_usage: sys.used_memory(),
+            pressure: None,
             tmp_free_percent: get_mount_free_percent("/tmp").unwrap_or(0.),
             store_free_percent: get_mount_free_percent(&nix_store_dir).unwrap_or(0.),
         })

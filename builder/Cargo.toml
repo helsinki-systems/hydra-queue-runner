@@ -33,11 +33,14 @@ hyper-util = "0.1.10"
 async-stream = "0.3"
 
 gethostname = "1"
-procfs = "0.17"
+procfs-core = "0.18"
 nix = { version = "0.30.0", default-features = false, features = ["fs"] }
 os_pipe = "1.2"
 
 nix-utils = { path = "../crates/nix-utils" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+sysinfo = "0.36.0"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.6"
