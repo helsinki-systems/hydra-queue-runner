@@ -65,6 +65,7 @@ sqlx = { version = "0.8", features = [
 ] }
 
 nix-utils = { path = "../crates/nix-utils" }
+shared = { path = "../crates/shared" }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.6"

@@ -1,5 +1,4 @@
 mod drv;
-mod nix_support;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -33,7 +32,6 @@ pub use drv::{
     BuildOptions, Derivation, Output as DerivationOutput, query_drv, query_missing_outputs,
     realise_drv, realise_drvs,
 };
-pub use nix_support::{BuildMetric, BuildProduct, NixSupport, parse_nix_support_from_outputs};
 
 pub const HASH_LEN: usize = 32;
 

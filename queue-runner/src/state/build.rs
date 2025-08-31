@@ -576,8 +576,8 @@ impl From<crate::server::grpc::runner_v1::BuildProduct> for BuildProduct {
     }
 }
 
-impl From<nix_utils::BuildProduct> for BuildProduct {
-    fn from(v: nix_utils::BuildProduct) -> Self {
+impl From<shared::BuildProduct> for BuildProduct {
+    fn from(v: shared::BuildProduct) -> Self {
         Self {
             path: Some(nix_utils::StorePath::new(&v.path)),
             default_path: Some(v.default_path),
@@ -704,7 +704,7 @@ impl BuildOutput {
             .filter_map(|o| o.path.as_ref())
             .collect::<Vec<_>>();
         let pathinfos = store.query_path_infos(&flat_outputs);
-        let nix_support = nix_utils::parse_nix_support_from_outputs(&outputs).await?;
+        let nix_support = shared::parse_nix_support_from_outputs(&outputs).await?;
 
         let mut outputs_map = AHashMap::new();
         let mut closure_size = 0;

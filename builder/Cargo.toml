@@ -38,6 +38,7 @@ nix = { version = "0.30.0", default-features = false, features = ["fs"] }
 os_pipe = "1.2"
 
 nix-utils = { path = "../crates/nix-utils" }
+shared = { path = "../crates/shared" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 sysinfo = "0.36.0"
