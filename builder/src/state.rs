@@ -513,12 +513,13 @@ impl State {
     }
 }
 
-#[tracing::instrument(fields(%gcroot, %path))]
+#[tracing::instrument(skip(store), fields(%gcroot, %path))]
 async fn filter_missing(
+    store: &nix_utils::LocalStore,
     gcroot: &Gcroot,
     path: nix_utils::StorePath,
 ) -> Option<nix_utils::StorePath> {
-    if nix_utils::check_if_storepath_exists(&path).await {
+    if store.is_valid_path(path.clone()).await {
         nix_utils::add_root(&gcroot.root, &path);
         None
     } else {
@@ -549,23 +550,26 @@ async fn import_paths(
     use futures::StreamExt as _;
 
     let paths = if filter {
-        futures::StreamExt::map(tokio_stream::iter(paths), |p| filter_missing(gcroot, p))
-            .buffered(10)
-            .filter_map(|o| async { o })
-            .collect::<Vec<_>>()
-            .await
+        futures::StreamExt::map(tokio_stream::iter(paths), |p| {
+            filter_missing(&store, gcroot, p)
+        })
+        .buffered(10)
+        .filter_map(|o| async { o })
+        .collect::<Vec<_>>()
+        .await
     } else {
         paths
     };
     let paths = if let Some(build_opts) = use_substitutes {
         // we can ignore the error
         let _ = substitute_paths(&paths.iter().collect::<Vec<_>>(), build_opts).await;
-        let paths =
-            futures::StreamExt::map(tokio_stream::iter(paths), |p| filter_missing(gcroot, p))
-                .buffered(10)
-                .filter_map(|o| async { o })
-                .collect::<Vec<_>>()
-                .await;
+        let paths = futures::StreamExt::map(tokio_stream::iter(paths), |p| {
+            filter_missing(&store, gcroot, p)
+        })
+        .buffered(10)
+        .filter_map(|o| async { o })
+        .collect::<Vec<_>>()
+        .await;
         if paths.is_empty() {
             return Ok(());
         }
@@ -614,7 +618,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     use futures::stream::StreamExt as _;
 
     let requisites = futures::StreamExt::map(tokio_stream::iter(requisites), |p| {
-        filter_missing(gcroot, p)
+        filter_missing(&store, gcroot, p)
     })
     .buffered(50)
     .filter_map(|o| async { o })
@@ -668,7 +672,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
         .map(|s| nix_utils::StorePath::new(&s))
         .collect::<Vec<_>>();
     let full_requisites = futures::StreamExt::map(tokio_stream::iter(full_requisites), |p| {
-        filter_missing(gcroot, p)
+        filter_missing(&store, gcroot, p)
     })
     .buffered(50)
     .filter_map(|o| async { o })
