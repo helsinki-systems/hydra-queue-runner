@@ -3,7 +3,7 @@ use std::{os::unix::fs::MetadataExt as _, sync::LazyLock};
 use sha2::{Digest as _, Sha256};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, BufReader};
 
-use nix_utils::StorePath;
+use nix_utils::{BaseStore, StorePath};
 
 static VALIDATE_METRICS_NAME: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new("[a-zA-Z0-9._-]+").expect("Failed to compile regex"));
@@ -43,6 +43,7 @@ pub struct NixSupport {
 }
 
 pub async fn parse_nix_support_from_outputs(
+    store: &nix_utils::LocalStore,
     derivation_outputs: &[nix_utils::DerivationOutput],
 ) -> anyhow::Result<NixSupport> {
     let mut metrics = Vec::new();
@@ -136,7 +137,7 @@ pub async fn parse_nix_support_from_outputs(
             }
             let path = StorePath::new(&path);
             let path_full_path = path.get_full_path();
-            if !nix_utils::check_if_storepath_exists(&path).await {
+            if !store.is_valid_path(path.clone()).await {
                 continue;
             }
             let Ok(metadata) = tokio::fs::metadata(&path_full_path).await else {

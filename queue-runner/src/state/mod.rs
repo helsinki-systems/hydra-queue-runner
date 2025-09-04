@@ -1629,7 +1629,7 @@ impl State {
             new_builds_by_id.remove(&build.id);
         }
 
-        if !nix_utils::check_if_storepath_exists(&build.drv_path).await {
+        if !self.store.is_valid_path(build.drv_path.clone()).await {
             log::error!("aborting GC'ed build {}", build.id);
             if !build.get_finished_in_db() {
                 match self.db.get().await {
@@ -1822,7 +1822,9 @@ impl State {
                 .query_missing_remote_outputs(drv.outputs.clone())
                 .await;
             if !missing.is_empty()
-                && nix_utils::query_missing_outputs(drv.outputs.clone())
+                && self
+                    .store
+                    .query_missing_outputs(drv.outputs.clone())
                     .await
                     .is_empty()
             {
@@ -1839,7 +1841,7 @@ impl State {
 
             missing
         } else {
-            nix_utils::query_missing_outputs(drv.outputs.clone()).await
+            self.store.query_missing_outputs(drv.outputs.clone()).await
         };
 
         step.set_drv(drv);

@@ -29,8 +29,7 @@ pub enum Error {
 
 use ahash::AHashMap;
 pub use drv::{
-    BuildOptions, Derivation, Output as DerivationOutput, query_drv, query_missing_outputs,
-    realise_drv, realise_drvs,
+    BuildOptions, Derivation, Output as DerivationOutput, query_drv, realise_drv, realise_drvs,
 };
 
 pub const HASH_LEN: usize = 32;
@@ -92,13 +91,6 @@ impl std::fmt::Display for StorePath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", self.base_name)
     }
-}
-
-#[tracing::instrument(skip(path))]
-pub async fn check_if_storepath_exists(path: &StorePath) -> bool {
-    tokio::fs::try_exists(&path.get_full_path())
-        .await
-        .unwrap_or_default()
 }
 
 pub fn validate_statuscode(status: std::process::ExitStatus) -> Result<(), Error> {
@@ -668,6 +660,30 @@ impl LocalStore {
 
     pub fn as_base_store(&self) -> &BaseStoreImpl {
         &self.base
+    }
+
+    #[tracing::instrument(skip(self, outputs))]
+    pub async fn query_missing_outputs(
+        &self,
+        outputs: Vec<DerivationOutput>,
+    ) -> Vec<DerivationOutput> {
+        use futures::stream::StreamExt as _;
+
+        tokio_stream::iter(outputs)
+            .map(|o| async move {
+                let Some(path) = &o.path else {
+                    return None;
+                };
+                if !self.is_valid_path(path.clone()).await {
+                    Some(o)
+                } else {
+                    None
+                }
+            })
+            .buffered(50)
+            .filter_map(|o| async { o })
+            .collect()
+            .await
     }
 }
 
