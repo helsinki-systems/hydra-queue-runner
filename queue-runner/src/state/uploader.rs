@@ -62,7 +62,7 @@ impl Uploader {
             }
 
             let paths_to_copy = local_store
-                .query_requisites(msg.store_paths.clone(), false)
+                .query_requisites(&msg.store_paths.iter().collect::<Vec<_>>(), false)
                 .await
                 .unwrap_or_default();
             let paths_to_copy = remote_store.query_missing_paths(paths_to_copy).await;

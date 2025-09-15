@@ -876,7 +876,7 @@ impl State {
             if r.atomic_state.tries.load(Ordering::Relaxed) > 0 {
                 continue;
             }
-            let step_info = StepInfo::new(&self.store, r.clone());
+            let step_info = StepInfo::new(&self.store, r.clone()).await;
 
             new_queues
                 .entry(system)
@@ -1629,7 +1629,7 @@ impl State {
             new_builds_by_id.remove(&build.id);
         }
 
-        if !self.store.is_valid_path(build.drv_path.clone()).await {
+        if !self.store.is_valid_path(&build.drv_path).await {
             log::error!("aborting GC'ed build {}", build.id);
             if !build.get_finished_in_db() {
                 match self.db.get().await {

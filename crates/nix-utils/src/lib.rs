@@ -355,11 +355,17 @@ impl From<crate::ffi::InternalPathInfo> for PathInfo {
 pub trait BaseStore {
     #[must_use]
     /// Check whether a path is valid.
-    fn is_valid_path(&self, path: StorePath) -> impl std::future::Future<Output = bool>;
+    fn is_valid_path(&self, path: &StorePath) -> impl std::future::Future<Output = bool>;
 
-    fn query_path_info(&self, path: &StorePath) -> Option<PathInfo>;
-    fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo>;
-    fn compute_closure_size(&self, path: &StorePath) -> u64;
+    fn query_path_info(
+        &self,
+        path: &StorePath,
+    ) -> impl std::future::Future<Output = Option<PathInfo>>;
+    fn query_path_infos(
+        &self,
+        paths: &[&StorePath],
+    ) -> impl std::future::Future<Output = AHashMap<StorePath, PathInfo>>;
+    fn compute_closure_size(&self, path: &StorePath) -> impl std::future::Future<Output = u64>;
 
     fn clear_path_info_cache(&self);
 
@@ -373,16 +379,16 @@ pub trait BaseStore {
 
     fn compute_fs_closures(
         &self,
-        paths: &[&str],
+        paths: &[&StorePath],
         flip_direction: bool,
         include_outputs: bool,
         include_derivers: bool,
         toposort: bool,
-    ) -> Result<Vec<StorePath>, cxx::Exception>;
+    ) -> impl std::future::Future<Output = Result<Vec<StorePath>, Error>>;
 
     fn query_requisites(
         &self,
-        drvs: Vec<StorePath>,
+        drvs: &[&StorePath],
         include_outputs: bool,
     ) -> impl std::future::Future<Output = Result<Vec<StorePath>, crate::Error>>;
 
@@ -410,8 +416,12 @@ pub trait BaseStore {
     where
         F: FnMut(&[u8]) -> bool;
 
-    fn ensure_path(&self, path: StorePath) -> impl std::future::Future<Output = Result<(), Error>>;
-    fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath>;
+    fn ensure_path(&self, path: &StorePath)
+    -> impl std::future::Future<Output = Result<(), Error>>;
+    fn try_resolve_drv(
+        &self,
+        path: &StorePath,
+    ) -> impl std::future::Future<Output = Option<StorePath>>;
 }
 
 unsafe impl Send for crate::ffi::StoreWrapper {}
@@ -463,34 +473,52 @@ where
 
 impl BaseStore for BaseStoreImpl {
     #[inline]
-    async fn is_valid_path(&self, path: StorePath) -> bool {
+    async fn is_valid_path(&self, path: &StorePath) -> bool {
         let store = self.wrapper.clone();
-        asyncify(move || ffi::is_valid_path(&store, &path.get_full_path()))
+        let path = path.get_full_path();
+        asyncify(move || ffi::is_valid_path(&store, &path))
             .await
             .unwrap_or(false)
     }
 
     #[inline]
-    fn query_path_info(&self, path: &StorePath) -> Option<PathInfo> {
-        ffi::query_path_info(&self.wrapper, &path.get_full_path())
+    async fn query_path_info(&self, path: &StorePath) -> Option<PathInfo> {
+        let store = self.wrapper.clone();
+        let path = path.get_full_path();
+        asyncify(move || Ok(ffi::query_path_info(&store, &path).ok().map(Into::into)))
+            .await
             .ok()
-            .map(Into::into)
+            .flatten()
     }
 
     #[inline]
-    fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo> {
-        let mut res = AHashMap::new();
-        for p in paths {
-            if let Some(info) = self.query_path_info(p) {
-                res.insert((*p).to_owned(), info);
+    async fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo> {
+        let store = self.wrapper.clone();
+        let paths = paths.iter().map(|v| (*v).to_owned()).collect::<Vec<_>>();
+
+        asyncify(move || {
+            let mut res = AHashMap::new();
+            for p in paths {
+                if let Some(info) = ffi::query_path_info(&store, &p.get_full_path())
+                    .ok()
+                    .map(Into::into)
+                {
+                    res.insert(p, info);
+                }
             }
-        }
-        res
+            Ok(res)
+        })
+        .await
+        .unwrap_or_default()
     }
 
     #[inline]
-    fn compute_closure_size(&self, path: &StorePath) -> u64 {
-        ffi::compute_closure_size(&self.wrapper, &path.get_full_path()).unwrap_or_default()
+    async fn compute_closure_size(&self, path: &StorePath) -> u64 {
+        let store = self.wrapper.clone();
+        let path = path.get_full_path();
+        asyncify(move || ffi::compute_closure_size(&store, &path))
+            .await
+            .unwrap_or_default()
     }
 
     #[inline]
@@ -518,36 +546,45 @@ impl BaseStore for BaseStoreImpl {
 
     #[inline]
     #[tracing::instrument(skip(self), err)]
-    fn compute_fs_closures(
+    async fn compute_fs_closures(
         &self,
-        paths: &[&str],
+        paths: &[&StorePath],
         flip_direction: bool,
         include_outputs: bool,
         include_derivers: bool,
         toposort: bool,
-    ) -> Result<Vec<StorePath>, cxx::Exception> {
-        Ok(ffi::compute_fs_closures(
-            &self.wrapper,
-            paths,
-            flip_direction,
-            include_outputs,
-            include_derivers,
-            toposort,
-        )?
-        .into_iter()
-        .map(|v| StorePath::new(&v))
-        .collect())
+    ) -> Result<Vec<StorePath>, Error> {
+        let store = self.wrapper.clone();
+        let paths = paths
+            .iter()
+            .map(|v| (*v).get_full_path())
+            .collect::<Vec<_>>();
+
+        asyncify(move || {
+            let slice = paths.iter().map(|v| v.as_str()).collect::<Vec<_>>();
+            Ok(ffi::compute_fs_closures(
+                &store,
+                &slice,
+                flip_direction,
+                include_outputs,
+                include_derivers,
+                toposort,
+            )?
+            .into_iter()
+            .map(|v| StorePath::new(&v))
+            .collect())
+        })
+        .await
     }
 
     async fn query_requisites(
         &self,
-        drvs: Vec<StorePath>,
+        drvs: &[&StorePath],
         include_outputs: bool,
     ) -> Result<Vec<StorePath>, Error> {
-        let paths = drvs.iter().map(|v| v.get_full_path()).collect::<Vec<_>>();
-        let slice = paths.iter().map(|v| v.as_str()).collect::<Vec<_>>();
-
-        let mut out = self.compute_fs_closures(&slice, false, include_outputs, false, true)?;
+        let mut out = self
+            .compute_fs_closures(drvs, false, include_outputs, false, true)
+            .await?;
         out.reverse();
         Ok(out)
     }
@@ -608,19 +645,27 @@ impl BaseStore for BaseStoreImpl {
     }
 
     #[inline]
-    async fn ensure_path(&self, path: StorePath) -> Result<(), Error> {
+    async fn ensure_path(&self, path: &StorePath) -> Result<(), Error> {
         let store = self.wrapper.clone();
+        let path = path.get_full_path();
         asyncify(move || {
-            ffi::ensure_path(&store, &path.get_full_path())?;
+            ffi::ensure_path(&store, &path)?;
             Ok(())
         })
         .await
     }
 
     #[inline]
-    fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath> {
-        let v = ffi::try_resolve_drv(&self.wrapper, &path.get_full_path()).ok()?;
-        v.is_empty().then_some(v).map(|v| StorePath::new(&v))
+    async fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath> {
+        let store = self.wrapper.clone();
+        let path = path.get_full_path();
+        asyncify(move || {
+            let v = ffi::try_resolve_drv(&store, &path)?;
+            Ok(v.is_empty().then_some(v).map(|v| StorePath::new(&v)))
+        })
+        .await
+        .ok()
+        .flatten()
     }
 }
 
@@ -687,7 +732,7 @@ impl LocalStore {
                 let Some(path) = &o.path else {
                     return None;
                 };
-                if !self.is_valid_path(path.clone()).await {
+                if !self.is_valid_path(path).await {
                     Some(o)
                 } else {
                     None
@@ -702,23 +747,23 @@ impl LocalStore {
 
 impl BaseStore for LocalStore {
     #[inline]
-    async fn is_valid_path(&self, path: StorePath) -> bool {
+    async fn is_valid_path(&self, path: &StorePath) -> bool {
         self.base.is_valid_path(path).await
     }
 
     #[inline]
-    fn query_path_info(&self, path: &StorePath) -> Option<PathInfo> {
-        self.base.query_path_info(path)
+    async fn query_path_info(&self, path: &StorePath) -> Option<PathInfo> {
+        self.base.query_path_info(path).await
     }
 
     #[inline]
-    fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo> {
-        self.base.query_path_infos(paths)
+    async fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo> {
+        self.base.query_path_infos(paths).await
     }
 
     #[inline]
-    fn compute_closure_size(&self, path: &StorePath) -> u64 {
-        self.base.compute_closure_size(path)
+    async fn compute_closure_size(&self, path: &StorePath) -> u64 {
+        self.base.compute_closure_size(path).await
     }
 
     #[inline]
@@ -741,28 +786,30 @@ impl BaseStore for LocalStore {
 
     #[inline]
     #[tracing::instrument(skip(self), err)]
-    fn compute_fs_closures(
+    async fn compute_fs_closures(
         &self,
-        paths: &[&str],
+        paths: &[&StorePath],
         flip_direction: bool,
         include_outputs: bool,
         include_derivers: bool,
         toposort: bool,
-    ) -> Result<Vec<StorePath>, cxx::Exception> {
-        self.base.compute_fs_closures(
-            paths,
-            flip_direction,
-            include_outputs,
-            include_derivers,
-            toposort,
-        )
+    ) -> Result<Vec<StorePath>, Error> {
+        self.base
+            .compute_fs_closures(
+                paths,
+                flip_direction,
+                include_outputs,
+                include_derivers,
+                toposort,
+            )
+            .await
     }
 
     #[inline]
     #[tracing::instrument(skip(self), err)]
     async fn query_requisites(
         &self,
-        drvs: Vec<StorePath>,
+        drvs: &[&StorePath],
         include_outputs: bool,
     ) -> Result<Vec<StorePath>, Error> {
         self.base.query_requisites(drvs, include_outputs).await
@@ -804,13 +851,13 @@ impl BaseStore for LocalStore {
     }
 
     #[inline]
-    async fn ensure_path(&self, path: StorePath) -> Result<(), Error> {
+    async fn ensure_path(&self, path: &StorePath) -> Result<(), Error> {
         self.base.ensure_path(path).await
     }
 
     #[inline]
-    fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath> {
-        self.base.try_resolve_drv(path)
+    async fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath> {
+        self.base.try_resolve_drv(path).await
     }
 }
 
@@ -870,7 +917,7 @@ impl RemoteStore {
 
         tokio_stream::iter(paths)
             .map(|p| async move {
-                if !self.is_valid_path(p.clone()).await {
+                if !self.is_valid_path(&p).await {
                     Some(p)
                 } else {
                     None
@@ -894,7 +941,7 @@ impl RemoteStore {
                 let Some(path) = &o.path else {
                     return None;
                 };
-                if !self.is_valid_path(path.clone()).await {
+                if !self.is_valid_path(path).await {
                     Some(o)
                 } else {
                     None
@@ -909,23 +956,23 @@ impl RemoteStore {
 
 impl BaseStore for RemoteStore {
     #[inline]
-    async fn is_valid_path(&self, path: StorePath) -> bool {
+    async fn is_valid_path(&self, path: &StorePath) -> bool {
         self.base.is_valid_path(path).await
     }
 
     #[inline]
-    fn query_path_info(&self, path: &StorePath) -> Option<PathInfo> {
-        self.base.query_path_info(path)
+    async fn query_path_info(&self, path: &StorePath) -> Option<PathInfo> {
+        self.base.query_path_info(path).await
     }
 
     #[inline]
-    fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo> {
-        self.base.query_path_infos(paths)
+    async fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo> {
+        self.base.query_path_infos(paths).await
     }
 
     #[inline]
-    fn compute_closure_size(&self, path: &StorePath) -> u64 {
-        self.base.compute_closure_size(path)
+    async fn compute_closure_size(&self, path: &StorePath) -> u64 {
+        self.base.compute_closure_size(path).await
     }
 
     #[inline]
@@ -948,28 +995,30 @@ impl BaseStore for RemoteStore {
 
     #[inline]
     #[tracing::instrument(skip(self), err)]
-    fn compute_fs_closures(
+    async fn compute_fs_closures(
         &self,
-        paths: &[&str],
+        paths: &[&StorePath],
         flip_direction: bool,
         include_outputs: bool,
         include_derivers: bool,
         toposort: bool,
-    ) -> Result<Vec<StorePath>, cxx::Exception> {
-        self.base.compute_fs_closures(
-            paths,
-            flip_direction,
-            include_outputs,
-            include_derivers,
-            toposort,
-        )
+    ) -> Result<Vec<StorePath>, Error> {
+        self.base
+            .compute_fs_closures(
+                paths,
+                flip_direction,
+                include_outputs,
+                include_derivers,
+                toposort,
+            )
+            .await
     }
 
     #[inline]
     #[tracing::instrument(skip(self), err)]
     async fn query_requisites(
         &self,
-        drvs: Vec<StorePath>,
+        drvs: &[&StorePath],
         include_outputs: bool,
     ) -> Result<Vec<StorePath>, Error> {
         self.base.query_requisites(drvs, include_outputs).await
@@ -1011,12 +1060,12 @@ impl BaseStore for RemoteStore {
     }
 
     #[inline]
-    async fn ensure_path(&self, path: StorePath) -> Result<(), Error> {
+    async fn ensure_path(&self, path: &StorePath) -> Result<(), Error> {
         self.base.ensure_path(path).await
     }
 
     #[inline]
-    fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath> {
-        self.base.try_resolve_drv(path)
+    async fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath> {
+        self.base.try_resolve_drv(path).await
     }
 }

@@ -712,7 +712,7 @@ impl BuildOutput {
             .iter()
             .filter_map(|o| o.path.as_ref())
             .collect::<Vec<_>>();
-        let pathinfos = store.query_path_infos(&flat_outputs);
+        let pathinfos = store.query_path_infos(&flat_outputs).await;
         let nix_support = shared::parse_nix_support_from_outputs(store, &outputs).await?;
 
         let mut outputs_map = AHashMap::new();
@@ -722,7 +722,7 @@ impl BuildOutput {
         for o in outputs {
             if let Some(path) = o.path {
                 if let Some(info) = pathinfos.get(&path) {
-                    closure_size += store.compute_closure_size(&path);
+                    closure_size += store.compute_closure_size(&path).await;
                     nar_size += info.nar_size;
                     outputs_map.insert(o.name, path);
                 }

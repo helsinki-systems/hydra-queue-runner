@@ -26,7 +26,7 @@ pub struct StepInfo {
 }
 
 impl StepInfo {
-    pub fn new(store: &nix_utils::LocalStore, step: Arc<Step>) -> Self {
+    pub async fn new(store: &nix_utils::LocalStore, step: Arc<Step>) -> Self {
         let (lowest_share_used, runnable_since) = {
             let state = step.state.read();
 
@@ -40,7 +40,7 @@ impl StepInfo {
         };
 
         Self {
-            resolved_drv_path: store.try_resolve_drv(step.get_drv_path()),
+            resolved_drv_path: store.try_resolve_drv(step.get_drv_path()).await,
             already_scheduled: false.into(),
             cancelled: false.into(),
             runnable_since,

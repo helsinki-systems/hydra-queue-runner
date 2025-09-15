@@ -519,7 +519,7 @@ async fn filter_missing(
     gcroot: &Gcroot,
     path: nix_utils::StorePath,
 ) -> Option<nix_utils::StorePath> {
-    if store.is_valid_path(path.clone()).await {
+    if store.is_valid_path(&path).await {
         nix_utils::add_root(&gcroot.root, &path);
         None
     } else {
@@ -742,43 +742,46 @@ async fn new_success_build_result_info(
         .iter()
         .filter_map(|o| o.path.as_ref())
         .collect::<Vec<_>>();
-    let pathinfos = store.query_path_infos(outputs);
-
+    let pathinfos = store.query_path_infos(outputs).await;
     let nix_support = shared::parse_nix_support_from_outputs(&store, &drv_info.outputs).await?;
+
+    let mut build_outputs = vec![];
+    for o in drv_info.outputs {
+        build_outputs.push(crate::runner_v1::Output {
+            output: Some(match o.path {
+                Some(p) => {
+                    if let Some(info) = pathinfos.get(&p) {
+                        crate::runner_v1::output::Output::Withpath(
+                            crate::runner_v1::OutputWithPath {
+                                name: o.name,
+                                closure_size: store.compute_closure_size(&p).await,
+                                path: p.into_base_name(),
+                                nar_size: info.nar_size,
+                                nar_hash: info.nar_hash.clone(),
+                            },
+                        )
+                    } else {
+                        crate::runner_v1::output::Output::Nameonly(
+                            crate::runner_v1::OutputNameOnly { name: o.name },
+                        )
+                    }
+                }
+                None => {
+                    crate::runner_v1::output::Output::Nameonly(crate::runner_v1::OutputNameOnly {
+                        name: o.name,
+                    })
+                }
+            }),
+        });
+    }
+
     Ok(crate::runner_v1::BuildResultInfo {
         machine_id: machine_id.to_string(),
         drv: drv.base_name().to_owned(),
         import_time_ms: u64::try_from(import_elapsed.as_millis())?,
         build_time_ms: u64::try_from(build_elapsed.as_millis())?,
         result_state: BuildResultState::Success as i32,
-        outputs: drv_info
-            .outputs
-            .into_iter()
-            .map(|o| crate::runner_v1::Output {
-                output: Some(match o.path {
-                    Some(p) => {
-                        if let Some(info) = pathinfos.get(&p) {
-                            crate::runner_v1::output::Output::Withpath(
-                                crate::runner_v1::OutputWithPath {
-                                    name: o.name,
-                                    closure_size: store.compute_closure_size(&p),
-                                    path: p.into_base_name(),
-                                    nar_size: info.nar_size,
-                                    nar_hash: info.nar_hash.clone(),
-                                },
-                            )
-                        } else {
-                            crate::runner_v1::output::Output::Nameonly(
-                                crate::runner_v1::OutputNameOnly { name: o.name },
-                            )
-                        }
-                    }
-                    None => crate::runner_v1::output::Output::Nameonly(
-                        crate::runner_v1::OutputNameOnly { name: o.name },
-                    ),
-                }),
-            })
-            .collect(),
+        outputs: build_outputs,
         nix_support: Some(crate::runner_v1::NixSupport {
             metrics: nix_support
                 .metrics

@@ -398,7 +398,7 @@ impl RunnerService for Server {
 
         let requisites = state
             .store
-            .query_requisites(vec![drv], req.include_outputs)
+            .query_requisites(&[&drv], req.include_outputs)
             .await
             .map_err(|e| {
                 log::error!("failed to toposort drv e={e}");

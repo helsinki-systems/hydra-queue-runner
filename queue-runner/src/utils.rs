@@ -87,7 +87,7 @@ pub async fn substitute_output(
     nix_utils::validate_statuscode(child.wait().await?)?;
     if let Some(remote_store) = remote_store {
         let paths_to_copy = store
-            .query_requisites(vec![path.to_owned()], false)
+            .query_requisites(&[path], false)
             .await
             .unwrap_or_default();
         let paths_to_copy = remote_store.query_missing_paths(paths_to_copy).await;

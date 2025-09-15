@@ -137,7 +137,7 @@ pub async fn parse_nix_support_from_outputs(
             }
             let path = StorePath::new(&path);
             let path_full_path = path.get_full_path();
-            if !store.is_valid_path(path.clone()).await {
+            if !store.is_valid_path(&path).await {
                 continue;
             }
             let Ok(metadata) = tokio::fs::metadata(&path_full_path).await else {
