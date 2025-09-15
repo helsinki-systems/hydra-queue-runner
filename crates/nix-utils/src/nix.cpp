@@ -287,6 +287,11 @@ void export_paths(const StoreWrapper &wrapper,
   }
 }
 
+void ensure_path(const StoreWrapper &wrapper, rust::Str path) {
+  auto store = wrapper._store;
+  store->ensurePath(store->followLinksToStorePath(AS_VIEW(path)));
+}
+
 rust::String try_resolve_drv(const StoreWrapper &wrapper, rust::Str path) {
   auto store = wrapper._store;
 

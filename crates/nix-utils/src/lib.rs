@@ -223,6 +223,7 @@ mod ffi {
             user_data: usize,
         ) -> Result<()>;
 
+        fn ensure_path(store: &StoreWrapper, path: &str) -> Result<()>;
         fn try_resolve_drv(store: &StoreWrapper, path: &str) -> Result<String>;
     }
 }
@@ -409,6 +410,7 @@ pub trait BaseStore {
     where
         F: FnMut(&[u8]) -> bool;
 
+    fn ensure_path(&self, path: StorePath) -> impl std::future::Future<Output = Result<(), Error>>;
     fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath>;
 }
 
@@ -604,6 +606,17 @@ impl BaseStore for BaseStoreImpl {
             std::ptr::addr_of!(callback).cast::<std::ffi::c_void>() as usize,
         )
     }
+
+    #[inline]
+    async fn ensure_path(&self, path: StorePath) -> Result<(), Error> {
+        let store = self.wrapper.clone();
+        asyncify(move || {
+            ffi::ensure_path(&store, &path.get_full_path())?;
+            Ok(())
+        })
+        .await
+    }
+
     #[inline]
     fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath> {
         let v = ffi::try_resolve_drv(&self.wrapper, &path.get_full_path()).ok()?;
@@ -788,6 +801,11 @@ impl BaseStore for LocalStore {
         F: FnMut(&[u8]) -> bool,
     {
         self.base.export_paths(paths, callback)
+    }
+
+    #[inline]
+    async fn ensure_path(&self, path: StorePath) -> Result<(), Error> {
+        self.base.ensure_path(path).await
     }
 
     #[inline]
@@ -990,6 +1008,11 @@ impl BaseStore for RemoteStore {
         F: FnMut(&[u8]) -> bool,
     {
         self.base.export_paths(paths, callback)
+    }
+
+    #[inline]
+    async fn ensure_path(&self, path: StorePath) -> Result<(), Error> {
+        self.base.ensure_path(path).await
     }
 
     #[inline]
