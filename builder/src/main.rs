@@ -2,7 +2,7 @@
 #![deny(clippy::pedantic)]
 #![allow(clippy::match_wildcard_for_single_variants)]
 
-use tracing_subscriber::{Layer as _, Registry, layer::SubscriberExt as _};
+use tracing_subscriber::{Registry, layer::SubscriberExt as _};
 
 mod config;
 mod grpc;
@@ -16,15 +16,13 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_log::LogTracer::init()?;
-    nix_utils::init_nix();
-
     let log_env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .compact()
-        .with_filter(log_env_filter);
-    let subscriber = Registry::default().with(fmt_layer);
+    let fmt_layer = tracing_subscriber::fmt::layer().compact();
+    let subscriber = Registry::default().with(log_env_filter).with(fmt_layer);
     tracing::subscriber::set_global_default(subscriber)?;
+
+    nix_utils::init_nix();
 
     let args = config::Args::new();
 

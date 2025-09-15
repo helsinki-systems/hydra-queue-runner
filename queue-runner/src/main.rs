@@ -7,6 +7,7 @@ mod config;
 mod io;
 mod server;
 mod state;
+mod tracing;
 mod utils;
 
 #[cfg(not(target_env = "msvc"))]
@@ -47,10 +48,10 @@ fn spawn_config_reloader(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let reload_handle = config::init_tracing()?;
+    let tracing_guard = tracing::init()?;
     nix_utils::init_nix();
 
-    let state = State::new(reload_handle).await?;
+    let state = State::new(&tracing_guard).await?;
     if state.args.status {
         state.get_status_from_main_process().await?;
         return Ok(());

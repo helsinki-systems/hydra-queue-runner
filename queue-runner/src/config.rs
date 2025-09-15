@@ -1,44 +1,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use clap::Parser;
-use tracing_subscriber::{Layer as _, Registry, layer::SubscriberExt as _};
-
-#[cfg(feature = "tokio-console")]
-pub fn init_tracing() -> anyhow::Result<
-    tracing_subscriber::reload::Handle<tracing_subscriber::EnvFilter, tracing_subscriber::Registry>,
-> {
-    tracing_log::LogTracer::init()?;
-    let (log_env_filter, reload_handle) = tracing_subscriber::reload::Layer::new(
-        tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-    );
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .compact()
-        .with_filter(log_env_filter);
-
-    let console_layer = console_subscriber::spawn();
-    let subscriber = Registry::default().with(fmt_layer).with(console_layer);
-    tracing::subscriber::set_global_default(subscriber)?;
-    Ok(reload_handle)
-}
-
-#[cfg(not(feature = "tokio-console"))]
-pub fn init_tracing() -> anyhow::Result<
-    tracing_subscriber::reload::Handle<tracing_subscriber::EnvFilter, tracing_subscriber::Registry>,
-> {
-    tracing_log::LogTracer::init()?;
-    let (log_env_filter, reload_handle) = tracing_subscriber::reload::Layer::new(
-        tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-    );
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .compact()
-        .with_filter(log_env_filter);
-
-    let subscriber = Registry::default().with(fmt_layer);
-    tracing::subscriber::set_global_default(subscriber)?;
-    Ok(reload_handle)
-}
 
 #[derive(Debug, Clone)]
 pub enum BindSocket {

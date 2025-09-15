@@ -56,6 +56,15 @@ chrono = { version = "0.4.38", default-features = false, features = [
 prometheus = { version = "0.14.0", default-features = false, features = ["process"] }
 procfs = "0.18"
 
+opentelemetry = { version = "0.31.0", optional = true }
+opentelemetry_sdk = { version = "0.31.0", features = [
+  "rt-tokio",
+], optional = true }
+opentelemetry-otlp = { version = "0.31.0", optional = true, features = ["grpc-tonic"] }
+opentelemetry-semantic-conventions = { version = "0.31.0", optional = true }
+tracing-opentelemetry = { version = "0.32.0", optional = true }
+
+
 db = { path = "../crates/db" }
 nix-utils = { path = "../crates/nix-utils" }
 shared = { path = "../crates/shared" }
@@ -68,3 +77,10 @@ tonic-prost-build = "0.14"
 
 [features]
 tokio-console = ["console-subscriber"]
+otel = [
+  "opentelemetry",
+  "opentelemetry_sdk",
+  "opentelemetry-otlp",
+  "opentelemetry-semantic-conventions",
+  "tracing-opentelemetry",
+]
