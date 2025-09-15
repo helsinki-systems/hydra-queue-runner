@@ -528,11 +528,12 @@ async fn filter_missing(
 }
 
 async fn substitute_paths(
-    paths: &[&nix_utils::StorePath],
-    build_opts: &nix_utils::BuildOptions,
+    store: &nix_utils::LocalStore,
+    paths: &[nix_utils::StorePath],
 ) -> anyhow::Result<()> {
-    let (mut child, _) = nix_utils::realise_drvs(paths, build_opts, false).await?;
-    nix_utils::validate_statuscode(child.wait().await?)?;
+    for p in paths {
+        store.ensure_path(p).await?;
+    }
     Ok(())
 }
 
@@ -545,7 +546,7 @@ async fn import_paths(
     gcroot: &Gcroot,
     paths: Vec<nix_utils::StorePath>,
     filter: bool,
-    use_substitutes: Option<&nix_utils::BuildOptions>,
+    use_substitutes: bool,
 ) -> anyhow::Result<()> {
     use futures::StreamExt as _;
 
@@ -560,9 +561,9 @@ async fn import_paths(
     } else {
         paths
     };
-    let paths = if let Some(build_opts) = use_substitutes {
+    let paths = if use_substitutes {
         // we can ignore the error
-        let _ = substitute_paths(&paths.iter().collect::<Vec<_>>(), build_opts).await;
+        let _ = substitute_paths(&store, &paths).await;
         let paths = futures::StreamExt::map(tokio_stream::iter(paths), |p| {
             filter_missing(&store, gcroot, p)
         })
@@ -625,12 +626,6 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     .collect::<Vec<_>>()
     .await;
 
-    let use_substitutes = if use_substitutes {
-        Some(nix_utils::BuildOptions::substitute_only())
-    } else {
-        None
-    };
-
     let (input_drvs, input_srcs): (Vec<_>, Vec<_>) = requisites
         .into_iter()
         .partition(nix_utils::StorePath::is_drv);
@@ -642,7 +637,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
             gcroot,
             srcs.to_vec(),
             true,
-            use_substitutes.as_ref(),
+            use_substitutes,
         )
         .await?;
     }
@@ -654,7 +649,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
             gcroot,
             drvs.to_vec(),
             true,
-            None, // never use substitute for drvs
+            false, // never use substitute for drvs
         )
         .await?;
     }
@@ -687,7 +682,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
             gcroot,
             other.to_vec(),
             false,
-            use_substitutes.as_ref(),
+            use_substitutes,
         )
         .await?;
     }

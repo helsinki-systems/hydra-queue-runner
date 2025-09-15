@@ -1858,7 +1858,6 @@ impl State {
 
             let mut substituted = 0;
             let missing_outputs_len = missing_outputs.len();
-            let build_opts = nix_utils::BuildOptions::substitute_only();
 
             let mut stream = futures::StreamExt::map(tokio_stream::iter(missing_outputs), |o| {
                 self.metrics.nr_substitutes_started.inc();
@@ -1868,7 +1867,6 @@ impl State {
                     o,
                     build.id,
                     &drv_path,
-                    &build_opts,
                     remote_store.as_ref(),
                 )
             })

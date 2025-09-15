@@ -115,12 +115,6 @@ pub struct BuildOptions {
     max_log_size: u64,
     max_silent_time: i32,
     build_timeout: i32,
-    substitute: bool,
-    build: bool,
-}
-
-fn format_bool(v: bool) -> &'static str {
-    if v { "true" } else { "false" }
 }
 
 impl BuildOptions {
@@ -129,8 +123,6 @@ impl BuildOptions {
             max_log_size: max_log_size.unwrap_or(64u64 << 20),
             max_silent_time: 0,
             build_timeout: 0,
-            substitute: false,
-            build: true,
         }
     }
 
@@ -139,18 +131,7 @@ impl BuildOptions {
             max_log_size,
             max_silent_time,
             build_timeout,
-            substitute: false,
-            build: true,
         }
-    }
-
-    pub fn substitute_only() -> Self {
-        let mut o = Self::new(None);
-        o.build = false;
-        o.substitute = true;
-        o.max_silent_time = 60 * 5;
-        o.build_timeout = 60 * 5;
-        o
     }
 
     pub fn set_max_silent_time(&mut self, max_silent_time: i32) {
@@ -205,10 +186,10 @@ pub async fn realise_drvs(
             &opts.max_log_size.to_string(),
             "--option",
             "fallback",
-            format_bool(opts.build),
+            "true",
             "--option",
             "substitute",
-            format_bool(opts.substitute),
+            "false",
             "--option",
             "builders",
             "",

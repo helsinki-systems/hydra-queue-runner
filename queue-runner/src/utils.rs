@@ -68,14 +68,13 @@ pub async fn finish_build_step(
     Ok(())
 }
 
-#[tracing::instrument(skip(db, store, o, build_opts, remote_store), fields(%drv_path), err(level=tracing::Level::WARN))]
+#[tracing::instrument(skip(db, store, o, remote_store), fields(%drv_path), err(level=tracing::Level::WARN))]
 pub async fn substitute_output(
     db: db::Database,
     store: nix_utils::LocalStore,
     o: nix_utils::DerivationOutput,
     build_id: BuildID,
     drv_path: &nix_utils::StorePath,
-    build_opts: &nix_utils::BuildOptions,
     remote_store: Option<&nix_utils::RemoteStore>,
 ) -> anyhow::Result<()> {
     let Some(path) = &o.path else {
@@ -83,8 +82,7 @@ pub async fn substitute_output(
     };
 
     let starttime = i32::try_from(chrono::Utc::now().timestamp())?; // TODO
-    let (mut child, _) = nix_utils::realise_drv(path, build_opts, false).await?;
-    nix_utils::validate_statuscode(child.wait().await?)?;
+    store.ensure_path(path).await?;
     if let Some(remote_store) = remote_store {
         let paths_to_copy = store
             .query_requisites(&[path], false)
