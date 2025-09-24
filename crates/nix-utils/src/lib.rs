@@ -232,6 +232,12 @@ pub use ffi::{S3Stats, StoreStats};
 
 #[inline]
 #[must_use]
+pub fn is_subpath(base: &std::path::Path, path: &std::path::Path) -> bool {
+    path.starts_with(base)
+}
+
+#[inline]
+#[must_use]
 pub fn get_nix_prefix() -> String {
     ffi::get_nix_prefix()
 }
@@ -718,6 +724,15 @@ impl LocalStore {
 
     pub fn as_base_store(&self) -> &BaseStoreImpl {
         &self.base
+    }
+
+    #[must_use]
+    /// Check whether a path is inside the nix store.
+    pub fn is_in_store(&self, path: &StorePath) -> bool {
+        is_subpath(
+            std::path::Path::new(&get_store_dir()),
+            std::path::Path::new(&path.get_full_path()),
+        )
     }
 
     #[tracing::instrument(skip(self, outputs))]

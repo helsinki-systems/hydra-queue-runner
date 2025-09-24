@@ -738,7 +738,7 @@ async fn new_success_build_result_info(
         .filter_map(|o| o.path.as_ref())
         .collect::<Vec<_>>();
     let pathinfos = store.query_path_infos(outputs).await;
-    let nix_support = shared::parse_nix_support_from_outputs(&store, &drv_info.outputs).await?;
+    let nix_support = shared::parse_nix_support_from_outputs(&drv_info.outputs).await?;
 
     let mut build_outputs = vec![];
     for o in drv_info.outputs {
