@@ -228,9 +228,13 @@ impl State {
             async move {
                 let mut import_elapsed = std::time::Duration::from_millis(0);
                 let mut build_elapsed = std::time::Duration::from_millis(0);
-                match self_
-                    .process_build(client.clone(), m, &mut import_elapsed, &mut build_elapsed)
-                    .await
+                match Box::pin(self_.process_build(
+                    client.clone(),
+                    m,
+                    &mut import_elapsed,
+                    &mut build_elapsed,
+                ))
+                .await
                 {
                     Ok(()) => {
                         log::info!("Successfully completed build process for {drv}");
@@ -459,14 +463,14 @@ impl State {
                 step_status: StepStatus::PostProcessing as i32,
             })
             .await;
-        let build_results = new_success_build_result_info(
+        let build_results = Box::pin(new_success_build_result_info(
             self.store.clone(),
             machine_id,
             &drv,
             drv_info,
             *import_elapsed,
             *build_elapsed,
-        )
+        ))
         .await
         .map_err(JobFailure::PostProcessing)?;
         // This part is stupid, if writing doesnt work, we try to write a failure, maybe that works
@@ -738,7 +742,7 @@ async fn new_success_build_result_info(
         .filter_map(|o| o.path.as_ref())
         .collect::<Vec<_>>();
     let pathinfos = store.query_path_infos(outputs).await;
-    let nix_support = shared::parse_nix_support_from_outputs(&drv_info.outputs).await?;
+    let nix_support = Box::pin(shared::parse_nix_support_from_outputs(&drv_info.outputs)).await?;
 
     let mut build_outputs = vec![];
     for o in drv_info.outputs {

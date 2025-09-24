@@ -1,0 +1,25 @@
+- [x] push to binary cache
+- [x] substitute remote
+- [x] extract hydra-metrics
+- [x] prometheus metrics
+- [x] License
+- [x] Readme
+- [x] tracing
+- [x] config reload callback
+- [x] refactor
+- [x] notify/listen
+- [x] id -> machine_id
+- [x] nix module
+- [x] gcroots
+- [x] mtls without nginx
+- [x] unsupported steps
+- [ ] handle todos im code
+- [x] upload nix logs
+- [x] storepath abstraction
+- [ ] migrate hydra to 64bit timestamps
+- [x] Jobset::pruneSteps
+- [x] failed step
+- [x] retry
+- [x] ensure that all timers are tracked in the same way
+- [ ] Is deterministic
+- [x] Also implement BuildResult Status codes into RemoteResult + canRetry

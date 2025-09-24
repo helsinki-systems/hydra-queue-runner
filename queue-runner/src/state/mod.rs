@@ -395,14 +395,14 @@ impl State {
             let nr_added: Arc<AtomicI64> = Arc::new(0.into());
             let now = Instant::now();
 
-            self.create_build(
+            Box::pin(self.create_build(
                 build,
                 nr_added.clone(),
                 new_builds_by_id.clone(),
                 &new_builds_by_path,
                 finished_drvs.clone(),
                 new_runnable.clone(),
-            )
+            ))
             .await;
 
             // we should never run into this issue
@@ -552,8 +552,7 @@ impl State {
         log::debug!("new_builds_by_path: {new_builds_by_path:?}");
 
         let new_builds_by_id = Arc::new(parking_lot::RwLock::new(new_builds_by_id));
-        self.process_new_builds(new_ids, new_builds_by_id, new_builds_by_path)
-            .await;
+        Box::pin(self.process_new_builds(new_ids, new_builds_by_id, new_builds_by_path)).await;
         Ok(())
     }
 
@@ -561,7 +560,7 @@ impl State {
     pub fn start_queue_monitor_loop(self: Arc<Self>) -> tokio::task::AbortHandle {
         let task = tokio::task::spawn({
             async move {
-                if let Err(e) = self.queue_monitor_loop().await {
+                if let Err(e) = Box::pin(self.queue_monitor_loop()).await {
                     log::error!("Failed to spawn queue monitor loop. e={e}");
                 }
             }
@@ -1043,8 +1042,7 @@ impl State {
             machine.id
         );
         let mut job = machine.remove_job(drv_path).ok_or(anyhow::anyhow!(
-            "Job is missing in machine.jobs m={}",
-            machine
+            "Job is missing in machine.jobs m={machine}",
         ))?;
 
         {
@@ -1214,8 +1212,7 @@ impl State {
             machine.id
         );
         let mut job = machine.remove_job(drv_path).ok_or(anyhow::anyhow!(
-            "Job is missing in machine.jobs m={}",
-            machine
+            "Job is missing in machine.jobs m={machine}",
         ))?;
 
         job.result.step_status = BuildStatus::Failed;
