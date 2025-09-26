@@ -1,4 +1,5 @@
 mod drv;
+mod realisation;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -28,9 +29,8 @@ pub enum Error {
 }
 
 use ahash::AHashMap;
-pub use drv::{
-    BuildOptions, Derivation, Output as DerivationOutput, query_drv, realise_drv, realise_drvs,
-};
+pub use drv::{Derivation, Output as DerivationOutput, query_drv};
+pub use realisation::{BuildOptions, realise_drv, realise_drvs};
 
 pub const HASH_LEN: usize = 32;
 
