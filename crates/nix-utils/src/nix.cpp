@@ -1,4 +1,5 @@
 #include "nix-utils/include/nix.h"
+#include "nix-utils/include/utils.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -15,36 +16,6 @@
 #include <nix/store/s3-binary-cache-store.hh>
 
 static std::atomic<bool> initializedNix = false;
-
-#define AS_VIEW(rstr) std::string_view(rstr.data(), rstr.length())
-#define AS_STRING(rstr) std::string(rstr.data(), rstr.length())
-
-static inline rust::String
-extract_opt_path(const nix::Store &store,
-                 const std::optional<nix::StorePath> &v) {
-  // TODO(conni2461): Replace with option
-  return v ? store.printStorePath(*v) : "";
-}
-
-static inline rust::Vec<rust::String>
-extract_path_set(const nix::Store &store, const nix::StorePathSet &set) {
-  rust::Vec<rust::String> data;
-  data.reserve(set.size());
-  for (const nix::StorePath &path : set) {
-    data.emplace_back(store.printStorePath(path));
-  }
-  return data;
-}
-
-static inline rust::Vec<rust::String>
-extract_paths(const nix::Store &store, const nix::StorePaths &set) {
-  rust::Vec<rust::String> data;
-  data.reserve(set.size());
-  for (const nix::StorePath &path : set) {
-    data.emplace_back(store.printStorePath(path));
-  }
-  return data;
-}
 
 namespace nix_utils {
 StoreWrapper::StoreWrapper(nix::ref<nix::Store> _store) : _store(_store) {}
