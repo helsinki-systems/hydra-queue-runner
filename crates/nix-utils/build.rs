@@ -7,6 +7,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/nix.cpp");
     println!("cargo:rerun-if-changed=src/lib.rs");
+    println!("cargo:rerun-if-changed=src/hash.rs");
     println!("cargo:rerun-if-changed=src/cxx/");
 
     let library = pkg_config::probe_library("nix-main").unwrap();
@@ -14,8 +15,8 @@ fn main() {
     pkg_config::probe_library("nix-util").unwrap();
     pkg_config::probe_library("libsodium").unwrap();
 
-    cxx_build::bridges(["src/lib.rs"])
-        .files(["src/nix.cpp", "src/cxx/utils.cpp"])
+    cxx_build::bridges(["src/lib.rs", "src/hash.rs"])
+        .files(["src/nix.cpp", "src/cxx/utils.cpp", "src/cxx/hash.cpp"])
         .flag("-std=c++2a")
         .flag("-O2")
         .includes(library.include_paths)
