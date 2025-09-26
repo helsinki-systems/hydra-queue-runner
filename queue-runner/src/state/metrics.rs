@@ -342,7 +342,7 @@ impl PromMetrics {
             for (t, s) in queue_stats {
                 if let Ok(v) = i64::try_from(s.total_runnable) {
                     self.runnable_per_machine_type
-                        .with_label_values(&[t.clone()])
+                        .with_label_values(std::slice::from_ref(&t))
                         .set(v);
                 }
                 if let Ok(v) = i64::try_from(s.active_runnable) {

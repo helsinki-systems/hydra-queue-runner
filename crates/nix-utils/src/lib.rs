@@ -297,10 +297,7 @@ where
 {
     match tokio::task::spawn_blocking(f).await {
         Ok(res) => Ok(res?),
-        Err(_) => Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "background task failed",
-        ))?,
+        Err(_) => Err(std::io::Error::other("background task failed"))?,
     }
 }
 
