@@ -1,5 +1,6 @@
 mod atomic;
 mod build;
+mod fod_checker;
 mod jobset;
 mod machine;
 mod metrics;
@@ -24,6 +25,7 @@ use secrecy::ExposeSecret as _;
 
 use crate::config::{App, Cli};
 use crate::state::build::get_mark_build_sccuess_data;
+pub use crate::state::fod_checker::FodChecker;
 use crate::state::jobset::SCHEDULING_WINDOW;
 use crate::utils::finish_build_step;
 use machine::Machines;
@@ -54,14 +56,13 @@ pub struct State {
 
     pub log_dir: std::path::PathBuf,
 
-    // hardcoded values fromold queue runner
-    // pub maxParallelCopyClosure: u32 = 4;
-    // pub maxUnsupportedTime: u32 = 0;
     pub builds: parking_lot::RwLock<AHashMap<BuildID, Arc<Build>>>,
     // Projectname, Jobsetname
     pub jobsets: parking_lot::RwLock<AHashMap<(String, String), Arc<Jobset>>>,
     pub steps: parking_lot::RwLock<AHashMap<nix_utils::StorePath, Weak<Step>>>,
     pub queues: tokio::sync::RwLock<queue::Queues>,
+
+    pub fod_checker: Option<Arc<FodChecker>>,
 
     pub started_at: chrono::DateTime<chrono::Utc>,
 
@@ -97,7 +98,6 @@ impl State {
         Ok(Arc::new(Self {
             store,
             remote_stores: parking_lot::RwLock::new(remote_stores),
-            config,
             cli,
             db,
             machines: Machines::new(),
@@ -106,10 +106,16 @@ impl State {
             jobsets: parking_lot::RwLock::new(AHashMap::new()),
             steps: parking_lot::RwLock::new(AHashMap::new()),
             queues: tokio::sync::RwLock::new(queue::Queues::new()),
+            fod_checker: if config.get_enable_fod_checker() {
+                Some(Arc::new(FodChecker::new(None)))
+            } else {
+                None
+            },
             started_at: chrono::Utc::now(),
             metrics: metrics::PromMetrics::new()?,
             notify_dispatch: tokio::sync::Notify::new(),
             uploader: uploader::Uploader::new(),
+            config,
         }))
     }
 
@@ -124,6 +130,7 @@ impl State {
         let curr_db_url = self.config.get_db_url();
         let curr_sort_fn = self.config.get_sort_fn();
         let curr_remote_stores = self.config.get_remote_store_addrs();
+        let curr_enable_fod_checker = self.config.get_enable_fod_checker();
         let mut new_remote_stores = vec![];
         if curr_remote_stores != new_config.remote_store_addr {
             for uri in &new_config.remote_store_addr {
@@ -142,6 +149,11 @@ impl State {
             let mut remote_stores = self.remote_stores.write();
             *remote_stores = new_remote_stores;
         }
+
+        if curr_enable_fod_checker != new_config.enable_fod_checker {
+            log::warn!("Changing the value of enable_fod_checker currently requires a restart!");
+        }
+
         Ok(())
     }
 
@@ -452,6 +464,9 @@ impl State {
         // we can just always trigger dispatch as we might have a free machine and its cheap
         self.metrics.queue_checks_finished.inc();
         self.trigger_dispatch();
+        if let Some(fod_checker) = &self.fod_checker {
+            fod_checker.trigger_traverse();
+        }
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -1804,6 +1819,9 @@ impl State {
         let Some(drv) = nix_utils::query_drv(&drv_path).await.ok().flatten() else {
             return CreateStepResult::None;
         };
+        if let Some(fod_checker) = &self.fod_checker {
+            fod_checker.add_ca_drv_parsed(&drv_path, &drv);
+        }
 
         let use_substitutes = self.config.get_use_substitutes();
         // TODO: check all remote stores
@@ -1884,6 +1902,10 @@ impl State {
         }
 
         if finished {
+            if let Some(fod_checker) = &self.fod_checker {
+                fod_checker.to_traverse(&drv_path);
+            }
+
             let mut finished_drvs = finished_drvs.write();
             finished_drvs.insert(drv_path.clone());
             step.set_finished(true);

@@ -1,11 +1,8 @@
 #![allow(dead_code)]
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{
-        Arc, Weak,
-        atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering},
-    },
+use std::sync::{
+    Arc, Weak,
+    atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering},
 };
 
 use ahash::{AHashMap, AHashSet};
@@ -21,7 +18,7 @@ pub type AtomicBuildID = AtomicI32;
 pub struct Build {
     pub id: BuildID,
     pub drv_path: nix_utils::StorePath,
-    pub outputs: HashMap<String, nix_utils::StorePath>,
+    pub outputs: AHashMap<String, nix_utils::StorePath>,
     pub jobset_id: JobsetID,
     pub name: String,
     pub timestamp: chrono::DateTime<chrono::Utc>,
@@ -58,7 +55,7 @@ impl Build {
         Arc::new(Self {
             id: BuildID::MAX,
             drv_path: drv_path.to_owned(),
-            outputs: HashMap::new(),
+            outputs: AHashMap::new(),
             jobset_id: JobsetID::MAX,
             name: "debug".into(),
             timestamp: chrono::Utc::now(),
@@ -77,7 +74,7 @@ impl Build {
         Ok(Arc::new(Self {
             id: v.id,
             drv_path: nix_utils::StorePath::new(&v.drvpath),
-            outputs: HashMap::new(),
+            outputs: AHashMap::new(),
             jobset_id: v.jobset_id,
             name: v.job,
             timestamp: chrono::Utc.timestamp_opt(v.timestamp, 0).single().ok_or(
@@ -216,9 +213,9 @@ impl StepAtomicState {
 
 #[derive(Debug)]
 pub struct StepState {
-    pub deps: HashSet<Arc<Step>>, // The build steps on which this step depends.
-    pub rdeps: Vec<Weak<Step>>,   // The build steps that depend on this step.
-    pub builds: Vec<Weak<Build>>, // Builds that have this step as the top-level derivation.
+    pub deps: AHashSet<Arc<Step>>, // The build steps on which this step depends.
+    pub rdeps: Vec<Weak<Step>>,    // The build steps that depend on this step.
+    pub builds: Vec<Weak<Build>>,  // Builds that have this step as the top-level derivation.
     pub jobsets: AHashSet<Arc<Jobset>>, // Jobsets to which this step belongs. Used for determining scheduling priority.
 }
 
@@ -231,7 +228,7 @@ impl Default for StepState {
 impl StepState {
     pub fn new() -> Self {
         Self {
-            deps: HashSet::new(),
+            deps: AHashSet::new(),
             rdeps: Vec::new(),
             builds: Vec::new(),
             jobsets: AHashSet::new(),

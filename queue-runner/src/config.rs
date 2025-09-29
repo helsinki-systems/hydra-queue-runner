@@ -158,6 +158,10 @@ fn default_concurrent_upload_limit() -> usize {
     5
 }
 
+fn default_enable_fod_checker() -> bool {
+    false
+}
+
 #[derive(Debug, Default, serde::Deserialize, Copy, Clone, PartialEq, Eq)]
 pub enum MachineSortFn {
     SpeedFactorOnly,
@@ -232,6 +236,9 @@ struct AppConfig {
     concurrent_upload_limit: usize,
 
     token_list_path: Option<std::path::PathBuf>,
+
+    #[serde(default = "default_enable_fod_checker")]
+    enable_fod_checker: bool,
 }
 
 /// Prepared configuration of the application
@@ -258,6 +265,7 @@ pub struct PreparedApp {
     max_concurrent_downloads: u32,
     concurrent_upload_limit: usize,
     token_list: Option<Vec<String>>,
+    pub enable_fod_checker: bool,
 }
 
 impl TryFrom<AppConfig> for PreparedApp {
@@ -339,6 +347,7 @@ impl TryFrom<AppConfig> for PreparedApp {
             max_concurrent_downloads: val.max_concurrent_downloads,
             concurrent_upload_limit: val.concurrent_upload_limit,
             token_list,
+            enable_fod_checker: val.enable_fod_checker,
         })
     }
 }
@@ -483,6 +492,12 @@ impl App {
             .token_list
             .as_ref()
             .is_some_and(|l| l.iter().any(|t| t == token))
+    }
+
+    #[must_use]
+    pub fn get_enable_fod_checker(&self) -> bool {
+        let inner = self.inner.load();
+        inner.enable_fod_checker
     }
 }
 
