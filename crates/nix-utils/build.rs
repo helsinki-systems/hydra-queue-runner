@@ -17,7 +17,7 @@ fn main() {
 
     cxx_build::bridges(["src/lib.rs", "src/hash.rs"])
         .files(["src/nix.cpp", "src/cxx/utils.cpp", "src/cxx/hash.cpp"])
-        .flag("-std=c++2a")
+        .flag("-std=c++23")
         .flag("-O2")
         .includes(library.include_paths)
         .compile("nix_utils");

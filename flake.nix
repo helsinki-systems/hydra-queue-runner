@@ -2,18 +2,21 @@
   inputs = {
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05-small";
+    nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable-small";
   };
 
   outputs =
     {
       self,
       nixpkgs,
+      nixpkgs-unstable,
       flake-utils,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = import nixpkgs { inherit system; };
+        unstable = import nixpkgs-unstable { inherit system; };
         inherit (pkgs) rustPackages lib;
 
         nativeBuildInputs = with pkgs; [
@@ -36,11 +39,11 @@
           tokio-console
         ];
         buildInputs = with pkgs; [
-          openssl
+          unstable.openssl
           zlib
           protobuf
 
-          nixVersions.nix_2_29
+          unstable.nixVersions.nix_2_31
           nlohmann_json
           libsodium
           boost
