@@ -1125,7 +1125,7 @@ impl State {
 
             if direct.is_empty() {
                 let mut steps = self.steps.write();
-                steps.retain(|s, _| s != step_info.step.get_drv_path());
+                steps.remove(step_info.step.get_drv_path());
             }
         }
 
@@ -1461,7 +1461,7 @@ impl State {
             for s in steps {
                 let drv = s.get_drv_path();
                 log::debug!("finishing build step '{drv}'");
-                current_steps_map.retain(|path, _| path != drv);
+                current_steps_map.remove(drv);
             }
         }
 
