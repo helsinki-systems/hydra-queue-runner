@@ -9,7 +9,12 @@ use futures::TryFutureExt as _;
 use tonic::Request;
 use tracing::Instrument;
 
-use crate::runner_v1::{BuildResultState, StepStatus, StepUpdate};
+use crate::grpc::BuilderClient;
+use crate::grpc::runner_v1::{
+    AbortMessage, BuildMessage, BuildMetric, BuildProduct, BuildResultInfo, BuildResultState,
+    FetchRequisitesRequest, JoinMessage, LogChunk, NarData, NixSupport, Output, OutputNameOnly,
+    OutputWithPath, PingMessage, PressureState, StepStatus, StepUpdate, StorePaths, output,
+};
 use nix_utils::BaseStore as _;
 
 #[derive(thiserror::Error, Debug)]
@@ -141,10 +146,10 @@ impl State {
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn get_join_message(&self) -> anyhow::Result<crate::runner_v1::JoinMessage> {
+    pub async fn get_join_message(&self) -> anyhow::Result<JoinMessage> {
         let sys = crate::system::BaseSystemInfo::new()?;
 
-        let join = crate::runner_v1::JoinMessage {
+        let join = JoinMessage {
             machine_id: self.id.to_string(),
             systems: if let Some(s) = &self.config.systems {
                 s.clone()
@@ -186,16 +191,16 @@ impl State {
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub fn get_ping_message(&self) -> anyhow::Result<crate::runner_v1::PingMessage> {
+    pub fn get_ping_message(&self) -> anyhow::Result<PingMessage> {
         let sysinfo = crate::system::SystemLoad::new()?;
 
-        Ok(crate::runner_v1::PingMessage {
+        Ok(PingMessage {
             machine_id: self.id.to_string(),
             load1: sysinfo.load_avg_1,
             load5: sysinfo.load_avg_5,
             load15: sysinfo.load_avg_15,
             mem_usage: sysinfo.mem_usage,
-            pressure: sysinfo.pressure.map(|p| crate::runner_v1::PressureState {
+            pressure: sysinfo.pressure.map(|p| PressureState {
                 cpu_some: p.cpu_some.map(Into::into),
                 mem_some: p.mem_some.map(Into::into),
                 mem_full: p.mem_full.map(Into::into),
@@ -209,13 +214,7 @@ impl State {
     }
 
     #[tracing::instrument(skip(self, client, m), fields(drv=%m.drv))]
-    pub fn schedule_build(
-        self: Arc<Self>,
-        mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
-            tonic::transport::Channel,
-        >,
-        m: crate::runner_v1::BuildMessage,
-    ) {
+    pub fn schedule_build(self: Arc<Self>, mut client: BuilderClient, m: BuildMessage) {
         let drv = nix_utils::StorePath::new(&m.drv);
         if self.contains_build(&drv) {
             return;
@@ -243,7 +242,7 @@ impl State {
                     Err(e) => {
                         log::error!("Build of {drv} failed with {e}");
                         self_.remove_build(&drv);
-                        let failed_build = crate::runner_v1::BuildResultInfo {
+                        let failed_build = BuildResultInfo {
                             machine_id: self_.id.to_string(),
                             drv: drv.into_base_name(),
                             import_time_ms: u64::try_from(import_elapsed.as_millis())
@@ -308,7 +307,7 @@ impl State {
     }
 
     #[tracing::instrument(skip(self, m), fields(drv=%m.drv))]
-    pub fn abort_build(&self, m: &crate::runner_v1::AbortMessage) {
+    pub fn abort_build(&self, m: &AbortMessage) {
         if let Some(b) = self.remove_build(&nix_utils::StorePath::new(&m.drv)) {
             b.abort();
         }
@@ -326,10 +325,8 @@ impl State {
     #[allow(clippy::too_many_lines)]
     async fn process_build(
         &self,
-        mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
-            tonic::transport::Channel,
-        >,
-        m: crate::runner_v1::BuildMessage,
+        mut client: BuilderClient,
+        m: BuildMessage,
         import_elapsed: &mut std::time::Duration,
         build_elapsed: &mut std::time::Duration,
     ) -> Result<(), JobFailure> {
@@ -358,7 +355,7 @@ impl State {
             })
             .await;
         let requisites = client
-            .fetch_drv_requisites(crate::runner_v1::FetchRequisitesRequest {
+            .fetch_drv_requisites(FetchRequisitesRequest {
                 path: resolved_drv.as_ref().unwrap_or(&drv).base_name().to_owned(),
                 include_outputs: false,
             })
@@ -411,7 +408,7 @@ impl State {
         let log_stream = async_stream::stream! {
             while let Some(chunk) = log_output.next().await {
                 match chunk {
-                    Ok(chunk) => yield crate::runner_v1::LogChunk {
+                    Ok(chunk) => yield LogChunk {
                         drv: drv2.base_name().to_owned(),
                         data: format!("{chunk}\n").into(),
                     },
@@ -543,9 +540,7 @@ async fn substitute_paths(
 
 #[tracing::instrument(skip(client, store), fields(%gcroot), err)]
 async fn import_paths(
-    mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
-        tonic::transport::Channel,
-    >,
+    mut client: BuilderClient,
     store: nix_utils::LocalStore,
     gcroot: &Gcroot,
     paths: Vec<nix_utils::StorePath>,
@@ -585,7 +580,7 @@ async fn import_paths(
 
     log::debug!("Start importing paths");
     let stream = client
-        .stream_files(crate::runner_v1::StorePaths {
+        .stream_files(StorePaths {
             paths: paths.iter().map(|p| p.base_name().to_owned()).collect(),
         })
         .await?
@@ -610,9 +605,7 @@ async fn import_paths(
 
 #[tracing::instrument(skip(client, store, requisites), fields(%gcroot, %drv), err)]
 async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
-    client: &mut crate::runner_v1::runner_service_client::RunnerServiceClient<
-        tonic::transport::Channel,
-    >,
+    client: &mut BuilderClient,
     store: nix_utils::LocalStore,
     gcroot: &Gcroot,
     drv: &nix_utils::StorePath,
@@ -660,7 +653,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
 
     let full_requisites = client
         .clone()
-        .fetch_drv_requisites(crate::runner_v1::FetchRequisitesRequest {
+        .fetch_drv_requisites(FetchRequisitesRequest {
             path: drv.base_name().to_owned(),
             include_outputs: true,
         })
@@ -696,17 +689,15 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
 
 #[tracing::instrument(skip(client, store), err)]
 async fn upload_nars(
-    mut client: crate::runner_v1::runner_service_client::RunnerServiceClient<
-        tonic::transport::Channel,
-    >,
+    mut client: BuilderClient,
     store: nix_utils::LocalStore,
     nars: Vec<nix_utils::StorePath>,
 ) -> anyhow::Result<()> {
     log::debug!("Start uploading paths");
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<crate::runner_v1::NarData>();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<NarData>();
     let closure = move |data: &[u8]| {
         let data = Vec::from(data);
-        tx.send(crate::runner_v1::NarData { chunk: data }).is_ok()
+        tx.send(NarData { chunk: data }).is_ok()
     };
     let a = client
         .build_result(tokio_stream::wrappers::UnboundedReceiverStream::new(rx))
@@ -735,7 +726,7 @@ async fn new_success_build_result_info(
     drv_info: nix_utils::Derivation,
     import_elapsed: std::time::Duration,
     build_elapsed: std::time::Duration,
-) -> anyhow::Result<crate::runner_v1::BuildResultInfo> {
+) -> anyhow::Result<BuildResultInfo> {
     let outputs = &drv_info
         .outputs
         .iter()
@@ -746,46 +737,38 @@ async fn new_success_build_result_info(
 
     let mut build_outputs = vec![];
     for o in drv_info.outputs {
-        build_outputs.push(crate::runner_v1::Output {
+        build_outputs.push(Output {
             output: Some(match o.path {
                 Some(p) => {
                     if let Some(info) = pathinfos.get(&p) {
-                        crate::runner_v1::output::Output::Withpath(
-                            crate::runner_v1::OutputWithPath {
-                                name: o.name,
-                                closure_size: store.compute_closure_size(&p).await,
-                                path: p.into_base_name(),
-                                nar_size: info.nar_size,
-                                nar_hash: info.nar_hash.clone(),
-                            },
-                        )
+                        output::Output::Withpath(OutputWithPath {
+                            name: o.name,
+                            closure_size: store.compute_closure_size(&p).await,
+                            path: p.into_base_name(),
+                            nar_size: info.nar_size,
+                            nar_hash: info.nar_hash.clone(),
+                        })
                     } else {
-                        crate::runner_v1::output::Output::Nameonly(
-                            crate::runner_v1::OutputNameOnly { name: o.name },
-                        )
+                        output::Output::Nameonly(OutputNameOnly { name: o.name })
                     }
                 }
-                None => {
-                    crate::runner_v1::output::Output::Nameonly(crate::runner_v1::OutputNameOnly {
-                        name: o.name,
-                    })
-                }
+                None => output::Output::Nameonly(OutputNameOnly { name: o.name }),
             }),
         });
     }
 
-    Ok(crate::runner_v1::BuildResultInfo {
+    Ok(BuildResultInfo {
         machine_id: machine_id.to_string(),
         drv: drv.base_name().to_owned(),
         import_time_ms: u64::try_from(import_elapsed.as_millis())?,
         build_time_ms: u64::try_from(build_elapsed.as_millis())?,
         result_state: BuildResultState::Success as i32,
         outputs: build_outputs,
-        nix_support: Some(crate::runner_v1::NixSupport {
+        nix_support: Some(NixSupport {
             metrics: nix_support
                 .metrics
                 .into_iter()
-                .map(|m| crate::runner_v1::BuildMetric {
+                .map(|m| BuildMetric {
                     path: m.path,
                     name: m.name,
                     unit: m.unit,
@@ -797,7 +780,7 @@ async fn new_success_build_result_info(
             products: nix_support
                 .products
                 .into_iter()
-                .map(|p| crate::runner_v1::BuildProduct {
+                .map(|p| BuildProduct {
                     path: p.path,
                     default_path: p.default_path,
                     r#type: p.r#type,

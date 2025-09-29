@@ -79,6 +79,10 @@ pub struct Args {
     /// Use substitution over pulling inputs via queue runner
     #[clap(long, default_value_t = false)]
     pub use_substitutes: bool,
+
+    /// File to Authorization token, can be use as an alternative to mTLS
+    #[clap(long)]
+    pub authorization_file: Option<std::path::PathBuf>,
 }
 
 impl Args {
@@ -133,5 +137,15 @@ impl Args {
         let client_identity = tonic::transport::Identity::from_pem(client_cert, client_key);
 
         Ok((server_root_ca_cert, client_identity, domain_name.to_owned()))
+    }
+
+    pub async fn get_authorization_token(&self) -> anyhow::Result<Option<String>> {
+        if let Some(path) = &self.authorization_file {
+            Ok(Some(
+                tokio::fs::read_to_string(path).await?.trim().to_string(),
+            ))
+        } else {
+            Ok(None)
+        }
     }
 }

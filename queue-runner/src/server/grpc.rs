@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use tokio::{io::AsyncWriteExt as _, sync::mpsc};
+use tonic::service::interceptor::InterceptedService;
 use tracing::Instrument as _;
 
 use crate::{
@@ -89,6 +90,33 @@ fn handle_message(state: &Arc<State>, msg: builder_request::Message) {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct CheckAuthInterceptor {
+    config: crate::config::App,
+}
+
+impl tonic::service::Interceptor for CheckAuthInterceptor {
+    fn call(&mut self, req: tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> {
+        if self.config.has_token_list() {
+            match req.metadata().get("authorization") {
+                Some(t)
+                    if self.config.check_if_contains_token(
+                        t.to_str()
+                            .map_err(|_| tonic::Status::unauthenticated("No valid auth token"))?
+                            .strip_prefix("Bearer ")
+                            .ok_or(tonic::Status::unauthenticated("No valid auth token"))?,
+                    ) =>
+                {
+                    Ok(req)
+                }
+                _ => Err(tonic::Status::unauthenticated("No valid auth token")),
+            }
+        } else {
+            Ok(req)
+        }
+    }
+}
+
 pub struct Server {
     state: Arc<State>,
 }
@@ -102,6 +130,12 @@ impl Server {
         .accept_compressed(tonic::codec::CompressionEncoding::Zstd)
         .max_decoding_message_size(50 * 1024 * 1024)
         .max_encoding_message_size(50 * 1024 * 1024);
+        let intercepted_service = InterceptedService::new(
+            service,
+            CheckAuthInterceptor {
+                config: state.config.clone(),
+            },
+        );
 
         let mut server =
             tonic::transport::Server::builder().trace_fn(|_| tracing::info_span!("grpc_server"));
@@ -122,7 +156,9 @@ impl Server {
         let reflection_service = tonic_reflection::server::Builder::configure()
             .register_encoded_file_descriptor_set(runner_v1::FILE_DESCRIPTOR_SET)
             .build_v1()?;
-        let server = server.add_service(reflection_service).add_service(service);
+        let server = server
+            .add_service(reflection_service)
+            .add_service(intercepted_service);
 
         match addr {
             BindSocket::Tcp(s) => server.serve(s).await?,

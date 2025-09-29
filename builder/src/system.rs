@@ -57,7 +57,7 @@ impl Pressure {
     }
 }
 
-impl From<Pressure> for crate::runner_v1::Pressure {
+impl From<Pressure> for crate::grpc::runner_v1::Pressure {
     fn from(val: Pressure) -> Self {
         Self {
             avg10: val.avg10,

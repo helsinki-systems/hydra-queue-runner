@@ -259,6 +259,8 @@ struct AppConfig {
 
     #[serde(default = "default_concurrent_upload_limit")]
     concurrent_upload_limit: usize,
+
+    token_list_path: Option<std::path::PathBuf>,
 }
 
 /// Prepared configuration of the application
@@ -284,6 +286,7 @@ pub struct PreparedApp {
     stop_queue_run_after: Option<chrono::Duration>,
     max_concurrent_downloads: u32,
     concurrent_upload_limit: usize,
+    token_list: Option<Vec<String>>,
 }
 
 impl TryFrom<AppConfig> for PreparedApp {
@@ -315,6 +318,13 @@ impl TryFrom<AppConfig> for PreparedApp {
 
         let hydra_log_dir = val.hydra_data_dir.join("build-logs");
         let lockfile = val.hydra_data_dir.join("queue-runner/lock");
+        let token_list = if let Some(p) = val.token_list_path {
+            std::fs::read_to_string(p)
+                .map(|s| s.lines().map(|t| t.trim().to_string()).collect())
+                .ok()
+        } else {
+            None
+        };
 
         Ok(Self {
             hydra_data_dir: val.hydra_data_dir,
@@ -357,6 +367,7 @@ impl TryFrom<AppConfig> for PreparedApp {
             },
             max_concurrent_downloads: val.max_concurrent_downloads,
             concurrent_upload_limit: val.concurrent_upload_limit,
+            token_list,
         })
     }
 }
@@ -376,7 +387,7 @@ fn load_config(filepath: &str) -> anyhow::Result<PreparedApp> {
         .map_err(|e| anyhow::anyhow!("Failed to prepare configuration: {e}"))
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct App {
     inner: Arc<arc_swap::ArcSwap<PreparedApp>>,
 }
@@ -470,6 +481,19 @@ impl App {
     pub fn get_concurrent_upload_limit(&self) -> usize {
         let inner = self.inner.load();
         inner.concurrent_upload_limit
+    }
+
+    pub fn has_token_list(&self) -> bool {
+        let inner = self.inner.load();
+        inner.token_list.is_some()
+    }
+
+    pub fn check_if_contains_token(&self, token: &str) -> bool {
+        let inner = self.inner.load();
+        inner
+            .token_list
+            .as_ref()
+            .is_some_and(|l| l.iter().any(|t| t == token))
     }
 }
 

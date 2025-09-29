@@ -64,7 +64,7 @@ in
             remoteStoreAddr = lib.mkOption {
               description = "Remote store address";
               type = lib.types.listOf lib.types.singleLineStr;
-              default = [];
+              default = [ ];
             };
             useSubstitutes = lib.mkOption {
               description = "Use substitution for paths";
@@ -110,6 +110,11 @@ in
               description = "Concurrent limit for uploading to s3.";
               type = lib.types.ints.positive;
               default = 5;
+            };
+            tokenListPath = lib.mkOption {
+              description = "Path to a list of allowed authentication tokens.";
+              type = lib.types.nullOr lib.types.path;
+              default = null;
             };
           };
         };
