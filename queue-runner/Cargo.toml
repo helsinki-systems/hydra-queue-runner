@@ -53,7 +53,7 @@ chrono = { version = "0.4.38", default-features = false, features = [
   "std",
   "serde",
 ] }
-prometheus = { version = "0.14.0", default-features = false }
+prometheus = { version = "0.14.0", default-features = false, features = ["process"] }
 procfs = "0.18"
 
 db = { path = "../crates/db" }

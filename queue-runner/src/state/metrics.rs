@@ -4,8 +4,6 @@ use prometheus::Encoder;
 
 #[derive(Debug)]
 pub struct PromMetrics {
-    pub registry: prometheus::Registry,
-
     pub queue_checks_started: prometheus::IntCounter,
     pub queue_build_loads: prometheus::IntCounter,
     pub queue_steps_created: prometheus::IntCounter,
@@ -223,7 +221,7 @@ impl PromMetrics {
 
         // TODO: per machine metrics
 
-        let r = prometheus::Registry::new();
+        let r = prometheus::default_registry();
         r.register(Box::new(queue_checks_started.clone()))?;
         r.register(Box::new(queue_build_loads.clone()))?;
         r.register(Box::new(queue_steps_created.clone()))?;
@@ -265,7 +263,6 @@ impl PromMetrics {
         r.register(Box::new(running_per_machine_type.clone()))?;
 
         Ok(Self {
-            registry: r,
             queue_checks_started,
             queue_build_loads,
             queue_steps_created,
@@ -357,7 +354,7 @@ impl PromMetrics {
 
         let mut buffer = Vec::new();
         let encoder = prometheus::TextEncoder::new();
-        let metric_families = self.registry.gather();
+        let metric_families = prometheus::gather();
         encoder.encode(&metric_families, &mut buffer)?;
 
         Ok(buffer)
