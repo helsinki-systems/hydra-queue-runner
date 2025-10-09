@@ -17,7 +17,8 @@
       let
         pkgs = import nixpkgs { inherit system; };
         unstable = import nixpkgs-unstable { inherit system; };
-        inherit (pkgs) rustPackages lib;
+        rustPackages = pkgs.rustPackages_1_88;
+        inherit (pkgs) lib;
 
         nativeBuildInputs = with pkgs; [
           rustPackages.rustc

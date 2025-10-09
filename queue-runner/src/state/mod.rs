@@ -428,11 +428,11 @@ impl State {
                 .add(nr_added.load(Ordering::Relaxed));
             let stop_queue_run_after = self.config.get_stop_queue_run_after();
 
-            if let Some(stop_queue_run_after) = stop_queue_run_after {
-                if chrono::Utc::now() > (starttime + stop_queue_run_after) {
-                    self.metrics.queue_checks_early_exits.inc();
-                    break;
-                }
+            if let Some(stop_queue_run_after) = stop_queue_run_after
+                && chrono::Utc::now() > (starttime + stop_queue_run_after)
+            {
+                self.metrics.queue_checks_early_exits.inc();
+                break;
             }
         }
 
@@ -1977,15 +1977,15 @@ impl State {
 
         let jobsets = self.jobsets.read();
         for row in curr_jobsets_in_db {
-            if let Some(i) = jobsets.get(&(row.project.clone(), row.name.clone())) {
-                if let Err(e) = i.set_shares(row.schedulingshares) {
-                    log::error!(
-                        "Failed to update jobset scheduling shares. project_name={} jobset_name={} e={}",
-                        row.project,
-                        row.name,
-                        e,
-                    );
-                }
+            if let Some(i) = jobsets.get(&(row.project.clone(), row.name.clone()))
+                && let Err(e) = i.set_shares(row.schedulingshares)
+            {
+                log::error!(
+                    "Failed to update jobset scheduling shares. project_name={} jobset_name={} e={}",
+                    row.project,
+                    row.name,
+                    e,
+                );
             }
         }
 

@@ -41,7 +41,7 @@ nix-utils = { path = "../crates/nix-utils" }
 shared = { path = "../crates/shared" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-sysinfo = "0.36.0"
+sysinfo = "0.37.0"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.6"

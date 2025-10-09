@@ -720,12 +720,12 @@ impl BuildOutput {
         let mut nar_size = 0;
 
         for o in outputs {
-            if let Some(path) = o.path {
-                if let Some(info) = pathinfos.get(&path) {
-                    closure_size += store.compute_closure_size(&path).await;
-                    nar_size += info.nar_size;
-                    outputs_map.insert(o.name, path);
-                }
+            if let Some(path) = o.path
+                && let Some(info) = pathinfos.get(&path)
+            {
+                closure_size += store.compute_closure_size(&path).await;
+                nar_size += info.nar_size;
+                outputs_map.insert(o.name, path);
             }
         }
 

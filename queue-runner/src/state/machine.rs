@@ -597,17 +597,16 @@ impl Machine {
             if cpu_some.avg10 > self.cpu_psi_threshold {
                 return false;
             }
-            if let Some(mem_full) = pressure.as_ref().and_then(|v| v.mem_full) {
-                if mem_full.avg10 > self.mem_psi_threshold {
-                    return false;
-                }
+            if let Some(mem_full) = pressure.as_ref().and_then(|v| v.mem_full)
+                && mem_full.avg10 > self.mem_psi_threshold
+            {
+                return false;
             }
-            if let Some(threshold) = self.io_psi_threshold {
-                if let Some(io_full) = pressure.as_ref().and_then(|v| v.io_full) {
-                    if io_full.avg10 > threshold {
-                        return false;
-                    }
-                }
+            if let Some(threshold) = self.io_psi_threshold
+                && let Some(io_full) = pressure.as_ref().and_then(|v| v.io_full)
+                && io_full.avg10 > threshold
+            {
+                return false;
             }
         } else if self.stats.get_load1() > self.load1_threshold {
             return false;

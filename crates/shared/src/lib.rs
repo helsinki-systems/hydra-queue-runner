@@ -247,11 +247,11 @@ pub async fn parse_nix_support_from_outputs(
     for output in &outputs {
         let file_path =
             std::path::Path::new(&output.get_full_path()).join("nix-support/hydra-release-name");
-        if let Ok(v) = tokio::fs::read_to_string(file_path).await {
-            if let Some(v) = parse_release_name(&v) {
-                hydra_release_name = Some(v.to_owned());
-                break;
-            }
+        if let Ok(v) = tokio::fs::read_to_string(file_path).await
+            && let Some(v) = parse_release_name(&v)
+        {
+            hydra_release_name = Some(v.to_owned());
+            break;
         }
     }
 
