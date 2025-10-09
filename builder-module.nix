@@ -100,7 +100,7 @@ in
 
       authorizationFile = lib.mkOption {
         description = "Path to token authorization file if token auth should be used.";
-        type = lib.types.nullOf lib.types.path;
+        type = lib.types.nullOr lib.types.path;
         default = null;
       };
 
