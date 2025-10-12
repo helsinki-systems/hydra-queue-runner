@@ -77,7 +77,6 @@ pub struct State {
     active_builds: parking_lot::RwLock<AHashMap<nix_utils::StorePath, Arc<BuildInfo>>>,
 
     pub config: Config,
-    pub store: nix_utils::LocalStore,
 
     pub max_concurrent_downloads: atomic::AtomicU32,
 }
@@ -110,7 +109,6 @@ impl Drop for Gcroot {
 
 impl State {
     pub fn new(args: super::config::Args) -> anyhow::Result<Arc<Self>> {
-        let store = nix_utils::LocalStore::init();
         nix_utils::set_verbosity(1);
 
         let logname = std::env::var("LOGNAME").context("LOGNAME not set")?;
@@ -140,7 +138,6 @@ impl State {
                 mandatory_features: args.mandatory_features,
                 use_substitutes: args.use_substitutes,
             },
-            store,
             max_concurrent_downloads: 5.into(),
         }))
     }
@@ -334,6 +331,8 @@ impl State {
         // to the queue runner.
         use tokio_stream::StreamExt as _;
 
+        let store = nix_utils::LocalStore::init();
+
         let machine_id = self.id;
         let drv = nix_utils::StorePath::new(&m.drv);
         let resolved_drv = m
@@ -366,7 +365,7 @@ impl State {
 
         import_requisites(
             &mut client,
-            self.store.clone(),
+            store.clone(),
             &gcroot,
             resolved_drv.as_ref().unwrap_or(&drv),
             requisites
@@ -449,7 +448,7 @@ impl State {
                 step_status: StepStatus::ReceivingOutputs as i32,
             })
             .await;
-        upload_nars(client.clone(), self.store.clone(), output_paths)
+        upload_nars(client.clone(), store.clone(), output_paths)
             .await
             .map_err(JobFailure::Upload)?;
 
@@ -461,7 +460,7 @@ impl State {
             })
             .await;
         let build_results = Box::pin(new_success_build_result_info(
-            self.store.clone(),
+            store.clone(),
             machine_id,
             &drv,
             drv_info,
