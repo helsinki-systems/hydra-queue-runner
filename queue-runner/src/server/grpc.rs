@@ -453,10 +453,8 @@ impl RunnerService for Server {
         &self,
         req: tonic::Request<StorePath>,
     ) -> BuilderResult<Self::StreamFileStream> {
-        let state = self.state.clone();
-
         let path = nix_utils::StorePath::new(&req.into_inner().path);
-        let store = state.store.clone();
+        let store = nix_utils::LocalStore::init();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Result<NarData, tonic::Status>>();
 
         let closure = move |data: &[u8]| {
@@ -479,8 +477,6 @@ impl RunnerService for Server {
         &self,
         req: tonic::Request<StorePaths>,
     ) -> BuilderResult<Self::StreamFilesStream> {
-        let state = self.state.clone();
-
         let req = req.into_inner();
         let paths = req
             .paths
@@ -488,7 +484,7 @@ impl RunnerService for Server {
             .map(|p| nix_utils::StorePath::new(&p))
             .collect::<Vec<_>>();
 
-        let store = state.store.clone();
+        let store = nix_utils::LocalStore::init();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Result<NarData, tonic::Status>>();
 
         let closure = move |data: &[u8]| {
