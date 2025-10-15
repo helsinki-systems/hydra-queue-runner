@@ -369,7 +369,6 @@ dependencies = [
  "log",
  "nix",
  "nix-utils",
- "os_pipe",
  "parking_lot",
  "procfs-core 0.18.0",
  "prost 0.14.1",
@@ -742,7 +741,6 @@ dependencies = [
  "anyhow",
  "chrono",
  "futures",
- "serde",
  "serde_json",
  "sqlx",
  "tracing",
@@ -1720,12 +1718,9 @@ dependencies = [
  "cxx",
  "cxx-build",
  "futures",
- "log",
  "nix-diff",
  "pkg-config",
- "regex",
  "serde",
- "sha2",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -1964,16 +1959,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
-]
-
-[[package]]
-name = "os_pipe"
-version = "1.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
-dependencies = [
- "libc",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2330,7 +2315,6 @@ dependencies = [
  "ahash 0.8.12",
  "anyhow",
  "arc-swap",
- "async-stream",
  "atomic_float",
  "byte-unit",
  "bytes",

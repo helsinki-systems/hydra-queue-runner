@@ -35,7 +35,6 @@ async-stream = "0.3"
 gethostname = "1"
 procfs-core = "0.18"
 nix = { version = "0.30.0", default-features = false, features = ["fs"] }
-os_pipe = "1.2"
 
 nix-utils = { path = "../crates/nix-utils" }
 shared = { path = "../crates/shared" }

@@ -5,7 +5,6 @@ edition = "2024"
 license = "LGPL-2.1-only"
 
 [dependencies]
-log = "0.4"
 tracing = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
@@ -15,8 +14,6 @@ tokio-stream = { version = "0.1", features = ["io-util"] }
 tokio-util = { version = "0.7", features = ["io", "io-util"] }
 futures = "0.3"
 ahash = { version = "0.8.11", features = ["serde"] }
-regex = "1"
-sha2 = "0.10"
 url = "2.5.4"
 
 cxx = "1"

@@ -61,11 +61,11 @@ trait FsOperations {
     fn is_inside_store(&self, path: &std::path::Path) -> bool;
     fn get_metadata(
         &self,
-        path: impl AsRef<std::path::Path>,
+        path: impl AsRef<std::path::Path> + std::fmt::Debug,
     ) -> impl std::future::Future<Output = Result<FileMetadata, std::io::Error>>;
     fn get_file_hash(
         &self,
-        path: impl AsRef<std::path::Path>,
+        path: impl AsRef<std::path::Path> + std::fmt::Debug,
     ) -> impl std::future::Future<Output = tokio::io::Result<String>>;
 }
 
@@ -86,9 +86,10 @@ impl FsOperations for FilesystemOperations {
         nix_utils::is_subpath(std::path::Path::new(&self.nix_store_dir), path)
     }
 
+    #[tracing::instrument(skip(self), err)]
     async fn get_metadata(
         &self,
-        path: impl AsRef<std::path::Path>,
+        path: impl AsRef<std::path::Path> + std::fmt::Debug,
     ) -> Result<FileMetadata, std::io::Error> {
         let m = tokio::fs::metadata(path).await?;
         Ok(FileMetadata {
@@ -97,7 +98,11 @@ impl FsOperations for FilesystemOperations {
         })
     }
 
-    async fn get_file_hash(&self, path: impl AsRef<std::path::Path>) -> tokio::io::Result<String> {
+    #[tracing::instrument(skip(self), err)]
+    async fn get_file_hash(
+        &self,
+        path: impl AsRef<std::path::Path> + std::fmt::Debug,
+    ) -> tokio::io::Result<String> {
         let file = tokio::fs::File::open(path).await?;
         let mut reader = BufReader::new(file);
 
@@ -208,6 +213,7 @@ async fn parse_build_product(
     })
 }
 
+#[tracing::instrument(err)]
 pub async fn parse_nix_support_from_outputs(
     derivation_outputs: &[nix_utils::DerivationOutput],
 ) -> anyhow::Result<NixSupport> {
@@ -330,14 +336,14 @@ mod tests {
 
         async fn get_metadata(
             &self,
-            _: impl AsRef<std::path::Path>,
+            _: impl AsRef<std::path::Path> + std::fmt::Debug,
         ) -> Result<FileMetadata, std::io::Error> {
             Ok(self.metadata.clone())
         }
 
         async fn get_file_hash(
             &self,
-            _: impl AsRef<std::path::Path>,
+            _: impl AsRef<std::path::Path> + std::fmt::Debug,
         ) -> Result<String, std::io::Error> {
             Ok(self.file_hash.clone())
         }
