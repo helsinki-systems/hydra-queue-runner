@@ -194,7 +194,11 @@ impl StepAtomicState {
             lowest_build_id: BuildID::MAX.into(),
             after: super::AtomicDateTime::new(after),
             runnable_since: super::AtomicDateTime::new(runnable_since),
-            last_supported: super::AtomicDateTime::default(),
+            // Set the default of last_supported to runnable_since.
+            // This fixes an issue that a step is marked as unsupported immediatly, if we currently
+            // dont have a machine that supports system/all features.
+            // So we still follow max_unsupported_time
+            last_supported: super::AtomicDateTime::new(runnable_since),
         }
     }
 
@@ -428,8 +432,16 @@ impl Step {
             debug_assert!(state.deps.is_empty());
         }
 
-        self.atomic_state.runnable_since.store(chrono::Utc::now());
-        self.runnable.store(true, Ordering::SeqCst);
+        // only ever mark as runnable once
+        if !self.runnable.load(Ordering::SeqCst) {
+            self.runnable.store(true, Ordering::SeqCst);
+            let now = chrono::Utc::now();
+            self.atomic_state.runnable_since.store(now);
+            // we also say now, is the last time that we supported this step.
+            // This ensure that we actually wait for max_unsupported_time until we mark it as
+            // unsupported. See also [`StepAtomicState::new`]
+            self.atomic_state.last_supported.store(now);
+        }
     }
 }
 
