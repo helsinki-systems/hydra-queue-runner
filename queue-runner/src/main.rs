@@ -48,6 +48,7 @@ fn spawn_config_reloader(
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let reload_handle = config::init_tracing()?;
+    nix_utils::init_nix();
 
     let state = State::new(reload_handle).await?;
     if state.args.status {

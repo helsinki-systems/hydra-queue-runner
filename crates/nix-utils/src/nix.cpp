@@ -18,13 +18,17 @@
 static std::atomic<bool> initializedNix = false;
 
 namespace nix_utils {
-StoreWrapper::StoreWrapper(nix::ref<nix::Store> _store) : _store(_store) {}
-
-std::shared_ptr<StoreWrapper> init(rust::Str uri) {
+void init_nix() {
   if (!initializedNix) {
     initializedNix = true;
     nix::initNix();
   }
+}
+
+StoreWrapper::StoreWrapper(nix::ref<nix::Store> _store) : _store(_store) {}
+
+std::shared_ptr<StoreWrapper> init(rust::Str uri) {
+  init_nix();
   if (uri.empty()) {
     nix::ref<nix::Store> _store = nix::openStore();
     return std::make_shared<StoreWrapper>(_store);
@@ -203,8 +207,7 @@ void copy_paths(const StoreWrapper &src_store, const StoreWrapper &dst_store,
 
 void import_paths(
     const StoreWrapper &wrapper, bool check_sigs, size_t runtime, size_t reader,
-    rust::Fn<size_t(rust::Slice<uint8_t>, size_t, size_t, size_t)>
-        callback,
+    rust::Fn<size_t(rust::Slice<uint8_t>, size_t, size_t, size_t)> callback,
     size_t user_data) {
   nix::LambdaSource source([=](char *out, size_t out_len) {
     auto data = rust::Slice<uint8_t>((uint8_t *)out, out_len);

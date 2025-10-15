@@ -160,6 +160,7 @@ mod ffi {
 
         type StoreWrapper;
 
+        fn init_nix();
         fn init(uri: &str) -> SharedPtr<StoreWrapper>;
 
         fn get_nix_prefix() -> String;
@@ -236,6 +237,11 @@ pub use ffi::{S3Stats, StoreStats};
 #[must_use]
 pub fn is_subpath(base: &std::path::Path, path: &std::path::Path) -> bool {
     path.starts_with(base)
+}
+
+#[inline]
+pub fn init_nix() {
+    ffi::init_nix()
 }
 
 #[inline]
