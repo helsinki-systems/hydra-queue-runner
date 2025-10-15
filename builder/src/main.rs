@@ -28,8 +28,8 @@ async fn main() -> anyhow::Result<()> {
 
     let args = config::Args::new();
 
+    let state = state::State::new(&args)?;
     let mut client = grpc::init_client(&args).await?;
-    let state = state::State::new(args)?;
     let task = tokio::spawn({
         let state = state.clone();
         async move { crate::grpc::start_bidirectional_stream(&mut client, state.clone()).await }

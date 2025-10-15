@@ -65,9 +65,10 @@ pub struct Config {
     pub mem_psi_threshold: f32,
     pub io_psi_threshold: Option<f32>,
     pub gcroots: std::path::PathBuf,
-    pub systems: Option<Vec<String>>,
-    pub supported_features: Option<Vec<String>>,
-    pub mandatory_features: Option<Vec<String>>,
+    pub systems: Vec<String>,
+    pub supported_features: Vec<String>,
+    pub mandatory_features: Vec<String>,
+    pub cgroups: bool,
     pub use_substitutes: bool,
 }
 
@@ -108,7 +109,7 @@ impl Drop for Gcroot {
 }
 
 impl State {
-    pub fn new(args: super::config::Args) -> anyhow::Result<Arc<Self>> {
+    pub fn new(args: &super::config::Args) -> anyhow::Result<Arc<Self>> {
         nix_utils::set_verbosity(1);
 
         let logname = std::env::var("LOGNAME").context("LOGNAME not set")?;
@@ -119,7 +120,7 @@ impl State {
             .join("hydra-roots");
         std::fs::create_dir_all(&gcroots)?;
 
-        Ok(Arc::new(Self {
+        let state = Arc::new(Self {
             id: uuid::Uuid::new_v4(),
             active_builds: parking_lot::RwLock::new(AHashMap::new()),
             config: Config {
@@ -133,29 +134,46 @@ impl State {
                 mem_psi_threshold: args.mem_psi_threshold,
                 io_psi_threshold: args.io_psi_threshold,
                 gcroots,
-                systems: args.systems,
-                supported_features: args.supported_features,
-                mandatory_features: args.mandatory_features,
+                systems: if let Some(s) = &args.systems {
+                    s.clone()
+                } else {
+                    let mut out = Vec::with_capacity(8);
+                    out.push(nix_utils::get_this_system());
+                    out.extend(nix_utils::get_extra_platforms());
+                    out
+                },
+                supported_features: if let Some(s) = &args.supported_features {
+                    s.clone()
+                } else {
+                    nix_utils::get_system_features()
+                },
+                mandatory_features: args.mandatory_features.clone().unwrap_or_default(),
+                cgroups: nix_utils::get_use_cgroups(),
                 use_substitutes: args.use_substitutes,
             },
             max_concurrent_downloads: 5.into(),
-        }))
+        });
+        log::info!("Builder systems={:?}", state.config.systems);
+        log::info!(
+            "Builder supported_features={:?}",
+            state.config.supported_features
+        );
+        log::info!(
+            "Builder mandatory_features={:?}",
+            state.config.mandatory_features
+        );
+        log::info!("Builder use_cgroups={:?}", state.config.cgroups);
+
+        Ok(state)
     }
 
     #[tracing::instrument(skip(self), err)]
     pub async fn get_join_message(&self) -> anyhow::Result<JoinMessage> {
         let sys = crate::system::BaseSystemInfo::new()?;
 
-        let join = JoinMessage {
+        Ok(JoinMessage {
             machine_id: self.id.to_string(),
-            systems: if let Some(s) = &self.config.systems {
-                s.clone()
-            } else {
-                let mut out = Vec::with_capacity(8);
-                out.push(nix_utils::get_this_system());
-                out.extend(nix_utils::get_extra_platforms());
-                out
-            },
+            systems: self.config.systems.clone(),
             hostname: gethostname::gethostname()
                 .into_string()
                 .map_err(|_| anyhow::anyhow!("Couldn't convert hostname to string"))?,
@@ -170,21 +188,10 @@ impl State {
             mem_psi_threshold: self.config.mem_psi_threshold,
             io_psi_threshold: self.config.io_psi_threshold,
             total_mem: sys.total_memory,
-            supported_features: if let Some(s) = &self.config.supported_features {
-                s.clone()
-            } else {
-                nix_utils::get_system_features()
-            },
-            mandatory_features: self.config.mandatory_features.clone().unwrap_or_default(),
-            cgroups: nix_utils::get_use_cgroups(),
-        };
-
-        log::info!("Builder systems={:?}", join.systems);
-        log::info!("Builder supported_features={:?}", join.supported_features);
-        log::info!("Builder mandatory_features={:?}", join.mandatory_features);
-        log::info!("Builder use_cgroups={:?}", join.cgroups);
-
-        Ok(join)
+            supported_features: self.config.supported_features.clone(),
+            mandatory_features: self.config.mandatory_features.clone(),
+            cgroups: self.config.cgroups,
+        })
     }
 
     #[tracing::instrument(skip(self), err)]
