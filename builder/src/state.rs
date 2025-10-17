@@ -5,6 +5,7 @@ use std::{
 
 use ahash::AHashMap;
 use anyhow::Context;
+use backon::RetryableWithContext as _;
 use futures::TryFutureExt as _;
 use tonic::Request;
 use tracing::Instrument;
@@ -16,6 +17,16 @@ use crate::grpc::runner_v1::{
     OutputWithPath, PingMessage, PressureState, StepStatus, StepUpdate, StorePaths, output,
 };
 use nix_utils::BaseStore as _;
+
+const RETRY_MIN_DELAY: tokio::time::Duration = tokio::time::Duration::from_secs(3);
+const RETRY_MAX_DELAY: tokio::time::Duration = tokio::time::Duration::from_secs(90);
+
+fn retry_strategy() -> backon::ExponentialBuilder {
+    backon::ExponentialBuilder::default()
+        .with_jitter()
+        .with_min_delay(RETRY_MIN_DELAY)
+        .with_max_delay(RETRY_MAX_DELAY)
+}
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::enum_variant_names)]
@@ -218,7 +229,7 @@ impl State {
     }
 
     #[tracing::instrument(skip(self, client, m), fields(drv=%m.drv))]
-    pub fn schedule_build(self: Arc<Self>, mut client: BuilderClient, m: BuildMessage) {
+    pub fn schedule_build(self: Arc<Self>, client: BuilderClient, m: BuildMessage) {
         let drv = nix_utils::StorePath::new(&m.drv);
         if self.contains_build(&drv) {
             return;
@@ -258,22 +269,20 @@ impl State {
                             nix_support: None,
                         };
 
-                        for i in 0..3 {
-                            match client.complete_build(failed_build.clone()).await {
-                                Ok(_) => break,
-                                Err(e) => {
-                                    if i == 2 {
-                                        log::error!("Failed to submit build failure info: {e}");
-                                    } else {
-                                        log::error!(
-                                            "Failed to submit build failure info (retrying ... i={i}): {e}"
-                                        );
-                                        // TODO: backoff
-                                        tokio::time::sleep(tokio::time::Duration::from_secs(1))
-                                            .await;
-                                    }
-                                }
-                            }
+                        if let (_, Err(e)) = (|tuple: (BuilderClient, BuildResultInfo)| async {
+                            let (mut client, body) = tuple;
+                            let res = client.complete_build(body.clone()).await;
+                            ((client, body), res)
+                        })
+                        .retry(retry_strategy())
+                        .context((client.clone(), failed_build))
+                        .sleep(tokio::time::sleep)
+                        .notify(|err: &tonic::Status, dur: core::time::Duration| {
+                            log::error!("Failed to submit build failure info: err={err}, retrying in={dur:?}");
+                        })
+                        .await
+                        {
+                            log::error!("Failed to submit build failure info: {e}");
                         }
                     }
                 }
