@@ -1,5 +1,8 @@
 use std::{
-    sync::{Arc, atomic},
+    sync::{
+        Arc,
+        atomic::{self, AtomicBool},
+    },
     time::Instant,
 };
 
@@ -57,10 +60,12 @@ impl From<JobFailure> for BuildResultState {
 
 pub struct BuildInfo {
     handle: tokio::task::JoinHandle<()>,
+    was_cancelled: Arc<AtomicBool>,
 }
 
 impl BuildInfo {
     fn abort(&self) {
+        self.was_cancelled.store(true, atomic::Ordering::SeqCst);
         self.handle.abort();
     }
 }
@@ -236,9 +241,11 @@ impl State {
         }
         log::info!("Building {drv}");
 
+        let was_cancelled = Arc::new(AtomicBool::new(false));
         let task_handle = tokio::spawn({
             let self_ = self.clone();
             let drv = drv.clone();
+            let was_cancelled = was_cancelled.clone();
             async move {
                 let mut import_elapsed = std::time::Duration::from_millis(0);
                 let mut build_elapsed = std::time::Duration::from_millis(0);
@@ -255,6 +262,11 @@ impl State {
                         self_.remove_build(&drv);
                     }
                     Err(e) => {
+                        if was_cancelled.load(atomic::Ordering::SeqCst) {
+                            log::error!("Build of {drv} was cancelled {e}, not reporting Error");
+                            return;
+                        }
+
                         log::error!("Build of {drv} failed with {e}");
                         self_.remove_build(&drv);
                         let failed_build = BuildResultInfo {
@@ -293,6 +305,7 @@ impl State {
             drv,
             BuildInfo {
                 handle: task_handle,
+                was_cancelled,
             },
         );
     }
@@ -321,6 +334,7 @@ impl State {
 
     #[tracing::instrument(skip(self, m), fields(drv=%m.drv))]
     pub fn abort_build(&self, m: &AbortMessage) {
+        log::info!("Try cancelling build");
         if let Some(b) = self.remove_build(&nix_utils::StorePath::new(&m.drv)) {
             b.abort();
         }
