@@ -287,8 +287,8 @@ impl State {
                             ((client, body), res)
                         })
                         .retry(retry_strategy())
-                        .context((client.clone(), failed_build))
                         .sleep(tokio::time::sleep)
+                        .context((client.clone(), failed_build))
                         .notify(|err: &tonic::Status, dur: core::time::Duration| {
                             log::error!("Failed to submit build failure info: err={err}, retrying in={dur:?}");
                         })
