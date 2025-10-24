@@ -268,6 +268,26 @@ void export_paths(const StoreWrapper &wrapper,
   }
 }
 
+void nar_from_path(const StoreWrapper &wrapper, rust::Str path,
+                   rust::Fn<bool(rust::Slice<const uint8_t>, size_t)> callback,
+                   size_t user_data) {
+  nix::LambdaSink sink([=](std::string_view v) {
+    auto data = rust::Slice<const uint8_t>((const uint8_t *)v.data(), v.size());
+    bool ret = (*callback)(data, user_data);
+    if (!ret) {
+      throw StopExport();
+    }
+  });
+
+  auto store = wrapper._store;
+  try {
+    store->narFromPath(store->followLinksToStorePath(AS_VIEW(path)), sink);
+  } catch (StopExport &e) {
+    // Intentionally do nothing. We're only using the exception as a
+    // short-circuiting mechanism.
+  }
+}
+
 rust::String list_nar(const StoreWrapper &wrapper, rust::Str path,
                       bool recursive) {
   auto store = wrapper._store;

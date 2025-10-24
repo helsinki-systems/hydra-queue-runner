@@ -50,7 +50,7 @@ impl FfiRealisation {
         self.inner.as_json()
     }
 
-    pub fn as_rust(&self, store: &crate::BaseStoreImpl) -> Result<Realisation, cxx::Exception> {
+    pub fn as_rust(&self, store: &crate::BaseStoreImpl) -> Result<Realisation, crate::Error> {
         Ok(self.inner.to_rust(&store.wrapper)?.into())
     }
 
@@ -58,12 +58,12 @@ impl FfiRealisation {
         self.inner.fingerprint()
     }
 
-    pub fn sign(&mut self, secret_key: &str) -> Result<(), cxx::Exception> {
+    pub fn sign(&mut self, secret_key: &str) -> Result<(), crate::Error> {
         self.inner.pin_mut().sign(secret_key)?;
         Ok(())
     }
 
-    pub fn write_to_disk_cache(&self, store: &crate::BaseStoreImpl) -> Result<(), cxx::Exception> {
+    pub fn write_to_disk_cache(&self, store: &crate::BaseStoreImpl) -> Result<(), crate::Error> {
         self.inner.write_to_disk_cache(&store.wrapper)?;
         Ok(())
     }
@@ -118,7 +118,7 @@ pub trait RealisationOperations {
         &self,
         output_hash: &str,
         output_name: &str,
-    ) -> Result<FfiRealisation, cxx::Exception>;
+    ) -> Result<FfiRealisation, crate::Error>;
 }
 
 impl RealisationOperations for crate::BaseStoreImpl {
@@ -126,7 +126,7 @@ impl RealisationOperations for crate::BaseStoreImpl {
         &self,
         output_hash: &str,
         output_name: &str,
-    ) -> Result<FfiRealisation, cxx::Exception> {
+    ) -> Result<FfiRealisation, crate::Error> {
         Ok(FfiRealisation {
             inner: ffi::query_raw_realisation(
                 &self.wrapper,
@@ -141,7 +141,7 @@ impl RealisationOperations for crate::LocalStore {
         &self,
         output_hash: &str,
         output_name: &str,
-    ) -> Result<FfiRealisation, cxx::Exception> {
+    ) -> Result<FfiRealisation, crate::Error> {
         self.base.query_raw_realisation(output_hash, output_name)
     }
 }

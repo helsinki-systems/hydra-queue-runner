@@ -1,0 +1,26 @@
+[package]
+name = "binary-cache"
+version = "0.1.0"
+edition = "2024"
+license = "LGPL-2.1-only"
+rust-version.workspace = true
+
+[dependencies]
+log.workspace = true
+tracing.workspace = true
+bytes.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+object_store = { version = "0.12.4", features = ["aws"] }
+tokio = { workspace = true, features = ["full"] }
+tokio-stream = { workspace = true, features = ["io-util"] }
+tokio-util = { workspace = true, features = ["io", "io-util"] }
+futures.workspace = true
+async-compression = { workspace = true, features = ["tokio", "xz", "xz-parallel", "bzip2", "brotli", "zstd"] }
+pin-project.workspace = true
+digest.workspace = true
+sha2.workspace = true
+secrecy.workspace = true
+
+nix-utils = { path = "../nix-utils" }

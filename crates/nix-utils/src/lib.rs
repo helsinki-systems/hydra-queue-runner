@@ -243,6 +243,12 @@ mod ffi {
             callback: unsafe extern "C" fn(data: &[u8], user_data: usize) -> bool,
             user_data: usize,
         ) -> Result<()>;
+        fn nar_from_path(
+            store: &StoreWrapper,
+            paths: &str,
+            callback: unsafe extern "C" fn(data: &[u8], user_data: usize) -> bool,
+            user_data: usize,
+        ) -> Result<()>;
 
         fn list_nar(store: &StoreWrapper, path: &str, recursive: bool) -> Result<String>;
 
@@ -458,6 +464,11 @@ pub trait BaseStore {
 
     /// Export a store path in NAR format. The data is passed in chunks to callback
     fn export_paths<F>(&self, paths: &[StorePath], callback: F) -> Result<(), cxx::Exception>
+    where
+        F: FnMut(&[u8]) -> bool;
+
+    /// Export a store path in NAR format. The data is passed in chunks to callback
+    fn nar_from_path<F>(&self, path: &StorePath, callback: F) -> Result<(), cxx::Exception>
     where
         F: FnMut(&[u8]) -> bool;
 
@@ -705,6 +716,21 @@ impl BaseStore for BaseStoreImpl {
     }
 
     #[inline]
+    #[tracing::instrument(skip(self, path, callback), err)]
+    fn nar_from_path<F>(&self, path: &StorePath, callback: F) -> Result<(), cxx::Exception>
+    where
+        F: FnMut(&[u8]) -> bool,
+    {
+        let path = path.get_full_path();
+        ffi::nar_from_path(
+            &self.wrapper,
+            &path,
+            export_paths_trampoline::<F>,
+            std::ptr::addr_of!(callback).cast::<std::ffi::c_void>() as usize,
+        )
+    }
+
+    #[inline]
     #[tracing::instrument(skip(self), err)]
     async fn list_nar(&self, path: &StorePath, recursive: bool) -> Result<String, crate::Error> {
         let store = self.wrapper.clone();
@@ -930,6 +956,15 @@ impl BaseStore for LocalStore {
     }
 
     #[inline]
+    #[tracing::instrument(skip(self, path, callback), err)]
+    fn nar_from_path<F>(&self, path: &StorePath, callback: F) -> Result<(), cxx::Exception>
+    where
+        F: FnMut(&[u8]) -> bool,
+    {
+        self.base.nar_from_path(path, callback)
+    }
+
+    #[inline]
     #[tracing::instrument(skip(self), err)]
     async fn list_nar(&self, path: &StorePath, recursive: bool) -> Result<String, crate::Error> {
         self.base.list_nar(path, recursive).await
@@ -1144,6 +1179,15 @@ impl BaseStore for RemoteStore {
         F: FnMut(&[u8]) -> bool,
     {
         self.base.export_paths(paths, callback)
+    }
+
+    #[inline]
+    #[tracing::instrument(skip(self, path, callback), err)]
+    fn nar_from_path<F>(&self, path: &StorePath, callback: F) -> Result<(), cxx::Exception>
+    where
+        F: FnMut(&[u8]) -> bool,
+    {
+        self.base.nar_from_path(path, callback)
     }
 
     #[inline]

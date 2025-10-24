@@ -61,6 +61,9 @@ void export_paths(const StoreWrapper &src_store,
                   rust::Slice<const rust::Str> paths,
                   rust::Fn<bool(rust::Slice<const uint8_t>, size_t)> callback,
                   size_t userdata);
+void nar_from_path(const StoreWrapper &src_store, rust::Str path,
+                   rust::Fn<bool(rust::Slice<const uint8_t>, size_t)> callback,
+                   size_t userdata);
 
 rust::String list_nar(const StoreWrapper &wrapper, rust::Str path,
                       bool recursive);
