@@ -586,7 +586,7 @@ impl Machine {
             })
             .await?;
 
-        self.remove_job(drv);
+        // dont remove job from machine now, we will do that when the job is set to failed/cancelled
         Ok(())
     }
 
