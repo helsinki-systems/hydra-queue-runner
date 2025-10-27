@@ -499,12 +499,26 @@ impl State {
         ))
         .await
         .map_err(JobFailure::PostProcessing)?;
-        // This part is stupid, if writing doesnt work, we try to write a failure, maybe that works
-        client
-            .complete_build(build_results)
-            .await
-            .map_err(|e| JobFailure::PostProcessing(e.into()))?;
 
+        // This part is stupid, if writing doesnt work, we try to write a failure, maybe that works.
+        // We retry to ensure that this almost never happens.
+        (|tuple: (BuilderClient, BuildResultInfo)| async {
+            let (mut client, body) = tuple;
+            let res = client.complete_build(body.clone()).await;
+            ((client, body), res)
+        })
+        .retry(retry_strategy())
+        .sleep(tokio::time::sleep)
+        .context((client.clone(), build_results))
+        .notify(|err: &tonic::Status, dur: core::time::Duration| {
+            log::error!("Failed to submit build success info: err={err}, retrying in={dur:?}");
+        })
+        .await
+        .1
+        .map_err(|e| {
+            log::error!("Failed to submit build success info. Will fail build: err={e}");
+            JobFailure::PostProcessing(e.into())
+        })?;
         Ok(())
     }
 
