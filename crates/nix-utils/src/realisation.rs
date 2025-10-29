@@ -1,122 +1,147 @@
-use tokio::io::{AsyncBufReadExt as _, BufReader};
-use tokio_stream::wrappers::LinesStream;
+#[cxx::bridge(namespace = "nix_utils")]
+mod ffi {
+    #[derive(Debug)]
+    struct DrvOutput {
+        drv_hash: String,
+        output_name: String,
+    }
 
-use crate::StorePath;
+    #[derive(Debug)]
+    struct DrvOutputPathTuple {
+        id: DrvOutput,
+        path: String,
+    }
+
+    #[derive(Debug)]
+    struct Realisation {
+        id: DrvOutput,
+        out_path: String,
+        signatures: Vec<String>,
+        dependent_realisations: Vec<DrvOutputPathTuple>,
+    }
+
+    unsafe extern "C++" {
+        include!("nix-utils/include/realisation.h");
+
+        type StoreWrapper = crate::ffi::StoreWrapper;
+        type InternalRealisation;
+
+        fn as_json(self: &InternalRealisation) -> String;
+        fn to_rust(self: &InternalRealisation, store: &StoreWrapper) -> Result<Realisation>;
+
+        fn fingerprint(self: &InternalRealisation) -> String;
+        fn sign(self: Pin<&mut InternalRealisation>, secret_key: &str) -> Result<()>;
+
+        fn write_to_disk_cache(self: &InternalRealisation, store: &StoreWrapper) -> Result<()>;
+
+        fn query_raw_realisation(
+            store: &StoreWrapper,
+            output_id: &str,
+        ) -> Result<UniquePtr<InternalRealisation>>;
+    }
+}
+
+pub struct FfiRealisation {
+    inner: cxx::UniquePtr<ffi::InternalRealisation>,
+}
+
+impl FfiRealisation {
+    pub fn as_json(&self) -> String {
+        self.inner.as_json()
+    }
+
+    pub fn as_rust(&self, store: &crate::BaseStoreImpl) -> Result<Realisation, cxx::Exception> {
+        Ok(self.inner.to_rust(&store.wrapper)?.into())
+    }
+
+    pub fn fingerprint(&self) -> String {
+        self.inner.fingerprint()
+    }
+
+    pub fn sign(&mut self, secret_key: &str) -> Result<(), cxx::Exception> {
+        self.inner.pin_mut().sign(secret_key)?;
+        Ok(())
+    }
+
+    pub fn write_to_disk_cache(&self, store: &crate::BaseStoreImpl) -> Result<(), cxx::Exception> {
+        self.inner.write_to_disk_cache(&store.wrapper)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DrvOutput {
+    pub drv_hash: String,
+    pub output_name: String,
+}
+
+impl From<ffi::DrvOutput> for DrvOutput {
+    fn from(value: ffi::DrvOutput) -> Self {
+        Self {
+            drv_hash: value.drv_hash,
+            output_name: value.output_name,
+        }
+    }
+}
+
+impl std::fmt::Display for DrvOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}!{}", self.drv_hash, self.output_name)
+    }
+}
 
 #[derive(Debug, Clone)]
-pub struct BuildOptions {
-    max_log_size: u64,
-    max_silent_time: i32,
-    build_timeout: i32,
+pub struct Realisation {
+    pub id: DrvOutput,
+    pub out_path: crate::StorePath,
+    pub signatures: Vec<String>,
+    pub dependent_realisations: ahash::HashMap<DrvOutput, crate::StorePath>,
 }
 
-impl BuildOptions {
-    pub fn new(max_log_size: Option<u64>) -> Self {
+impl From<ffi::Realisation> for Realisation {
+    fn from(value: ffi::Realisation) -> Self {
         Self {
-            max_log_size: max_log_size.unwrap_or(64u64 << 20),
-            max_silent_time: 0,
-            build_timeout: 0,
+            id: value.id.into(),
+            out_path: crate::StorePath::new(&value.out_path),
+            signatures: value.signatures,
+            dependent_realisations: value
+                .dependent_realisations
+                .into_iter()
+                .map(|v| (v.id.into(), crate::StorePath::new(&v.path)))
+                .collect(),
         }
     }
+}
 
-    pub fn complete(max_log_size: u64, max_silent_time: i32, build_timeout: i32) -> Self {
-        Self {
-            max_log_size,
-            max_silent_time,
-            build_timeout,
-        }
-    }
+pub trait RealisationOperations {
+    fn query_raw_realisation(
+        &self,
+        output_hash: &str,
+        output_name: &str,
+    ) -> Result<FfiRealisation, cxx::Exception>;
+}
 
-    pub fn set_max_silent_time(&mut self, max_silent_time: i32) {
-        self.max_silent_time = max_silent_time;
-    }
-
-    pub fn set_build_timeout(&mut self, build_timeout: i32) {
-        self.build_timeout = build_timeout;
-    }
-
-    pub fn get_max_log_size(&self) -> u64 {
-        self.max_log_size
-    }
-
-    pub fn get_max_silent_time(&self) -> i32 {
-        self.max_silent_time
-    }
-
-    pub fn get_build_timeout(&self) -> i32 {
-        self.build_timeout
+impl RealisationOperations for crate::BaseStoreImpl {
+    fn query_raw_realisation(
+        &self,
+        output_hash: &str,
+        output_name: &str,
+    ) -> Result<FfiRealisation, cxx::Exception> {
+        Ok(FfiRealisation {
+            inner: ffi::query_raw_realisation(
+                &self.wrapper,
+                &format!("{output_hash}!{output_name}"),
+            )?,
+        })
     }
 }
 
-#[allow(clippy::type_complexity)]
-#[tracing::instrument(skip(opts, drvs), err)]
-pub async fn realise_drvs(
-    drvs: &[&StorePath],
-    opts: &BuildOptions,
-    kill_on_drop: bool,
-) -> Result<
-    (
-        tokio::process::Child,
-        tokio_stream::adapters::Merge<
-            LinesStream<BufReader<tokio::process::ChildStdout>>,
-            LinesStream<BufReader<tokio::process::ChildStderr>>,
-        >,
-    ),
-    crate::Error,
-> {
-    use tokio_stream::StreamExt;
-
-    let mut child = tokio::process::Command::new("nix-store")
-        .args([
-            "-r",
-            "--quiet", // we want to always set this
-            "--max-silent-time",
-            &opts.max_silent_time.to_string(),
-            "--timeout",
-            &opts.build_timeout.to_string(),
-            "--option",
-            "max-build-log-size",
-            &opts.max_log_size.to_string(),
-            "--option",
-            "fallback",
-            "true",
-            "--option",
-            "substitute",
-            "false",
-            "--option",
-            "builders",
-            "",
-        ])
-        .args(drvs.iter().map(|v| v.get_full_path()))
-        .kill_on_drop(kill_on_drop)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-
-    let stdout = child.stdout.take().ok_or(crate::Error::Stream)?;
-    let stderr = child.stderr.take().ok_or(crate::Error::Stream)?;
-
-    let stdout = LinesStream::new(BufReader::new(stdout).lines());
-    let stderr = LinesStream::new(BufReader::new(stderr).lines());
-
-    Ok((child, StreamExt::merge(stdout, stderr)))
-}
-
-#[allow(clippy::type_complexity)]
-#[tracing::instrument(skip(opts), fields(%drv), err)]
-pub async fn realise_drv(
-    drv: &StorePath,
-    opts: &BuildOptions,
-    kill_on_drop: bool,
-) -> Result<
-    (
-        tokio::process::Child,
-        tokio_stream::adapters::Merge<
-            LinesStream<BufReader<tokio::process::ChildStdout>>,
-            LinesStream<BufReader<tokio::process::ChildStderr>>,
-        >,
-    ),
-    crate::Error,
-> {
-    realise_drvs(&[drv], opts, kill_on_drop).await
+impl RealisationOperations for crate::LocalStore {
+    fn query_raw_realisation(
+        &self,
+        output_hash: &str,
+        output_name: &str,
+    ) -> Result<FfiRealisation, cxx::Exception> {
+        self.base.query_raw_realisation(output_hash, output_name)
+    }
 }

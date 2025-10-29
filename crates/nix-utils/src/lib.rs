@@ -1,6 +1,7 @@
 mod drv;
 mod hash;
 mod realisation;
+mod realise;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -29,7 +30,8 @@ pub enum Error {
 use ahash::AHashMap;
 pub use drv::{Derivation, Output as DerivationOutput, query_drv};
 pub use hash::{HashAlgorithm, HashFormat, convert_hash};
-pub use realisation::{BuildOptions, realise_drv, realise_drvs};
+pub use realisation::{DrvOutput, Realisation, RealisationOperations};
+pub use realise::{BuildOptions, realise_drv, realise_drvs};
 
 pub const HASH_LEN: usize = 32;
 
@@ -169,6 +171,7 @@ mod ffi {
         fn get_system_features() -> Vec<String>;
         fn get_use_cgroups() -> bool;
         fn set_verbosity(level: i32);
+        fn sign_string(secret_key: &str, msg: &str) -> String;
 
         fn is_valid_path(store: &StoreWrapper, path: &str) -> Result<bool>;
         fn query_path_info(store: &StoreWrapper, path: &str) -> Result<InternalPathInfo>;
@@ -293,6 +296,11 @@ pub fn get_use_cgroups() -> bool {
 /// Set the loglevel.
 pub fn set_verbosity(level: i32) {
     ffi::set_verbosity(level);
+}
+
+#[inline]
+pub fn sign_string(secret_key: &str, msg: &str) -> String {
+    ffi::sign_string(secret_key, msg)
 }
 
 pub(crate) async fn asyncify<F, T>(f: F) -> Result<T, Error>
