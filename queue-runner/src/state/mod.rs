@@ -71,12 +71,12 @@ pub struct State {
 }
 
 impl State {
-    pub async fn new(tracing_guard: &crate::tracing::TracingGuard) -> anyhow::Result<Arc<Self>> {
+    pub async fn new(tracing_guard: &hydra_tracing::TracingGuard) -> anyhow::Result<Arc<Self>> {
         let store = nix_utils::LocalStore::init();
         nix_utils::set_verbosity(1);
         let args = Args::new();
         if args.status {
-            tracing_guard.change_log_level(tracing_subscriber::filter::EnvFilter::new("error"));
+            tracing_guard.change_log_level(hydra_tracing::EnvFilter::new("error"));
         }
 
         let config = App::init(&args.config_path)?;

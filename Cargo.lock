@@ -324,6 +324,7 @@ dependencies = [
  "clap",
  "futures",
  "gethostname",
+ "hydra-tracing",
  "hyper-util",
  "log",
  "nix",
@@ -343,8 +344,6 @@ dependencies = [
  "tonic-prost-build",
  "tower",
  "tracing",
- "tracing-log",
- "tracing-subscriber",
  "uuid",
 ]
 
@@ -1123,6 +1122,24 @@ name = "httpdate"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
+
+[[package]]
+name = "hydra-tracing"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "http",
+ "opentelemetry",
+ "opentelemetry-http",
+ "opentelemetry-otlp",
+ "opentelemetry-semantic-conventions",
+ "opentelemetry_sdk",
+ "tonic",
+ "tracing",
+ "tracing-log",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "hyper"
@@ -2158,17 +2175,15 @@ dependencies = [
  "futures",
  "futures-util",
  "h2",
+ "http",
  "http-body-util",
+ "hydra-tracing",
  "hyper",
  "hyper-util",
  "listenfd",
  "lockfile",
  "log",
  "nix-utils",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry-semantic-conventions",
- "opentelemetry_sdk",
  "parking_lot",
  "procfs 0.18.0",
  "prometheus",
@@ -2187,10 +2202,9 @@ dependencies = [
  "tonic-prost",
  "tonic-prost-build",
  "tonic-reflection",
+ "tower",
+ "tower-http",
  "tracing",
- "tracing-log",
- "tracing-opentelemetry",
- "tracing-subscriber",
  "uuid",
 ]
 
@@ -3391,6 +3405,7 @@ dependencies = [
  "tower",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]

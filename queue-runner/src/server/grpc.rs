@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use tokio::{io::AsyncWriteExt as _, sync::mpsc};
 use tonic::service::interceptor::InterceptedService;
+use tower::ServiceBuilder;
 use tracing::Instrument as _;
 
 use crate::{
@@ -137,8 +138,17 @@ impl Server {
             },
         );
 
-        let mut server =
-            tonic::transport::Server::builder().trace_fn(|_| tracing::info_span!("grpc_server"));
+        let mut server = tonic::transport::Server::builder().layer(
+            ServiceBuilder::new()
+                .layer(
+                    tower_http::trace::TraceLayer::new_for_grpc().make_span_with(
+                        tower_http::trace::DefaultMakeSpan::new()
+                            .level(tracing::Level::INFO)
+                            .include_headers(true),
+                    ),
+                )
+                .map_request(hydra_tracing::propagate::accept_trace),
+        );
 
         if state.args.mtls_enabled() {
             log::info!("Using mtls");

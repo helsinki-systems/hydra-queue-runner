@@ -1,7 +1,11 @@
-use tracing_subscriber::{Registry, layer::SubscriberExt as _};
+pub use tracing_subscriber::filter::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt as _;
 
 #[cfg(feature = "otel")]
 use opentelemetry::trace::TracerProvider as _;
+
+#[cfg(feature = "tonic")]
+pub mod propagate;
 
 #[cfg(feature = "otel")]
 fn resource() -> opentelemetry_sdk::Resource {
@@ -21,14 +25,11 @@ pub struct TracingGuard {
     #[cfg(feature = "otel")]
     tracer_provider: opentelemetry_sdk::trace::SdkTracerProvider,
 
-    reload_handle: tracing_subscriber::reload::Handle<
-        tracing_subscriber::EnvFilter,
-        tracing_subscriber::Registry,
-    >,
+    reload_handle: tracing_subscriber::reload::Handle<EnvFilter, tracing_subscriber::Registry>,
 }
 
 impl TracingGuard {
-    pub fn change_log_level(&self, new_filter: tracing_subscriber::EnvFilter) {
+    pub fn change_log_level(&self, new_filter: EnvFilter) {
         let _ = self.reload_handle.modify(|filter| *filter = new_filter);
     }
 }
@@ -57,11 +58,12 @@ fn init_tracer_provider() -> anyhow::Result<opentelemetry_sdk::trace::SdkTracerP
 pub fn init() -> anyhow::Result<TracingGuard> {
     tracing_log::LogTracer::init()?;
     let (log_env_filter, reload_handle) = tracing_subscriber::reload::Layer::new(
-        tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
     );
     let fmt_layer = tracing_subscriber::fmt::layer().compact();
-    let subscriber = Registry::default().with(log_env_filter).with(fmt_layer);
+    let subscriber = tracing_subscriber::Registry::default()
+        .with(log_env_filter)
+        .with(fmt_layer);
 
     #[cfg(feature = "otel")]
     {

@@ -23,6 +23,7 @@ futures = "0.3"
 futures-util = "0.3"
 gethostname = "1"
 h2 = "0.4"
+http = "1.1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
 hyper-util = "0.1.10"
@@ -31,10 +32,11 @@ lockfile = "0.4.0"
 log = "0.4"
 nix = { version = "0.30", default-features = false }
 nix-diff = { git = "https://github.com/mic92/nix-diff-rs.git", rev = "6c0902f9c6f756b09095e9d77b424332ff0e32e9" }
-opentelemetry = { version = "0.31.0" }
-opentelemetry-otlp = { version = "0.31.0" }
-opentelemetry-semantic-conventions = { version = "0.31.0" }
-opentelemetry_sdk = { version = "0.31.0" }
+opentelemetry = "0.31.0"
+opentelemetry-http = "0.31.0"
+opentelemetry-otlp = "0.31.0"
+opentelemetry-semantic-conventions = "0.31.0"
+opentelemetry_sdk = "0.31.0"
 parking_lot = "0.12.4"
 pkg-config = "0.3"
 procfs = "0.18"
@@ -59,7 +61,8 @@ tonic = "0.14"
 tonic-prost = "0.14"
 tonic-prost-build = "0.14"
 tonic-reflection = "0.14"
-tower = "0.5.2"
+tower = "0.5"
+tower-http = "0.6"
 tracing = "0.1"
 tracing-log = "0.2.0"
 tracing-opentelemetry = "0.32.0"

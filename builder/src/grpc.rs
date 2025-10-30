@@ -14,19 +14,18 @@ pub mod runner_v1 {
 }
 
 #[derive(Debug, Clone)]
-pub enum AuthInterceptor {
+pub enum BuilderInterceptor {
     Token {
         token: tonic::metadata::MetadataValue<tonic::metadata::Ascii>,
     },
     Noop,
 }
 
-impl tonic::service::Interceptor for AuthInterceptor {
-    fn call(
-        &mut self,
-        mut request: tonic::Request<()>,
-    ) -> Result<tonic::Request<()>, tonic::Status> {
-        if let AuthInterceptor::Token { token } = self {
+impl tonic::service::Interceptor for BuilderInterceptor {
+    fn call(&mut self, request: tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> {
+        let mut request = hydra_tracing::propagate::send_trace(request).map_err(|e| *e)?;
+
+        if let BuilderInterceptor::Token { token } = self {
             request
                 .metadata_mut()
                 .insert("authorization", token.clone());
@@ -36,7 +35,7 @@ impl tonic::service::Interceptor for AuthInterceptor {
     }
 }
 
-pub type BuilderClient = RunnerServiceClient<InterceptedService<Channel, AuthInterceptor>>;
+pub type BuilderClient = RunnerServiceClient<InterceptedService<Channel, BuilderInterceptor>>;
 
 pub async fn init_client(args: &crate::config::Args) -> anyhow::Result<BuilderClient> {
     if !args.mtls_configured_correctly() {
@@ -86,11 +85,11 @@ pub async fn init_client(args: &crate::config::Args) -> anyhow::Result<BuilderCl
     };
 
     let interceptor = if let Some(t) = args.get_authorization_token().await? {
-        AuthInterceptor::Token {
+        BuilderInterceptor::Token {
             token: format!("Bearer {t}").parse()?,
         }
     } else {
-        AuthInterceptor::Noop
+        BuilderInterceptor::Noop
     };
 
     Ok(RunnerServiceClient::with_interceptor(channel, interceptor)

@@ -3,15 +3,11 @@ name = "queue-runner"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0"
+rust-version.workspace = true
 
 [dependencies]
 log.workspace = true
 tracing.workspace = true
-tracing-subscriber = { workspace = true, features = [
-  "registry",
-  "env-filter",
-] }
-tracing-log.workspace = true
 
 sd-notify.workspace = true
 lockfile.workspace = true
@@ -43,6 +39,9 @@ listenfd.workspace = true
 h2.workspace = true
 
 hyper = { workspace = true, features = ["full"] }
+tower = { workspace = true, features = ["util"] }
+tower-http = { workspace = true, features = ["trace"] }
+http.workspace = true
 http-body-util.workspace = true
 hyper-util.workspace = true
 bytes.workspace = true
@@ -54,15 +53,10 @@ chrono = { workspace = true, features = [
 prometheus = { workspace = true, features = ["process"] }
 procfs.workspace = true
 
-opentelemetry = { workspace = true, optional = true }
-opentelemetry_sdk = { workspace = true, features = ["rt-tokio"], optional = true }
-opentelemetry-otlp = { workspace = true, optional = true, features = ["grpc-tonic"] }
-opentelemetry-semantic-conventions = { workspace = true, optional = true }
-tracing-opentelemetry = { workspace = true, optional = true }
-
 db = { path = "../crates/db" }
 nix-utils = { path = "../crates/nix-utils" }
 shared = { path = "../crates/shared" }
+hydra-tracing = { path = "../crates/tracing", features = ["tonic"] }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator.workspace = true
@@ -71,10 +65,4 @@ tikv-jemallocator.workspace = true
 tonic-prost-build.workspace = true
 
 [features]
-otel = [
-  "opentelemetry",
-  "opentelemetry_sdk",
-  "opentelemetry-otlp",
-  "opentelemetry-semantic-conventions",
-  "tracing-opentelemetry",
-]
+otel = [ "hydra-tracing/otel" ]
