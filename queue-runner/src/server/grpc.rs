@@ -166,7 +166,10 @@ impl Server {
         let reflection_service = tonic_reflection::server::Builder::configure()
             .register_encoded_file_descriptor_set(runner_v1::FILE_DESCRIPTOR_SET)
             .build_v1()?;
+
+        let (_health_reporter, health_service) = tonic_health::server::health_reporter();
         let server = server
+            .add_service(health_service)
             .add_service(reflection_service)
             .add_service(intercepted_service);
 
