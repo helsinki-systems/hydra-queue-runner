@@ -1864,9 +1864,12 @@ impl State {
             .buffer_unordered(10);
             while let Some(v) = tokio_stream::StreamExt::next(&mut stream).await {
                 match v {
-                    Ok(()) => {
+                    Ok(v) if v => {
                         self.metrics.nr_substitutes_succeeded.inc();
                         substituted += 1;
+                    }
+                    Ok(_) => {
+                        self.metrics.nr_substitutes_failed.inc();
                     }
                     Err(e) => {
                         self.metrics.nr_substitutes_failed.inc();

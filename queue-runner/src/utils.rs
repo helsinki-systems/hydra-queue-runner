@@ -76,13 +76,16 @@ pub async fn substitute_output(
     build_id: BuildID,
     drv_path: &nix_utils::StorePath,
     remote_store: Option<&nix_utils::RemoteStore>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     let Some(path) = &o.path else {
-        return Ok(());
+        return Ok(false);
     };
 
     let starttime = i32::try_from(chrono::Utc::now().timestamp())?; // TODO
-    store.ensure_path(path).await?;
+    if let Err(e) = store.ensure_path(path).await {
+        log::debug!("Path not found, can't import={e}");
+        return Ok(false);
+    }
     if let Some(remote_store) = remote_store {
         let paths_to_copy = store
             .query_requisites(&[path], false)
@@ -113,5 +116,5 @@ pub async fn substitute_output(
     .await?;
     tx.commit().await?;
 
-    Ok(())
+    Ok(true)
 }
