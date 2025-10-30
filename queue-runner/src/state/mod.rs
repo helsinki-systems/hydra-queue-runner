@@ -620,13 +620,13 @@ impl State {
                 "builds_added" => log::debug!("got notification: new builds added to the queue"),
                 "builds_restarted" => log::debug!("got notification: builds restarted"),
                 "builds_cancelled" | "builds_deleted" | "builds_bumped" => {
-                    log::debug!("got notification: builds cancelled or bumped");
+                    log::info!("got notification: builds cancelled or bumped");
                     if let Err(e) = self.process_queue_change().await {
                         log::error!("Failed to process queue change. e={e}");
                     }
                 }
                 "jobset_shares_changed" => {
-                    log::debug!("got notification: jobset shares changed");
+                    log::info!("got notification: jobset shares changed");
                     if let Err(e) = self.handle_jobset_change().await {
                         log::error!("Failed to handle jobset change. e={e}");
                     }

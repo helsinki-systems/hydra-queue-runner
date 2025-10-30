@@ -319,7 +319,7 @@ impl Queues {
 
     #[tracing::instrument(skip(self))]
     pub async fn kill_active_steps(&self) -> Vec<(nix_utils::StorePath, uuid::Uuid)> {
-        log::info!("Kill all activ steps");
+        log::info!("Kill all active steps");
         let active = {
             let scheduled = self.scheduled.read();
             scheduled.clone()
