@@ -5,19 +5,19 @@ edition = "2024"
 license = "GPL-3.0"
 
 [dependencies]
-tracing = "0.1"
-anyhow = "1.0.98"
-futures = "0.3"
-ahash = "0.8.11"
+tracing.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+ahash.workspace = true
 
-serde_json = "1.0"
-chrono = { version = "0.4.38", default-features = false, features = [
+serde_json.workspace = true
+chrono = { workspace = true, features = [
   "clock",
   "std",
   "serde",
 ] }
 
-sqlx = { version = "0.8", features = [
+sqlx = { workspace = true, features = [
   "runtime-tokio",
   "tls-native-tls",
   "postgres",

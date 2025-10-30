@@ -5,73 +5,70 @@ edition = "2024"
 license = "GPL-3.0"
 
 [dependencies]
-log = "0.4"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3.18", features = [
+log.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = [
   "registry",
   "env-filter",
 ] }
-tracing-log = "0.2.0"
+tracing-log.workspace = true
 
-sd-notify = "0.4.5"
-lockfile = "0.4.0"
-toml = "0.9.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-secrecy = { version = "0.10.3", features = ["serde"] }
-ahash = "0.8.11"
-arc-swap = "1.7.1"
-parking_lot = "0.12.4"
+sd-notify.workspace = true
+lockfile.workspace = true
+toml.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+secrecy = { workspace = true, features = ["serde"] }
+ahash.workspace = true
+arc-swap.workspace = true
+parking_lot.workspace = true
 
-thiserror = "2.0"
-anyhow = "1.0.98"
-clap = { version = "4", features = ["derive", "env"] }
-uuid = { version = "1.16", features = ["v4", "serde"] }
-atomic_float = "1.1.0"
+thiserror.workspace = true
+anyhow.workspace = true
+clap = { workspace = true, features = ["derive", "env"] }
+uuid = { workspace = true, features = ["v4", "serde"] }
+atomic_float.workspace = true
 
-tokio = { version = "1.34", features = ["full"] }
-futures = "0.3"
-futures-util = "0.3"
-byte-unit = "5.1.6"
+tokio = { workspace = true, features = ["full"] }
+futures.workspace = true
+futures-util.workspace = true
+byte-unit.workspace = true
 
-tokio-stream = "0.1"
-prost = "0.14"
-tonic = { version = "0.14", features = ["zstd", "tls-ring"] }
-tonic-reflection = "0.14"
-tonic-prost = "0.14"
-listenfd = "1"
-h2 = "0.4"
+tokio-stream.workspace = true
+prost.workspace = true
+tonic = { workspace = true, features = ["zstd", "tls-ring"] }
+tonic-reflection.workspace = true
+tonic-prost.workspace = true
+listenfd.workspace = true
+h2.workspace = true
 
-hyper = { version = "1", features = ["full"] }
-http-body-util = "0.1"
-hyper-util = "0.1.10"
-bytes = "1"
-chrono = { version = "0.4.38", default-features = false, features = [
+hyper = { workspace = true, features = ["full"] }
+http-body-util.workspace = true
+hyper-util.workspace = true
+bytes.workspace = true
+chrono = { workspace = true, features = [
   "clock",
   "std",
   "serde",
 ] }
-prometheus = { version = "0.14.0", default-features = false, features = ["process"] }
-procfs = "0.18"
+prometheus = { workspace = true, features = ["process"] }
+procfs.workspace = true
 
-opentelemetry = { version = "0.31.0", optional = true }
-opentelemetry_sdk = { version = "0.31.0", features = [
-  "rt-tokio",
-], optional = true }
-opentelemetry-otlp = { version = "0.31.0", optional = true, features = ["grpc-tonic"] }
-opentelemetry-semantic-conventions = { version = "0.31.0", optional = true }
-tracing-opentelemetry = { version = "0.32.0", optional = true }
-
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, features = ["rt-tokio"], optional = true }
+opentelemetry-otlp = { workspace = true, optional = true, features = ["grpc-tonic"] }
+opentelemetry-semantic-conventions = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
 
 db = { path = "../crates/db" }
 nix-utils = { path = "../crates/nix-utils" }
 shared = { path = "../crates/shared" }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = "0.6"
+tikv-jemallocator.workspace = true
 
 [build-dependencies]
-tonic-prost-build = "0.14"
+tonic-prost-build.workspace = true
 
 [features]
 otel = [
