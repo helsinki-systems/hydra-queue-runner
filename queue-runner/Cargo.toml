@@ -12,7 +12,6 @@ tracing-subscriber = { version = "0.3.18", features = [
   "env-filter",
 ] }
 tracing-log = "0.2.0"
-console-subscriber = { version = "0.4.1", optional = true }
 
 sd-notify = "0.4.5"
 lockfile = "0.4.0"
@@ -75,7 +74,6 @@ tikv-jemallocator = "0.6"
 tonic-prost-build = "0.14"
 
 [features]
-tokio-console = ["console-subscriber"]
 otel = [
   "opentelemetry",
   "opentelemetry_sdk",

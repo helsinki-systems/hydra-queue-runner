@@ -37,7 +37,6 @@
           rustPackages.clippy
           rustPackages.rustfmt
           sqlx-cli
-          tokio-console
         ];
         buildInputs = with pkgs; [
           unstable.openssl

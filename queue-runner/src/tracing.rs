@@ -54,39 +54,6 @@ fn init_tracer_provider() -> anyhow::Result<opentelemetry_sdk::trace::SdkTracerP
         .build())
 }
 
-#[cfg(feature = "tokio-console")]
-pub fn init() -> anyhow::Result<TracingGuard> {
-    tracing_log::LogTracer::init()?;
-    let (log_env_filter, reload_handle) = tracing_subscriber::reload::Layer::new(
-        tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-    );
-    let fmt_layer = tracing_subscriber::fmt::layer().compact();
-    let console_layer = console_subscriber::spawn();
-    let subscriber = Registry::default()
-        .with(log_env_filter)
-        .with(fmt_layer)
-        .with(console_layer);
-    #[cfg(feature = "otel")]
-    {
-        let provider = init_tracer_provider()?;
-        let tracer = provider.tracer(env!("CARGO_PKG_NAME"));
-        let subscriber = subscriber.with(tracing_opentelemetry::OpenTelemetryLayer::new(tracer));
-        tracing::subscriber::set_global_default(subscriber)?;
-        Ok(TracingGuard {
-            tracer_provider: provider,
-            reload_handle,
-        })
-    }
-
-    #[cfg(not(feature = "otel"))]
-    {
-        tracing::subscriber::set_global_default(subscriber)?;
-        Ok(TracingGuard { reload_handle })
-    }
-}
-
-#[cfg(not(feature = "tokio-console"))]
 pub fn init() -> anyhow::Result<TracingGuard> {
     tracing_log::LogTracer::init()?;
     let (log_env_filter, reload_handle) = tracing_subscriber::reload::Layer::new(
