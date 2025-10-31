@@ -8,6 +8,7 @@ pub struct BuildOptions {
     max_log_size: u64,
     max_silent_time: i32,
     build_timeout: i32,
+    check: bool,
 }
 
 impl BuildOptions {
@@ -16,6 +17,7 @@ impl BuildOptions {
             max_log_size: max_log_size.unwrap_or(64u64 << 20),
             max_silent_time: 0,
             build_timeout: 0,
+            check: false,
         }
     }
 
@@ -24,6 +26,7 @@ impl BuildOptions {
             max_log_size,
             max_silent_time,
             build_timeout,
+            check: true,
         }
     }
 
@@ -45,6 +48,11 @@ impl BuildOptions {
 
     pub fn get_build_timeout(&self) -> i32 {
         self.build_timeout
+    }
+
+    pub fn enable_check_build(mut self) -> Self {
+        self.check = true;
+        self
     }
 }
 
@@ -87,6 +95,7 @@ pub async fn realise_drvs(
             "builders",
             "",
         ])
+        .args(if opts.check { vec!["--check"] } else { vec![] })
         .args(drvs.iter().map(|v| v.get_full_path()))
         .kill_on_drop(kill_on_drop)
         .stdout(std::process::Stdio::piped())
