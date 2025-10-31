@@ -18,6 +18,17 @@ pub struct CAOutput {
     pub hash_algo: String,
 }
 
+impl CAOutput {
+    pub fn get_sri_hash(&self) -> Result<String, super::Error> {
+        let algo = self.hash_algo.strip_prefix("r:").unwrap_or(&self.hash_algo);
+        Ok(super::convert_hash(
+            &self.hash,
+            Some(algo.parse()?),
+            super::HashFormat::SRI,
+        )?)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DerivationEnv {
     inner: AHashMap<String, String>,
@@ -56,12 +67,12 @@ pub struct Derivation {
     pub env: DerivationEnv,
     pub input_drvs: Vec<String>,
     pub outputs: Vec<Output>,
-    pub name: String,
+    pub name: StorePath,
     pub system: String,
 }
 
 impl Derivation {
-    fn new(path: String, v: nix_diff::types::Derivation) -> Result<Self, std::str::Utf8Error> {
+    fn new(path: &StorePath, v: nix_diff::types::Derivation) -> Result<Self, std::str::Utf8Error> {
         Ok(Self {
             env: DerivationEnv::new(
                 v.env
@@ -102,7 +113,7 @@ impl Derivation {
                     })
                 })
                 .collect(),
-            name: path,
+            name: path.clone(),
             system: String::from_utf8(v.platform).unwrap_or_default(),
         })
     }
@@ -125,9 +136,9 @@ impl Derivation {
     }
 }
 
-fn parse_drv(path: String, input: &str) -> Result<Derivation, crate::Error> {
+fn parse_drv(drv_path: &StorePath, input: &str) -> Result<Derivation, crate::Error> {
     Ok(Derivation::new(
-        path,
+        drv_path,
         nix_diff::parser::parse_derivation_string(input)?,
     )?)
 }
@@ -144,7 +155,7 @@ pub async fn query_drv(drv: &StorePath) -> Result<Option<Derivation>, crate::Err
     }
 
     let input = tokio::fs::read_to_string(&full_path).await?;
-    Ok(Some(parse_drv(full_path, &input)?))
+    Ok(Some(parse_drv(drv, &input)?))
 }
 
 #[cfg(test)]
@@ -154,11 +165,10 @@ mod tests {
     #[test]
     fn test_ca_derivation() {
         let drv_str = r#"Derive([("out","/nix/store/6fr8dalasgpy0bpykhjq2b9q65lb4j8y-linux-6.16.tar.xz","sha256","1a4be2fe6b5246aa4ac8987a8a4af34c42a8dd7d08b46ab48516bcc1befbcd83")],[],[],"builtin","builtin:fetchurl",[],[("builder","builtin:fetchurl"),("executable",""),("impureEnvVars","http_proxy https_proxy ftp_proxy all_proxy no_proxy"),("name","linux-6.16.tar.xz"),("out","/nix/store/6fr8dalasgpy0bpykhjq2b9q65lb4j8y-linux-6.16.tar.xz"),("outputHash","sha256-Gkvi/mtSRqpKyJh6ikrzTEKo3X0ItGq0hRa8wb77zYM="),("outputHashAlgo",""),("outputHashMode","flat"),("preferLocalBuild","1"),("system","builtin"),("unpack",""),("url","https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.16.tar.xz"),("urls","https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.16.tar.xz")])"#;
-        let drv = parse_drv(
-            "/nix/store/awmdz2lkxkdqnhdhk09zy9w7kzpl8jhc-linux-6.16.tar.xz.drv".into(),
-            drv_str,
-        )
-        .unwrap();
+        let drv_path =
+            StorePath::new("/nix/store/awmdz2lkxkdqnhdhk09zy9w7kzpl8jhc-linux-6.16.tar.xz.drv");
+        let drv = parse_drv(&drv_path, drv_str).unwrap();
+        assert_eq!(drv.name, drv_path);
         assert!(drv.is_ca());
         let o = drv.get_ca_output().unwrap();
         assert_eq!(
@@ -176,11 +186,9 @@ mod tests {
     #[test]
     fn test_no_ca_derivation() {
         let drv_str = r#"Derive([("info","/nix/store/50m785l8aaqhy28h0jwi0rd02wjlrzb4-gnused-4.9-info","",""),("out","/nix/store/pmhkmqy0vxk47r6ndh0azybhf6gs6k25-gnused-4.9","","")],[("/nix/store/05q48dcd4lgk4vh7wyk330gr2fr082i2-bootstrap-tools.drv",["out"]),("/nix/store/d7ir44pmpq2y8lyyrniiflkw9cw0a5k3-bootstrap-stage4-stdenv-linux.drv",["out"]),("/nix/store/hxn5cn3r48d4css91508lgkd5vwnnqcr-update-autotools-gnu-config-scripts-hook.drv",["out"]),("/nix/store/lmwgsavisgsqql05kkl91v82psa1q191-perl-5.40.0.drv",["out"]),("/nix/store/ql7jhf1wzhazxw4cw627zyls49xm5g3n-sed-4.9.tar.xz.drv",["out"])],["/nix/store/l622p70vy8k5sh7y5wizi5f2mic6ynpg-source-stdenv.sh","/nix/store/shkw4qm9qcw5sc5n1k5jznc83ny02r39-default-builder.sh"],"x86_64-linux","/nix/store/razasrvdg7ckplfmvdxv4ia3wbayr94s-bootstrap-tools/bin/bash",["-e","/nix/store/l622p70vy8k5sh7y5wizi5f2mic6ynpg-source-stdenv.sh","/nix/store/shkw4qm9qcw5sc5n1k5jznc83ny02r39-default-builder.sh"],[("NIX_MAIN_PROGRAM","sed"),("__structuredAttrs",""),("buildInputs",""),("builder","/nix/store/razasrvdg7ckplfmvdxv4ia3wbayr94s-bootstrap-tools/bin/bash"),("cmakeFlags",""),("configureFlags",""),("depsBuildBuild",""),("depsBuildBuildPropagated",""),("depsBuildTarget",""),("depsBuildTargetPropagated",""),("depsHostHost",""),("depsHostHostPropagated",""),("depsTargetTarget",""),("depsTargetTargetPropagated",""),("doCheck",""),("doInstallCheck",""),("info","/nix/store/50m785l8aaqhy28h0jwi0rd02wjlrzb4-gnused-4.9-info"),("mesonFlags",""),("name","gnused-4.9"),("nativeBuildInputs","/nix/store/jwjq0fjgn7d00kswhaw2m8hbgws5vbi4-update-autotools-gnu-config-scripts-hook /nix/store/jvq4g81anbq7d0pwrrmgpi6721akly3h-perl-5.40.0"),("out","/nix/store/pmhkmqy0vxk47r6ndh0azybhf6gs6k25-gnused-4.9"),("outputs","out info"),("patches",""),("pname","gnused"),("preConfigure","patchShebangs ./build-aux/help2man"),("propagatedBuildInputs",""),("propagatedNativeBuildInputs",""),("src","/nix/store/a2i83vprqrd9nkr116yy1ksrwz5y1vq9-sed-4.9.tar.xz"),("stdenv","/nix/store/dlbnrl548f1vq1d8x6124p21p8alirxl-bootstrap-stage4-stdenv-linux"),("strictDeps",""),("system","x86_64-linux"),("version","4.9")])"#;
-        let drv = parse_drv(
-            "/nix/store/whmvyjphw10d78zfrb04kqjlc0dy68z3-gnused-4.9.drv".into(),
-            drv_str,
-        )
-        .unwrap();
+        let drv_path = StorePath::new("/nix/store/whmvyjphw10d78zfrb04kqjlc0dy68z3-gnused-4.9.drv");
+        let drv = parse_drv(&drv_path, drv_str).unwrap();
+        assert_eq!(drv.name, drv_path);
         assert!(!drv.is_ca());
     }
 }

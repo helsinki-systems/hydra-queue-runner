@@ -25,6 +25,9 @@ pub enum Error {
 
     #[error("anyhow error: `{0}`")]
     Anyhow(#[from] anyhow::Error),
+
+    #[error("hash parse error: `{0}`")]
+    HashParseError(#[from] hash::ParseError),
 }
 
 use ahash::AHashMap;
