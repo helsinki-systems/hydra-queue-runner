@@ -16,10 +16,10 @@ async fn main() -> anyhow::Result<()> {
     let _tracing_guard = hydra_tracing::init()?;
     nix_utils::init_nix();
 
-    let args = config::Args::new();
+    let cli = config::Cli::new();
 
-    let state = state::State::new(&args)?;
-    let mut client = grpc::init_client(&args).await?;
+    let state = state::State::new(&cli)?;
+    let mut client = grpc::init_client(&cli).await?;
     let task = tokio::spawn({
         let state = state.clone();
         async move { crate::grpc::start_bidirectional_stream(&mut client, state.clone()).await }

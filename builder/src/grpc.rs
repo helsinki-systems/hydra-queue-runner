@@ -37,8 +37,8 @@ impl tonic::service::Interceptor for BuilderInterceptor {
 
 pub type BuilderClient = RunnerServiceClient<InterceptedService<Channel, BuilderInterceptor>>;
 
-pub async fn init_client(args: &crate::config::Args) -> anyhow::Result<BuilderClient> {
-    if !args.mtls_configured_correctly() {
+pub async fn init_client(cli: &crate::config::Cli) -> anyhow::Result<BuilderClient> {
+    if !cli.mtls_configured_correctly() {
         log::error!(
             "mtls configured inproperly, please pass all options: \
             server_root_ca_cert_path, client_cert_path, client_key_path and domain_name!"
@@ -46,10 +46,10 @@ pub async fn init_client(args: &crate::config::Args) -> anyhow::Result<BuilderCl
         return Err(anyhow::anyhow!("Configuration issue"));
     }
 
-    log::info!("connecting to {}", args.gateway_endpoint);
-    let channel = if args.mtls_enabled() {
+    log::info!("connecting to {}", cli.gateway_endpoint);
+    let channel = if cli.mtls_enabled() {
         log::info!("mtls is enabled");
-        let (server_root_ca_cert, client_identity, domain_name) = args
+        let (server_root_ca_cert, client_identity, domain_name) = cli
             .get_mtls()
             .await
             .context("Failed to get_mtls Certificate and Identity")?;
@@ -58,13 +58,13 @@ pub async fn init_client(args: &crate::config::Args) -> anyhow::Result<BuilderCl
             .ca_certificate(server_root_ca_cert)
             .identity(client_identity);
 
-        tonic::transport::Channel::builder(args.gateway_endpoint.parse()?)
+        tonic::transport::Channel::builder(cli.gateway_endpoint.parse()?)
             .tls_config(tls)
             .context("Failed to attach tls config")?
             .connect()
             .await
             .context("Failed to establish connection with Channel")?
-    } else if let Some(path) = args.gateway_endpoint.strip_prefix("unix://") {
+    } else if let Some(path) = cli.gateway_endpoint.strip_prefix("unix://") {
         let path = path.to_owned();
         tonic::transport::Endpoint::try_from("http://[::]:50051")?
             .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
@@ -78,13 +78,13 @@ pub async fn init_client(args: &crate::config::Args) -> anyhow::Result<BuilderCl
             .await
             .context("Failed to establish unix socket connection with Channel")?
     } else {
-        tonic::transport::Channel::builder(args.gateway_endpoint.parse()?)
+        tonic::transport::Channel::builder(cli.gateway_endpoint.parse()?)
             .connect()
             .await
             .context("Failed to establish connection with Channel")?
     };
 
-    let interceptor = if let Some(t) = args.get_authorization_token().await? {
+    let interceptor = if let Some(t) = cli.get_authorization_token().await? {
         BuilderInterceptor::Token {
             token: format!("Bearer {t}").parse()?,
         }

@@ -17,7 +17,7 @@ fn start_task_loops(state: std::sync::Arc<State>) -> Vec<tokio::task::AbortHandl
     log::info!("QueueRunner starting task loops");
 
     vec![
-        spawn_config_reloader(state.clone(), state.config.clone(), &state.args.config_path),
+        spawn_config_reloader(state.clone(), state.config.clone(), &state.cli.config_path),
         state.clone().start_queue_monitor_loop(),
         state.clone().start_dispatch_loop(),
         state.clone().start_dump_status_loop(),
@@ -51,12 +51,12 @@ async fn main() -> anyhow::Result<()> {
     nix_utils::init_nix();
 
     let state = State::new(&tracing_guard).await?;
-    if state.args.status {
+    if state.cli.status {
         state.get_status_from_main_process().await?;
         return Ok(());
     }
 
-    if !state.args.mtls_configured_correctly() {
+    if !state.cli.mtls_configured_correctly() {
         log::error!(
             "mtls configured inproperly, please pass all options: server_cert_path, server_key_path and client_ca_cert_path!"
         );
@@ -74,11 +74,11 @@ async fn main() -> anyhow::Result<()> {
     let task_abort_handles = start_task_loops(state.clone());
     log::info!(
         "QueueRunner listening on grpc: {:?} and rest: {}",
-        state.args.grpc_bind,
-        state.args.rest_bind
+        state.cli.grpc_bind,
+        state.cli.rest_bind
     );
-    let srv1 = server::grpc::Server::run(state.args.grpc_bind.clone(), state.clone());
-    let srv2 = server::http::Server::run(state.args.rest_bind, state.clone());
+    let srv1 = server::grpc::Server::run(state.cli.grpc_bind.clone(), state.clone());
+    let srv2 = server::http::Server::run(state.cli.rest_bind, state.clone());
 
     let task = tokio::spawn(async move {
         match futures_util::future::join(srv1, srv2).await {

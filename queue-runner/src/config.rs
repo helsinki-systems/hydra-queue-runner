@@ -27,7 +27,7 @@ impl std::str::FromStr for BindSocket {
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
-pub struct Args {
+pub struct Cli {
     /// Query the queue runner status
     #[clap(long)]
     pub status: bool,
@@ -57,7 +57,7 @@ pub struct Args {
     pub client_ca_cert_path: Option<std::path::PathBuf>,
 }
 
-impl Args {
+impl Cli {
     pub fn new() -> Self {
         Self::parse()
     }

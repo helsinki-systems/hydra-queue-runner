@@ -125,7 +125,7 @@ impl Drop for Gcroot {
 }
 
 impl State {
-    pub fn new(args: &super::config::Args) -> anyhow::Result<Arc<Self>> {
+    pub fn new(cli: &super::config::Cli) -> anyhow::Result<Arc<Self>> {
         nix_utils::set_verbosity(1);
 
         let logname = std::env::var("LOGNAME").context("LOGNAME not set")?;
@@ -140,17 +140,17 @@ impl State {
             id: uuid::Uuid::new_v4(),
             active_builds: parking_lot::RwLock::new(AHashMap::new()),
             config: Config {
-                ping_interval: args.ping_interval,
-                speed_factor: args.speed_factor,
-                max_jobs: args.max_jobs,
-                tmp_avail_threshold: args.tmp_avail_threshold,
-                store_avail_threshold: args.store_avail_threshold,
-                load1_threshold: args.load1_threshold,
-                cpu_psi_threshold: args.cpu_psi_threshold,
-                mem_psi_threshold: args.mem_psi_threshold,
-                io_psi_threshold: args.io_psi_threshold,
+                ping_interval: cli.ping_interval,
+                speed_factor: cli.speed_factor,
+                max_jobs: cli.max_jobs,
+                tmp_avail_threshold: cli.tmp_avail_threshold,
+                store_avail_threshold: cli.store_avail_threshold,
+                load1_threshold: cli.load1_threshold,
+                cpu_psi_threshold: cli.cpu_psi_threshold,
+                mem_psi_threshold: cli.mem_psi_threshold,
+                io_psi_threshold: cli.io_psi_threshold,
                 gcroots,
-                systems: if let Some(s) = &args.systems {
+                systems: if let Some(s) = &cli.systems {
                     s.clone()
                 } else {
                     let mut out = Vec::with_capacity(8);
@@ -158,14 +158,14 @@ impl State {
                     out.extend(nix_utils::get_extra_platforms());
                     out
                 },
-                supported_features: if let Some(s) = &args.supported_features {
+                supported_features: if let Some(s) = &cli.supported_features {
                     s.clone()
                 } else {
                     nix_utils::get_system_features()
                 },
-                mandatory_features: args.mandatory_features.clone().unwrap_or_default(),
+                mandatory_features: cli.mandatory_features.clone().unwrap_or_default(),
                 cgroups: nix_utils::get_use_cgroups(),
-                use_substitutes: args.use_substitutes,
+                use_substitutes: cli.use_substitutes,
             },
             max_concurrent_downloads: 5.into(),
         });

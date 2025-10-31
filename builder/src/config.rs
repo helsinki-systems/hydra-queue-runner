@@ -7,7 +7,7 @@ use clap::Parser;
     about,
     long_about = None,
 )]
-pub struct Args {
+pub struct Cli {
     /// Gateway endpoint
     #[clap(short, long, default_value = "http://[::1]:50051")]
     pub gateway_endpoint: String,
@@ -85,7 +85,7 @@ pub struct Args {
     pub authorization_file: Option<std::path::PathBuf>,
 }
 
-impl Args {
+impl Cli {
     pub fn new() -> Self {
         Self::parse()
     }

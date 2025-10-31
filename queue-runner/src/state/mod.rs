@@ -22,7 +22,7 @@ use futures::TryStreamExt as _;
 use nix_utils::BaseStore as _;
 use secrecy::ExposeSecret as _;
 
-use crate::config::{App, Args};
+use crate::config::{App, Cli};
 use crate::state::build::get_mark_build_sccuess_data;
 use crate::state::jobset::SCHEDULING_WINDOW;
 use crate::utils::finish_build_step;
@@ -47,7 +47,7 @@ pub struct State {
     pub store: nix_utils::LocalStore,
     pub remote_stores: parking_lot::RwLock<Vec<nix_utils::RemoteStore>>,
     pub config: App,
-    pub args: Args,
+    pub cli: Cli,
     pub db: db::Database,
 
     pub machines: Machines,
@@ -74,12 +74,12 @@ impl State {
     pub async fn new(tracing_guard: &hydra_tracing::TracingGuard) -> anyhow::Result<Arc<Self>> {
         let store = nix_utils::LocalStore::init();
         nix_utils::set_verbosity(1);
-        let args = Args::new();
-        if args.status {
+        let cli = Cli::new();
+        if cli.status {
             tracing_guard.change_log_level(hydra_tracing::EnvFilter::new("error"));
         }
 
-        let config = App::init(&args.config_path)?;
+        let config = App::init(&cli.config_path)?;
         let log_dir = config.get_hydra_log_dir();
         let db = db::Database::new(
             config.get_db_url().expose_secret(),
@@ -98,7 +98,7 @@ impl State {
                     .collect(),
             ),
             config,
-            args,
+            cli,
             db,
             machines: Machines::new(),
             log_dir,

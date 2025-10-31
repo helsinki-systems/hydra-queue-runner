@@ -150,10 +150,10 @@ impl Server {
                 .map_request(hydra_tracing::propagate::accept_trace),
         );
 
-        if state.args.mtls_enabled() {
+        if state.cli.mtls_enabled() {
             log::info!("Using mtls");
             let (client_ca_cert, server_identity) = state
-                .args
+                .cli
                 .get_mtls()
                 .await
                 .context("Failed to get_mtls Certificate and Identity")?;
