@@ -229,6 +229,8 @@ mod ffi {
             user_data: usize,
         ) -> Result<()>;
 
+        fn list_nar(store: &StoreWrapper, path: &str, recursive: bool) -> Result<String>;
+
         fn ensure_path(store: &StoreWrapper, path: &str) -> Result<()>;
         fn try_resolve_drv(store: &StoreWrapper, path: &str) -> Result<String>;
     }
@@ -434,6 +436,12 @@ pub trait BaseStore {
     fn export_paths<F>(&self, paths: &[StorePath], callback: F) -> Result<(), cxx::Exception>
     where
         F: FnMut(&[u8]) -> bool;
+
+    fn list_nar(
+        &self,
+        path: &StorePath,
+        recursive: bool,
+    ) -> impl std::future::Future<Output = Result<String, crate::Error>>;
 
     fn ensure_path(&self, path: &StorePath)
     -> impl std::future::Future<Output = Result<(), Error>>;
@@ -664,6 +672,14 @@ impl BaseStore for BaseStoreImpl {
     }
 
     #[inline]
+    #[tracing::instrument(skip(self), err)]
+    async fn list_nar(&self, path: &StorePath, recursive: bool) -> Result<String, crate::Error> {
+        let store = self.wrapper.clone();
+        let path = path.get_full_path();
+        asyncify(move || ffi::list_nar(&store, &path, recursive)).await
+    }
+
+    #[inline]
     async fn ensure_path(&self, path: &StorePath) -> Result<(), Error> {
         let store = self.wrapper.clone();
         let path = path.get_full_path();
@@ -879,6 +895,12 @@ impl BaseStore for LocalStore {
     }
 
     #[inline]
+    #[tracing::instrument(skip(self), err)]
+    async fn list_nar(&self, path: &StorePath, recursive: bool) -> Result<String, crate::Error> {
+        self.base.list_nar(path, recursive).await
+    }
+
+    #[inline]
     async fn ensure_path(&self, path: &StorePath) -> Result<(), Error> {
         self.base.ensure_path(path).await
     }
@@ -1085,6 +1107,12 @@ impl BaseStore for RemoteStore {
         F: FnMut(&[u8]) -> bool,
     {
         self.base.export_paths(paths, callback)
+    }
+
+    #[inline]
+    #[tracing::instrument(skip(self), err)]
+    async fn list_nar(&self, path: &StorePath, recursive: bool) -> Result<String, crate::Error> {
+        self.base.list_nar(path, recursive).await
     }
 
     #[inline]

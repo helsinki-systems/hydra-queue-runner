@@ -13,7 +13,10 @@
 #include <nix/main/shared.hh>
 #include <nix/store/binary-cache-store.hh>
 #include <nix/store/globals.hh>
+#include <nix/store/nar-accessor.hh>
 #include <nix/store/s3-binary-cache-store.hh>
+
+#include <nlohmann/json.hpp>
 
 static std::atomic<bool> initializedNix = false;
 
@@ -263,6 +266,22 @@ void export_paths(const StoreWrapper &wrapper,
     // Intentionally do nothing. We're only using the exception as a
     // short-circuiting mechanism.
   }
+}
+
+rust::String list_nar(const StoreWrapper &wrapper, rust::Str path,
+                      bool recursive) {
+  auto store = wrapper._store;
+  auto [store_path, rest] = store->toStorePath(AS_VIEW(path));
+
+  nlohmann::json j = {
+      {"version", 1},
+      {"root", nix::listNar(store->getFSAccessor(),
+                            nix::CanonPath{store_path.to_string()} /
+                                nix::CanonPath{rest},
+                            recursive)},
+  };
+
+  return j.dump();
 }
 
 void ensure_path(const StoreWrapper &wrapper, rust::Str path) {
