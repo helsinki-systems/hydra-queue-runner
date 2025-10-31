@@ -68,8 +68,10 @@ impl From<Option<HashAlgorithm>> for ffi::OptionalHashAlgorithm {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
 pub enum ParseError {
-    InvalidAlgorithm,
+    #[error("Invalid Algorithm passed: {0}")]
+    InvalidAlgorithm(String),
 }
 
 impl std::str::FromStr for HashAlgorithm {
@@ -82,7 +84,7 @@ impl std::str::FromStr for HashAlgorithm {
             "sha256" => Ok(Self::SHA256),
             "sha512" => Ok(Self::SHA512),
             "blake3" => Ok(Self::BLAKE3),
-            _ => Err(ParseError::InvalidAlgorithm),
+            _ => Err(ParseError::InvalidAlgorithm(s.into())),
         }
     }
 }
