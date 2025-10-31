@@ -56,6 +56,7 @@ procfs.workspace = true
 
 db = { path = "../crates/db" }
 nix-utils = { path = "../crates/nix-utils" }
+binary-cache = { path = "../crates/binary-cache" }
 shared = { path = "../crates/shared" }
 hydra-tracing = { path = "../crates/tracing", features = ["tonic"] }
 

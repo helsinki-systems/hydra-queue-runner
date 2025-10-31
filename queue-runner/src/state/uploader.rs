@@ -43,19 +43,18 @@ impl Uploader {
     async fn upload_msg(
         &self,
         local_store: nix_utils::LocalStore,
-        remote_stores: Vec<nix_utils::RemoteStore>,
+        remote_stores: Vec<binary_cache::S3BinaryCacheClient>,
         msg: Message,
     ) {
         // TODO: we need retries for this! We can not affored to have a failure on cache push
         log::info!("Uploading paths: {:?}", msg.store_paths);
 
         for remote_store in remote_stores {
+            let file = tokio::fs::File::open(&msg.log_local_path).await.unwrap();
+            let reader = Box::new(tokio::io::BufReader::new(file));
+
             if let Err(e) = remote_store
-                .upsert_file(
-                    msg.log_remote_path.clone(),
-                    std::path::PathBuf::from(msg.log_local_path.clone()),
-                    "text/plain; charset=utf-8",
-                )
+                .upsert_file_stream(&msg.log_remote_path, reader, "text/plain; charset=utf-8")
                 .await
             {
                 log::error!("Failed to copy path to remote store: {e}");
@@ -66,17 +65,14 @@ impl Uploader {
                 .await
                 .unwrap_or_default();
             let paths_to_copy = remote_store.query_missing_paths(paths_to_copy).await;
-            if let Err(e) = nix_utils::copy_paths(
-                local_store.as_base_store(),
-                remote_store.as_base_store(),
-                &paths_to_copy,
-                false,
-                false,
-                false,
-            )
-            .await
+            if let Err(e) = remote_store
+                .copy_paths(&local_store, paths_to_copy, false)
+                .await
             {
-                log::error!("Failed to copy path to remote store: {e}");
+                log::error!(
+                    "Failed to copy paths to remote store({}): {e}",
+                    remote_store.cfg.client_config.bucket
+                );
             }
         }
 
@@ -86,7 +82,7 @@ impl Uploader {
     pub async fn upload_once(
         &self,
         local_store: nix_utils::LocalStore,
-        remote_stores: Vec<nix_utils::RemoteStore>,
+        remote_stores: Vec<binary_cache::S3BinaryCacheClient>,
     ) {
         let Some(msg) = ({
             let mut rx = self.upload_queue_receiver.lock().await;
@@ -101,7 +97,7 @@ impl Uploader {
     pub async fn upload_many(
         &self,
         local_store: nix_utils::LocalStore,
-        remote_stores: Vec<nix_utils::RemoteStore>,
+        remote_stores: Vec<binary_cache::S3BinaryCacheClient>,
         limit: usize,
     ) {
         let mut messages: Vec<Message> = Vec::with_capacity(limit);

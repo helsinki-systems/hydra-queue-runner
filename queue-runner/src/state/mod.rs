@@ -45,7 +45,7 @@ enum RealiseStepResult {
 
 pub struct State {
     pub store: nix_utils::LocalStore,
-    pub remote_stores: parking_lot::RwLock<Vec<nix_utils::RemoteStore>>,
+    pub remote_stores: parking_lot::RwLock<Vec<binary_cache::S3BinaryCacheClient>>,
     pub config: App,
     pub cli: Cli,
     pub db: db::Database,
@@ -88,15 +88,15 @@ impl State {
         .await?;
 
         let _ = tokio::fs::create_dir_all(&log_dir).await;
+
+        let mut remote_stores = vec![];
+        for uri in config.get_remote_store_addrs() {
+            remote_stores.push(binary_cache::S3BinaryCacheClient::new(uri.parse()?).await?);
+        }
+
         Ok(Arc::new(Self {
             store,
-            remote_stores: parking_lot::RwLock::new(
-                config
-                    .get_remote_store_addrs()
-                    .iter()
-                    .map(|v| nix_utils::RemoteStore::init(v))
-                    .collect(),
-            ),
+            remote_stores: parking_lot::RwLock::new(remote_stores),
             config,
             cli,
             db,
@@ -113,7 +113,7 @@ impl State {
         }))
     }
 
-    pub fn reload_config_callback(
+    pub async fn reload_config_callback(
         &self,
         new_config: &crate::config::PreparedApp,
     ) -> anyhow::Result<()> {
@@ -124,6 +124,13 @@ impl State {
         let curr_db_url = self.config.get_db_url();
         let curr_sort_fn = self.config.get_sort_fn();
         let curr_remote_stores = self.config.get_remote_store_addrs();
+        let mut new_remote_stores = vec![];
+        if curr_remote_stores != new_config.remote_store_addr {
+            for uri in &new_config.remote_store_addr {
+                new_remote_stores.push(binary_cache::S3BinaryCacheClient::new(uri.parse()?).await?);
+            }
+        }
+
         if curr_db_url.expose_secret() != new_config.db_url.expose_secret() {
             self.db
                 .reconfigure_pool(new_config.db_url.expose_secret())?;
@@ -133,11 +140,7 @@ impl State {
         }
         if curr_remote_stores != new_config.remote_store_addr {
             let mut remote_stores = self.remote_stores.write();
-            *remote_stores = new_config
-                .remote_store_addr
-                .iter()
-                .map(|v| nix_utils::RemoteStore::init(v))
-                .collect();
+            *remote_stores = new_remote_stores;
         }
         Ok(())
     }

@@ -481,7 +481,7 @@ pub struct S3Stats {
 }
 
 impl S3Stats {
-    fn new(v: &nix_utils::S3Stats) -> Self {
+    fn new(v: &binary_cache::S3Stats) -> Self {
         #[allow(clippy::cast_precision_loss)]
         Self {
             put: v.put,
@@ -643,7 +643,7 @@ pub struct DumpResponse {
     queue_runner: QueueRunnerStats,
     machines: AHashMap<String, Machine>,
     jobsets: AHashMap<String, Jobset>,
-    store: AHashMap<String, StoreStats>,
+    store: Option<StoreStats>,
     s3: AHashMap<String, S3Stats>,
 }
 
@@ -653,29 +653,27 @@ impl DumpResponse {
         machines: AHashMap<String, Machine>,
         jobsets: AHashMap<String, Jobset>,
         local_store: &nix_utils::LocalStore,
-        remote_stores: &[nix_utils::RemoteStore],
+        remote_stores: &[binary_cache::S3BinaryCacheClient],
     ) -> Self {
-        let mut store_stats = remote_stores
-            .iter()
-            .filter_map(|s| {
-                Some((
-                    s.base_uri.clone(),
-                    StoreStats::new(&s.get_store_stats().ok()?),
-                ))
-            })
-            .collect::<AHashMap<_, _>>();
-        if let Ok(s) = local_store.get_store_stats() {
-            store_stats.insert("local".into(), StoreStats::new(&s));
-        }
+        let store = if let Ok(s) = local_store.get_store_stats() {
+            Some(StoreStats::new(&s))
+        } else {
+            None
+        };
 
         Self {
             queue_runner,
             machines,
             jobsets,
-            store: store_stats,
+            store,
             s3: remote_stores
                 .iter()
-                .filter_map(|s| Some((s.base_uri.clone(), S3Stats::new(&s.get_s3_stats().ok()?))))
+                .map(|s| {
+                    (
+                        s.cfg.client_config.bucket.clone(),
+                        S3Stats::new(&s.s3_stats()),
+                    )
+                })
                 .collect(),
         }
     }

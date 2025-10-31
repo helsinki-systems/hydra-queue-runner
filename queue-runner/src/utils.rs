@@ -75,7 +75,7 @@ pub async fn substitute_output(
     o: nix_utils::DerivationOutput,
     build_id: BuildID,
     drv_path: &nix_utils::StorePath,
-    remote_store: Option<&nix_utils::RemoteStore>,
+    remote_store: Option<&binary_cache::S3BinaryCacheClient>,
 ) -> anyhow::Result<bool> {
     let Some(path) = &o.path else {
         return Ok(false);
@@ -92,15 +92,12 @@ pub async fn substitute_output(
             .await
             .unwrap_or_default();
         let paths_to_copy = remote_store.query_missing_paths(paths_to_copy).await;
-        nix_utils::copy_paths(
-            store.as_base_store(),
-            remote_store.as_base_store(),
-            &paths_to_copy,
-            false,
-            true,
-            false,
-        )
-        .await?;
+        if let Err(e) = remote_store.copy_paths(&store, paths_to_copy, false).await {
+            log::error!(
+                "Failed to copy paths to remote store({}): {e}",
+                remote_store.cfg.client_config.bucket
+            );
+        }
     }
     let stoptime = i32::try_from(chrono::Utc::now().timestamp())?; // TODO
 

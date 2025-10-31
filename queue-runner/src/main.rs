@@ -1,5 +1,6 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
+#![recursion_limit = "256"]
 
 use state::State;
 
@@ -39,7 +40,7 @@ fn spawn_config_reloader(
                 .await
                 .unwrap();
             log::info!("Reloading...");
-            config::reload(&current_config, &filepath, &state);
+            config::reload(&current_config, &filepath, &state).await;
         }
     });
     task.abort_handle()

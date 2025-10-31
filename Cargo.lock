@@ -2388,6 +2388,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "atomic_float",
+ "binary-cache",
  "byte-unit",
  "bytes",
  "chrono",

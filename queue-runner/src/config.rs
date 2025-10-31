@@ -459,7 +459,7 @@ impl App {
     }
 }
 
-pub fn reload(current_config: &App, filepath: &str, state: &Arc<crate::state::State>) {
+pub async fn reload(current_config: &App, filepath: &str, state: &Arc<crate::state::State>) {
     let new_config = match load_config(filepath) {
         Ok(c) => c,
         Err(e) => {
@@ -476,7 +476,7 @@ pub fn reload(current_config: &App, filepath: &str, state: &Arc<crate::state::St
         }
     };
 
-    if let Err(e) = state.reload_config_callback(&new_config) {
+    if let Err(e) = state.reload_config_callback(&new_config).await {
         log::error!("Config reload failed with {e}");
         let _notify = sd_notify::notify(
             false,
