@@ -31,7 +31,7 @@ listenfd = "1"
 lockfile = "0.4.0"
 log = "0.4"
 nix = { version = "0.30", default-features = false }
-nix-diff = { git = "https://github.com/mic92/nix-diff-rs.git", rev = "6c0902f9c6f756b09095e9d77b424332ff0e32e9" }
+nix-diff = { git = "https://github.com/mic92/nix-diff-rs.git", rev = "7b79a68963fd7fcb48a57071b52bc90bd8d60609" }
 opentelemetry = "0.31.0"
 opentelemetry-http = "0.31.0"
 opentelemetry-otlp = "0.31.0"

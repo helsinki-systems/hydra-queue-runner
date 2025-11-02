@@ -40,13 +40,13 @@ impl DerivationEnv {
     }
 
     pub fn get(&self, k: &str) -> Option<&str> {
-        self.inner.get(k).map(|v| v.as_str())
+        self.inner.get(k).map(std::string::String::as_str)
     }
 
     pub fn get_required_system_features(&self) -> Vec<&str> {
         self.inner
             .get("requiredSystemFeatures")
-            .map(|v| v.as_str())
+            .map(std::string::String::as_str)
             .unwrap_or_default()
             .split(' ')
             .filter(|v| !v.is_empty())
@@ -54,11 +54,15 @@ impl DerivationEnv {
     }
 
     pub fn get_output_hash(&self) -> Option<&str> {
-        self.inner.get("outputHash").map(|v| v.as_str())
+        self.inner
+            .get("outputHash")
+            .map(std::string::String::as_str)
     }
 
     pub fn get_output_hash_mode(&self) -> Option<&str> {
-        self.inner.get("outputHash").map(|v| v.as_str())
+        self.inner
+            .get("outputHash")
+            .map(std::string::String::as_str)
     }
 }
 
@@ -72,8 +76,8 @@ pub struct Derivation {
 }
 
 impl Derivation {
-    fn new(path: &StorePath, v: nix_diff::types::Derivation) -> Result<Self, std::str::Utf8Error> {
-        Ok(Self {
+    fn new(path: &StorePath, v: nix_diff::types::Derivation) -> Self {
+        Self {
             env: DerivationEnv::new(
                 v.env
                     .into_iter()
@@ -115,15 +119,17 @@ impl Derivation {
                 .collect(),
             name: path.clone(),
             system: String::from_utf8(v.platform).unwrap_or_default(),
-        })
+        }
     }
 
+    #[must_use]
     pub fn is_ca(&self) -> bool {
         self.outputs
             .iter()
             .any(|o| o.hash.is_some() && o.hash_algo.is_some())
     }
 
+    #[must_use]
     pub fn get_ca_output(&self) -> Option<CAOutput> {
         self.outputs.iter().find_map(|o| {
             Some(CAOutput {
@@ -140,7 +146,7 @@ fn parse_drv(drv_path: &StorePath, input: &str) -> Result<Derivation, crate::Err
     Ok(Derivation::new(
         drv_path,
         nix_diff::parser::parse_derivation_string(input)?,
-    )?)
+    ))
 }
 
 #[tracing::instrument(fields(%drv), err)]

@@ -1,3 +1,7 @@
+#![deny(clippy::all)]
+#![deny(clippy::pedantic)]
+#![allow(clippy::missing_errors_doc)]
+
 mod connection;
 pub mod models;
 

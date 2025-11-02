@@ -12,6 +12,7 @@ pub struct BuildOptions {
 }
 
 impl BuildOptions {
+    #[must_use]
     pub fn new(max_log_size: Option<u64>) -> Self {
         Self {
             max_log_size: max_log_size.unwrap_or(64u64 << 20),
@@ -21,6 +22,7 @@ impl BuildOptions {
         }
     }
 
+    #[must_use]
     pub fn complete(max_log_size: u64, max_silent_time: i32, build_timeout: i32) -> Self {
         Self {
             max_log_size,
@@ -38,18 +40,22 @@ impl BuildOptions {
         self.build_timeout = build_timeout;
     }
 
+    #[must_use]
     pub fn get_max_log_size(&self) -> u64 {
         self.max_log_size
     }
 
+    #[must_use]
     pub fn get_max_silent_time(&self) -> i32 {
         self.max_silent_time
     }
 
+    #[must_use]
     pub fn get_build_timeout(&self) -> i32 {
         self.build_timeout
     }
 
+    #[must_use]
     pub fn enable_check_build(mut self) -> Self {
         self.check = true;
         self

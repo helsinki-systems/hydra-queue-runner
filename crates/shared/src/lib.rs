@@ -1,3 +1,7 @@
+#![deny(clippy::all)]
+#![deny(clippy::pedantic)]
+#![allow(clippy::missing_errors_doc)]
+
 use std::{os::unix::fs::MetadataExt as _, sync::LazyLock};
 
 use sha2::{Digest as _, Sha256};
@@ -107,7 +111,7 @@ impl FsOperations for FilesystemOperations {
         let mut reader = BufReader::new(file);
 
         let mut hasher = Sha256::new();
-        let mut buf = [0u8; 64 * 1024]; // 64 KiB
+        let mut buf = [0u8; 16 * 1024];
 
         loop {
             let n = reader.read(&mut buf).await?;
@@ -184,7 +188,7 @@ async fn parse_build_product(
         if VALIDATE_PRODUCT_NAME.is_match(&name) {
             name
         } else {
-            "".into()
+            String::new()
         }
     };
 
@@ -256,7 +260,7 @@ pub async fn parse_nix_support_from_outputs(
         if let Ok(v) = tokio::fs::read_to_string(file_path).await
             && let Some(v) = parse_release_name(&v)
         {
-            hydra_release_name = Some(v.to_owned());
+            hydra_release_name = Some(v.clone());
             break;
         }
     }
@@ -277,7 +281,7 @@ pub async fn parse_nix_support_from_outputs(
         let mut lines = reader.lines();
         let fsop = FilesystemOperations::new();
         while let Some(line) = lines.next_line().await? {
-            if let Some(o) = parse_build_product(&fsop, output, &line).await {
+            if let Some(o) = Box::pin(parse_build_product(&fsop, output, &line)).await {
                 products.push(o);
             }
         }
@@ -312,15 +316,17 @@ pub async fn parse_nix_support_from_outputs(
     }
 
     Ok(NixSupport {
-        metrics,
         failed,
         hydra_release_name,
+        metrics,
         products,
     })
 }
 
 #[cfg(test)]
 mod tests {
+    use std::f64;
+
     use super::*;
 
     struct DummyFsOperations {
@@ -392,7 +398,7 @@ mod tests {
         let line = "nix-env.qaCount 4";
         let m = parse_metric(line, &output).unwrap();
         assert_eq!(m.name, "nix-env.qaCount");
-        assert_eq!(m.value, 4.0);
+        assert!((m.value - 4.0_f64).abs() < f64::EPSILON);
         assert_eq!(m.unit, None);
     }
 
@@ -403,7 +409,7 @@ mod tests {
         let line = "xzy.time 123.321 s";
         let m = parse_metric(line, &output).unwrap();
         assert_eq!(m.name, "xzy.time");
-        assert_eq!(m.value, 123.321);
+        assert!((m.value - 123.321_f64).abs() < f64::EPSILON);
         assert_eq!(m.unit, Some("s".into()));
     }
 

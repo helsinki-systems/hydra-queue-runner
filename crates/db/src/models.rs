@@ -19,6 +19,7 @@ pub enum BuildStatus {
 }
 
 impl BuildStatus {
+    #[must_use]
     pub fn from_i32(v: i32) -> Option<Self> {
         match v {
             0 => Some(Self::Success),

@@ -1591,7 +1591,7 @@ dependencies = [
 [[package]]
 name = "nix-diff"
 version = "0.1.0"
-source = "git+https://github.com/mic92/nix-diff-rs.git?rev=6c0902f9c6f756b09095e9d77b424332ff0e32e9#6c0902f9c6f756b09095e9d77b424332ff0e32e9"
+source = "git+https://github.com/mic92/nix-diff-rs.git?rev=7b79a68963fd7fcb48a57071b52bc90bd8d60609#7b79a68963fd7fcb48a57071b52bc90bd8d60609"
 dependencies = [
  "anyhow",
  "memchr",
@@ -1642,11 +1642,10 @@ dependencies = [
 
 [[package]]
 name = "num-bigint-dig"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc84195820f291c7697304f3cbdadd1cb7199c0efc917ff5eafd71225c136151"
+checksum = "82c79c15c05d4bf82b6f5ef163104cc81a760d8e874d38ac50ab67c8877b647b"
 dependencies = [
- "byteorder",
  "lazy_static",
  "libm",
  "num-integer",
@@ -3226,9 +3225,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.16"
+version = "0.7.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14307c986784f72ef81c89db7d9e28d6ac26d16213b109ea501696195e6e3ce5"
+checksum = "2efa149fe76073d6e8fd97ef4f4eca7b67f599660115591483572e406e165594"
 dependencies = [
  "bytes",
  "futures-core",

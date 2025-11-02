@@ -11,5 +11,5 @@ async fn main() {
         )
         .await
         .unwrap();
-    println!("{:?}", ls);
+    println!("{ls:?}");
 }

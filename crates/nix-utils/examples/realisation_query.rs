@@ -15,7 +15,7 @@ async fn main() {
     println!("fingerprint: {}", realisation.fingerprint());
     println!(
         "struct: {:?}",
-        realisation.as_rust(&local.as_base_store()).unwrap()
+        realisation.as_rust(local.as_base_store()).unwrap()
     );
 
     realisation

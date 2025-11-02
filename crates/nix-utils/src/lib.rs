@@ -1,3 +1,7 @@
+#![deny(clippy::all)]
+#![deny(clippy::pedantic)]
+#![allow(clippy::missing_errors_doc)]
+
 mod drv;
 mod hash;
 mod realisation;
@@ -44,6 +48,7 @@ pub struct StorePath {
 }
 
 impl StorePath {
+    #[must_use]
     pub fn new(p: &str) -> Self {
         if let Some(postfix) = p.strip_prefix("/nix/store/") {
             debug_assert!(postfix.len() > HASH_LEN + 1);
@@ -58,26 +63,34 @@ impl StorePath {
         }
     }
 
+    #[must_use]
     pub fn into_base_name(self) -> String {
         self.base_name
     }
 
+    #[must_use]
     pub fn base_name(&self) -> &str {
         &self.base_name
     }
 
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.base_name[HASH_LEN + 1..]
     }
 
+    #[must_use]
     pub fn hash_part(&self) -> &str {
         &self.base_name[..HASH_LEN]
     }
 
+    #[must_use]
     pub fn is_drv(&self) -> bool {
-        self.base_name.ends_with(".drv")
+        std::path::Path::new(&self.base_name)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("drv"))
     }
 
+    #[must_use]
     pub fn get_full_path(&self) -> String {
         format!("/nix/store/{}", self.base_name)
     }
@@ -180,6 +193,7 @@ mod ffi {
         fn query_path_info(store: &StoreWrapper, path: &str) -> Result<InternalPathInfo>;
         fn compute_closure_size(store: &StoreWrapper, path: &str) -> Result<u64>;
         fn clear_path_info_cache(store: &StoreWrapper) -> Result<()>;
+        #[allow(clippy::fn_params_excessive_bools)]
         fn compute_fs_closure(
             store: &StoreWrapper,
             path: &str,
@@ -187,6 +201,7 @@ mod ffi {
             include_outputs: bool,
             include_derivers: bool,
         ) -> Result<Vec<String>>;
+        #[allow(clippy::fn_params_excessive_bools)]
         fn compute_fs_closures(
             store: &StoreWrapper,
             paths: &[&str],
@@ -246,7 +261,7 @@ pub fn is_subpath(base: &std::path::Path, path: &std::path::Path) -> bool {
 
 #[inline]
 pub fn init_nix() {
-    ffi::init_nix()
+    ffi::init_nix();
 }
 
 #[inline]
@@ -304,6 +319,7 @@ pub fn set_verbosity(level: i32) {
 }
 
 #[inline]
+#[must_use]
 pub fn sign_string(secret_key: &str, msg: &str) -> String {
     ffi::sign_string(secret_key, msg)
 }
@@ -328,13 +344,19 @@ pub async fn copy_paths(
     check_sigs: bool,
     substitute: bool,
 ) -> Result<(), Error> {
-    let paths = paths.iter().map(|v| v.get_full_path()).collect::<Vec<_>>();
+    let paths = paths
+        .iter()
+        .map(StorePath::get_full_path)
+        .collect::<Vec<_>>();
 
     let src = src.wrapper.clone();
     let dst = dst.wrapper.clone();
 
     asyncify(move || {
-        let slice = paths.iter().map(|v| v.as_str()).collect::<Vec<_>>();
+        let slice = paths
+            .iter()
+            .map(std::string::String::as_str)
+            .collect::<Vec<_>>();
         ffi::copy_paths(&src, &dst, &slice, repair, check_sigs, substitute)
     })
     .await
@@ -390,6 +412,7 @@ pub trait BaseStore {
 
     fn clear_path_info_cache(&self);
 
+    #[allow(clippy::fn_params_excessive_bools)]
     fn compute_fs_closure(
         &self,
         path: &str,
@@ -398,6 +421,7 @@ pub trait BaseStore {
         include_derivers: bool,
     ) -> Result<Vec<String>, cxx::Exception>;
 
+    #[allow(clippy::fn_params_excessive_bools)]
     fn compute_fs_closures(
         &self,
         paths: &[&StorePath],
@@ -588,7 +612,10 @@ impl BaseStore for BaseStoreImpl {
             .collect::<Vec<_>>();
 
         asyncify(move || {
-            let slice = paths.iter().map(|v| v.as_str()).collect::<Vec<_>>();
+            let slice = paths
+                .iter()
+                .map(std::string::String::as_str)
+                .collect::<Vec<_>>();
             Ok(ffi::compute_fs_closures(
                 &store,
                 &slice,
@@ -661,8 +688,14 @@ impl BaseStore for BaseStoreImpl {
     where
         F: FnMut(&[u8]) -> bool,
     {
-        let paths = paths.iter().map(|v| v.get_full_path()).collect::<Vec<_>>();
-        let slice = paths.iter().map(|v| v.as_str()).collect::<Vec<_>>();
+        let paths = paths
+            .iter()
+            .map(StorePath::get_full_path)
+            .collect::<Vec<_>>();
+        let slice = paths
+            .iter()
+            .map(std::string::String::as_str)
+            .collect::<Vec<_>>();
         ffi::export_paths(
             &self.wrapper,
             &slice,
@@ -745,12 +778,14 @@ pub struct LocalStore {
 impl LocalStore {
     #[inline]
     /// Initialise a new store
+    #[must_use]
     pub fn init() -> Self {
         Self {
             base: BaseStoreImpl::new(ffi::init("")),
         }
     }
 
+    #[must_use]
     pub fn as_base_store(&self) -> &BaseStoreImpl {
         &self.base
     }
@@ -776,10 +811,10 @@ impl LocalStore {
                 let Some(path) = &o.path else {
                     return None;
                 };
-                if !self.is_valid_path(path).await {
-                    Some(o)
-                } else {
+                if self.is_valid_path(path).await {
                     None
+                } else {
+                    Some(o)
                 }
             })
             .buffered(50)
@@ -922,6 +957,7 @@ pub struct RemoteStore {
 impl RemoteStore {
     #[inline]
     /// Initialise a new store with uri
+    #[must_use]
     pub fn init(uri: &str) -> Self {
         let base_uri = url::Url::parse(uri)
             .ok()
@@ -935,6 +971,7 @@ impl RemoteStore {
         }
     }
 
+    #[must_use]
     pub fn as_base_store(&self) -> &BaseStoreImpl {
         &self.base
     }
@@ -949,7 +986,7 @@ impl RemoteStore {
         let store = self.base.wrapper.clone();
         asyncify(move || {
             if let Ok(data) = std::fs::read_to_string(local_path) {
-                ffi::upsert_file(&store, &path, &data, mime_type)?
+                ffi::upsert_file(&store, &path, &data, mime_type)?;
             }
             Ok(())
         })
@@ -967,10 +1004,10 @@ impl RemoteStore {
 
         tokio_stream::iter(paths)
             .map(|p| async move {
-                if !self.is_valid_path(&p).await {
-                    Some(p)
-                } else {
+                if self.is_valid_path(&p).await {
                     None
+                } else {
+                    Some(p)
                 }
             })
             .buffered(50)
@@ -991,10 +1028,10 @@ impl RemoteStore {
                 let Some(path) = &o.path else {
                     return None;
                 };
-                if !self.is_valid_path(path).await {
-                    Some(o)
-                } else {
+                if self.is_valid_path(path).await {
                     None
+                } else {
+                    Some(o)
                 }
             })
             .buffered(50)

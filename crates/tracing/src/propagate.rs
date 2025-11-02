@@ -45,7 +45,7 @@ pub fn send_trace<T>(
     {
         global::get_text_map_propagator(|propagator| {
             let context = tracing::Span::current().context();
-            propagator.inject_context(&context, &mut MetadataInjector(request.metadata_mut()))
+            propagator.inject_context(&context, &mut MetadataInjector(request.metadata_mut()));
         });
     }
     Ok(request)
