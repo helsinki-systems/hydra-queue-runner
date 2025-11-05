@@ -12,7 +12,7 @@ InternalRealisation::InternalRealisation(
     : _realisation(_realisation) {}
 
 rust::String InternalRealisation::as_json() const {
-  return _realisation->toJSON().dump();
+  return nlohmann::json(*_realisation).dump();
 }
 
 Realisation

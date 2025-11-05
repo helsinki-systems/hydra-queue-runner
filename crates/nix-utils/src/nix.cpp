@@ -10,6 +10,7 @@
 #include <nix/store/store-api.hh>
 #include <nix/store/store-open.hh>
 
+#include "nix/store/export-import.hh"
 #include <nix/main/shared.hh>
 #include <nix/store/binary-cache-store.hh>
 #include <nix/store/globals.hh>
@@ -250,8 +251,8 @@ void import_paths(
   });
 
   auto store = wrapper._store;
-  auto paths = store->importPaths(source, check_sigs ? nix::CheckSigs
-                                                     : nix::NoCheckSigs);
+  auto paths = nix::importPaths(*store, source,
+                                check_sigs ? nix::CheckSigs : nix::NoCheckSigs);
 }
 
 void import_paths_with_fd(const StoreWrapper &wrapper, bool check_sigs,
@@ -259,7 +260,8 @@ void import_paths_with_fd(const StoreWrapper &wrapper, bool check_sigs,
   nix::FdSource source(fd);
 
   auto store = wrapper._store;
-  store->importPaths(source, check_sigs ? nix::CheckSigs : nix::NoCheckSigs);
+  nix::importPaths(*store, source,
+                   check_sigs ? nix::CheckSigs : nix::NoCheckSigs);
 }
 
 class StopExport : public std::exception {
@@ -285,7 +287,7 @@ void export_paths(const StoreWrapper &wrapper,
     path_set.insert(store->followLinksToStorePath(AS_VIEW(path)));
   }
   try {
-    store->exportPaths(path_set, sink);
+    nix::exportPaths(*store, path_set, sink);
   } catch (StopExport &e) {
     // Intentionally do nothing. We're only using the exception as a
     // short-circuiting mechanism.
