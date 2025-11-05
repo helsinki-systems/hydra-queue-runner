@@ -50,7 +50,7 @@
           zlib
           protobuf
 
-          unstable.nixVersions.nix_2_31
+          unstable.nixVersions.nix_2_32
           nlohmann_json
           libsodium
           boost
