@@ -4,9 +4,10 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
+use moka::future::Cache;
 use nix_utils::BaseStore as _;
 use nix_utils::RealisationOperations as _;
 use object_store::ObjectStore as _;
@@ -66,6 +67,7 @@ pub struct S3BinaryCacheClient {
     pub cfg: cfg::S3CacheConfig,
     s3_stats: Arc<AtomicS3Stats>,
     signing_keys: Vec<secrecy::SecretString>,
+    narinfo_cache: Cache<nix_utils::StorePath, NarInfo>,
 }
 
 #[tracing::instrument(skip(stream), err)]
@@ -204,6 +206,9 @@ impl S3BinaryCacheClient {
             cfg,
             s3_stats: Arc::new(AtomicS3Stats::default()),
             signing_keys,
+            narinfo_cache: Cache::builder()
+                .time_to_live(Duration::from_secs(3600)) // 1 hour TTL
+                .build(),
         })
     }
 
@@ -232,9 +237,13 @@ impl S3BinaryCacheClient {
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn get_object(&self, key: &str) -> Result<Bytes, CacheError> {
+    pub async fn get_object(&self, key: &str) -> Result<Option<Bytes>, CacheError> {
         let start = Instant::now();
-        let get_result = self.s3.get(&object_store::path::Path::from(key)).await?;
+        let get_result = match self.s3.get(&object_store::path::Path::from(key)).await {
+            Ok(v) => v,
+            Err(object_store::Error::NotFound { .. }) => return Ok(None),
+            Err(e) => return Err(CacheError::ObjectStore(e)),
+        };
         let bs = get_result.bytes().await?;
         let elapsed = u64::try_from(start.elapsed().as_millis()).unwrap_or_default();
 
@@ -247,7 +256,7 @@ impl S3BinaryCacheClient {
             .get_time_ms
             .fetch_add(elapsed, Ordering::Relaxed);
 
-        Ok(bs)
+        Ok(Some(bs))
     }
 
     #[tracing::instrument(skip(self, content, content_type), err)]
@@ -583,26 +592,53 @@ impl S3BinaryCacheClient {
     pub async fn download_narinfo(
         &self,
         store_path: &nix_utils::StorePath,
-    ) -> Result<NarInfo, CacheError> {
-        let base = store_path.hash_part();
-        let bytes = self.get_object(&format!("{base}.narinfo")).await?;
-        Ok(String::from_utf8_lossy(&bytes).parse()?)
+    ) -> Result<Option<NarInfo>, CacheError> {
+        if let Some(narinfo) = self.narinfo_cache.get(store_path).await {
+            return Ok(Some(narinfo));
+        }
+
+        match self
+            .get_object(&format!("{}.narinfo", store_path.hash_part()))
+            .await?
+        {
+            Some(v) => {
+                let narinfo: NarInfo = String::from_utf8_lossy(&v).parse()?;
+                self.narinfo_cache
+                    .insert(store_path.to_owned(), narinfo.clone())
+                    .await;
+                Ok(Some(narinfo))
+            }
+            None => Ok(None),
+        }
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn download_nar(&self, nar_url: &str) -> Result<Bytes, CacheError> {
+    pub async fn download_nar(&self, nar_url: &str) -> Result<Option<Bytes>, CacheError> {
         self.get_object(nar_url).await
     }
 
     #[tracing::instrument(skip(self), err)]
     pub async fn has_narinfo(&self, store_path: &nix_utils::StorePath) -> Result<bool, CacheError> {
-        let base = store_path.hash_part();
-        self.head_object(&format!("{base}.narinfo")).await
+        if self.narinfo_cache.contains_key(store_path) {
+            return Ok(true);
+        }
+        Ok(self.download_narinfo(store_path).await?.is_some())
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    pub async fn download_realisation(
+        &self,
+        id: &nix_utils::DrvOutput,
+    ) -> Result<Option<String>, CacheError> {
+        match self.get_object(&format!("realisations/{id}.doi")).await? {
+            Some(v) => Ok(Some(String::from_utf8_lossy(&v).to_string())),
+            None => Ok(None),
+        }
     }
 
     #[tracing::instrument(skip(self), err)]
     pub async fn has_realisation(&self, id: &nix_utils::DrvOutput) -> Result<bool, CacheError> {
-        self.head_object(&format!("realisations/{id}.doi")).await
+        Ok(self.download_realisation(id).await?.is_some())
     }
 
     #[tracing::instrument(skip(self, paths))]

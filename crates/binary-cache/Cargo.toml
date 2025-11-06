@@ -25,6 +25,7 @@ secrecy.workspace = true
 configparser.workspace = true
 
 nix-utils = { path = "../nix-utils" }
+moka = { version = "0.12", features = ["future"] }
 
 [dev-dependencies]
 hydra-tracing = { path = "../tracing" }

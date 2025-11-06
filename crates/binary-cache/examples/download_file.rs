@@ -23,8 +23,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     log::info!("narinfo:\n{narinfo:?}");
 
-    let nardata = client.download_nar(&narinfo.url).await?;
-    log::info!("nardata len: {}", nardata.len());
+    let nardata = client.download_nar(&narinfo.unwrap().url).await?;
+    log::info!("nardata len: {}", nardata.unwrap().len());
 
     let stats = client.s3_stats();
     log::info!(
