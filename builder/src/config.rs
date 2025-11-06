@@ -85,11 +85,19 @@ pub struct Cli {
     pub authorization_file: Option<std::path::PathBuf>,
 }
 
+impl Default for Cli {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Cli {
+    #[must_use]
     pub fn new() -> Self {
         Self::parse()
     }
 
+    #[must_use]
     pub fn mtls_enabled(&self) -> bool {
         self.server_root_ca_cert_path.is_some()
             && self.client_cert_path.is_some()
@@ -97,6 +105,7 @@ impl Cli {
             && self.domain_name.is_some()
     }
 
+    #[must_use]
     pub fn mtls_configured_correctly(&self) -> bool {
         self.mtls_enabled()
             || (self.server_root_ca_cert_path.is_none()

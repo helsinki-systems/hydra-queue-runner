@@ -68,7 +68,14 @@ pub struct Stats {
     pub jobs_in_last_30s_count: std::sync::atomic::AtomicU64,
 }
 
+impl Default for Stats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Stats {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             current_jobs: 0.into(),
@@ -257,6 +264,12 @@ impl MachinesInner {
 pub struct Machines {
     inner: parking_lot::RwLock<MachinesInner>,
     supported_features: parking_lot::RwLock<AHashSet<String>>,
+}
+
+impl Default for Machines {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Machines {
@@ -590,6 +603,7 @@ impl Machine {
         Ok(())
     }
 
+    #[must_use]
     pub fn has_dynamic_capacity(&self) -> bool {
         let pressure = self.stats.pressure.load();
 
@@ -615,10 +629,12 @@ impl Machine {
         true
     }
 
+    #[must_use]
     pub fn has_static_capacity(&self) -> bool {
         self.stats.get_current_jobs() < u64::from(self.max_jobs)
     }
 
+    #[must_use]
     pub fn has_capacity(&self, free_fn: MachineFreeFn) -> bool {
         let now = chrono::Utc::now().timestamp();
         let jobs_in_last_30s_start = self.stats.jobs_in_last_30s_start.load(Ordering::Relaxed);
@@ -658,11 +674,13 @@ impl Machine {
         }
     }
 
+    #[must_use]
     pub fn supports_all_features(&self, features: &[String]) -> bool {
         // TODO: mandetory features
         features.iter().all(|f| self.supported_features.contains(f))
     }
 
+    #[must_use]
     pub fn score(&self, sort_fn: MachineSortFn) -> f32 {
         match sort_fn {
             MachineSortFn::SpeedFactorOnly => self.speed_factor,

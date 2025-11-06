@@ -13,6 +13,8 @@ impl Default for AtomicDateTime {
 }
 
 impl AtomicDateTime {
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn new(dt: DateTime<Utc>) -> Self {
         Self {
             inner: AtomicI64::new(

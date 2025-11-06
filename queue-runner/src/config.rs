@@ -57,17 +57,26 @@ pub struct Cli {
     pub client_ca_cert_path: Option<std::path::PathBuf>,
 }
 
+impl Default for Cli {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Cli {
+    #[must_use]
     pub fn new() -> Self {
         Self::parse()
     }
 
+    #[must_use]
     pub fn mtls_enabled(&self) -> bool {
         self.server_cert_path.is_some()
             && self.server_key_path.is_some()
             && self.client_ca_cert_path.is_some()
     }
 
+    #[must_use]
     pub fn mtls_configured_correctly(&self) -> bool {
         self.mtls_enabled()
             || (self.server_cert_path.is_none()
@@ -365,91 +374,109 @@ impl App {
         self.inner.store(Arc::new(new_val));
     }
 
+    #[must_use]
     pub fn get_hydra_log_dir(&self) -> std::path::PathBuf {
         let inner = self.inner.load();
         inner.hydra_log_dir.clone()
     }
 
+    #[must_use]
     pub fn get_lockfile(&self) -> std::path::PathBuf {
         let inner = self.inner.load();
         inner.lockfile.clone()
     }
 
+    #[must_use]
     pub fn get_db_url(&self) -> secrecy::SecretString {
         let inner = self.inner.load();
         inner.db_url.clone()
     }
 
+    #[must_use]
     pub fn get_max_db_connections(&self) -> u32 {
         let inner = self.inner.load();
         inner.max_db_connections
     }
 
+    #[must_use]
     pub fn get_sort_fn(&self) -> MachineSortFn {
         let inner = self.inner.load();
         inner.machine_sort_fn
     }
 
+    #[must_use]
     pub fn get_free_fn(&self) -> MachineFreeFn {
         let inner = self.inner.load();
         inner.machine_free_fn
     }
 
+    #[must_use]
     pub fn get_dispatch_trigger_timer(&self) -> Option<tokio::time::Duration> {
         let inner = self.inner.load();
         inner.dispatch_trigger_timer
     }
 
+    #[must_use]
     pub fn get_queue_trigger_timer(&self) -> Option<tokio::time::Duration> {
         let inner = self.inner.load();
         inner.queue_trigger_timer
     }
 
+    #[must_use]
     pub fn get_remote_store_addrs(&self) -> Vec<String> {
         let inner = self.inner.load();
         inner.remote_store_addr.clone()
     }
 
+    #[must_use]
     pub fn get_use_substitutes(&self) -> bool {
         let inner = self.inner.load();
         inner.use_substitutes
     }
 
+    #[must_use]
     pub fn get_roots_dir(&self) -> std::path::PathBuf {
         let inner = self.inner.load();
         inner.roots_dir.clone()
     }
 
+    #[must_use]
     pub fn get_retry(&self) -> (u32, f32, f32) {
         let inner = self.inner.load();
         (inner.max_retries, inner.retry_interval, inner.retry_backoff)
     }
 
+    #[must_use]
     pub fn get_max_unsupported_time(&self) -> chrono::Duration {
         let inner = self.inner.load();
         inner.max_unsupported_time
     }
 
+    #[must_use]
     pub fn get_stop_queue_run_after(&self) -> Option<chrono::Duration> {
         let inner = self.inner.load();
         inner.stop_queue_run_after
     }
 
+    #[must_use]
     pub fn get_max_concurrent_downloads(&self) -> u32 {
         let inner = self.inner.load();
         inner.max_concurrent_downloads
     }
 
+    #[must_use]
     pub fn get_concurrent_upload_limit(&self) -> usize {
         let inner = self.inner.load();
         inner.concurrent_upload_limit
     }
 
+    #[must_use]
     pub fn has_token_list(&self) -> bool {
         let inner = self.inner.load();
         inner.token_list.is_some()
     }
 
+    #[must_use]
     pub fn check_if_contains_token(&self, token: &str) -> bool {
         let inner = self.inner.load();
         inner

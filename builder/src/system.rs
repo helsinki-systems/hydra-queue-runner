@@ -133,6 +133,7 @@ fn parse_pressure_record(line: &str) -> procfs_core::ProcResult<procfs_core::Pre
 
 #[cfg(target_os = "linux")]
 impl PressureState {
+    #[must_use]
     pub fn new() -> Option<Self> {
         if !std::fs::exists("/proc/pressure").unwrap_or_default() {
             return None;

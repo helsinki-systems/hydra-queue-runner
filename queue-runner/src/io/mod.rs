@@ -33,6 +33,7 @@ pub struct Pressure {
 }
 
 impl Pressure {
+    #[must_use]
     pub fn new(item: Option<&crate::state::Pressure>) -> Option<Self> {
         item.map(|v| Self {
             avg10: v.avg10,
@@ -170,6 +171,7 @@ pub struct Machine {
 }
 
 impl Machine {
+    #[must_use]
     pub fn from_state(
         item: &Arc<crate::state::Machine>,
         sort_fn: crate::config::MachineSortFn,
@@ -648,6 +650,7 @@ pub struct DumpResponse {
 }
 
 impl DumpResponse {
+    #[must_use]
     pub fn new(
         queue_runner: QueueRunnerStats,
         machines: AHashMap<String, Machine>,
@@ -687,6 +690,7 @@ pub struct MachinesResponse {
 }
 
 impl MachinesResponse {
+    #[must_use]
     pub fn new(machines: AHashMap<String, Machine>) -> Self {
         Self {
             machines_count: machines.len(),
@@ -726,6 +730,7 @@ pub struct JobsetsResponse {
 }
 
 impl JobsetsResponse {
+    #[must_use]
     pub fn new(jobsets: AHashMap<String, Jobset>) -> Self {
         Self {
             jobset_count: jobsets.len(),
@@ -774,6 +779,7 @@ pub struct BuildsResponse {
 }
 
 impl BuildsResponse {
+    #[must_use]
     pub fn new(builds: Vec<Build>) -> Self {
         Self {
             build_count: builds.len(),
@@ -831,6 +837,7 @@ pub struct StepsResponse {
 }
 
 impl StepsResponse {
+    #[must_use]
     pub fn new(steps: Vec<Step>) -> Self {
         Self {
             step_count: steps.len(),
@@ -883,6 +890,7 @@ pub struct QueueResponse {
 }
 
 impl QueueResponse {
+    #[must_use]
     pub fn new(queues: AHashMap<String, Vec<StepInfo>>) -> Self {
         Self { queues }
     }
@@ -896,6 +904,7 @@ pub struct StepInfoResponse {
 }
 
 impl StepInfoResponse {
+    #[must_use]
     pub fn new(steps: Vec<StepInfo>) -> Self {
         Self {
             step_count: steps.len(),

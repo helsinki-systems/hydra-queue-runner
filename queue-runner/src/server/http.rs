@@ -37,6 +37,7 @@ pub enum Error {
 }
 
 impl Error {
+    #[must_use]
     pub fn get_status(&self) -> hyper::StatusCode {
         match *self {
             Self::Uuid(_)
@@ -51,6 +52,7 @@ impl Error {
         }
     }
 
+    #[must_use]
     pub fn get_body(&self) -> crate::io::Error {
         crate::io::Error {
             error: self.to_string(),

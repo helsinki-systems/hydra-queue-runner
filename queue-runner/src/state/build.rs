@@ -53,6 +53,7 @@ impl std::hash::Hash for Build {
 }
 
 impl Build {
+    #[must_use]
     pub fn new_debug(drv_path: &nix_utils::StorePath) -> Arc<Self> {
         Arc::new(Self {
             id: BuildID::MAX,
@@ -221,6 +222,12 @@ pub struct StepState {
     pub jobsets: AHashSet<Arc<Jobset>>, // Jobsets to which this step belongs. Used for determining scheduling priority.
 }
 
+impl Default for StepState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StepState {
     pub fn new() -> Self {
         Self {
@@ -261,6 +268,7 @@ impl std::hash::Hash for Step {
 }
 
 impl Step {
+    #[must_use]
     pub fn new(drv_path: nix_utils::StorePath) -> Arc<Self> {
         Arc::new(Self {
             drv_path,
@@ -493,7 +501,14 @@ pub struct RemoteBuild {
     pub log_file: String,
 }
 
+impl Default for RemoteBuild {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RemoteBuild {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             step_status: BuildStatus::Aborted,
@@ -510,6 +525,7 @@ impl RemoteBuild {
         }
     }
 
+    #[must_use]
     pub fn get_total_step_time_ms(&self) -> u64 {
         if let (Some(start_time), Some(stop_time)) = (self.start_time, self.stop_time) {
             (stop_time - start_time).num_milliseconds().unsigned_abs()

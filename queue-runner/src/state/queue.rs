@@ -217,6 +217,12 @@ pub struct Queues {
     >,
 }
 
+impl Default for Queues {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Queues {
     pub fn new() -> Self {
         Self {

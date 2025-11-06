@@ -15,6 +15,12 @@ pub struct Uploader {
     upload_queue_receiver: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Message>>,
 }
 
+impl Default for Uploader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Uploader {
     pub fn new() -> Self {
         let (upload_queue_tx, upload_queue_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();

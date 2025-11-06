@@ -1,14 +1,15 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
+#![allow(clippy::missing_errors_doc)]
 #![recursion_limit = "256"]
 
-use state::State;
+pub mod config;
+pub mod io;
+pub mod server;
+pub mod state;
+pub mod utils;
 
-mod config;
-mod io;
-mod server;
-mod state;
-mod utils;
+use state::State;
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
