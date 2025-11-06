@@ -270,7 +270,7 @@ pub struct S3ClientConfig {
     pub scheme: S3Scheme,
     pub endpoint: Option<String>,
     pub bucket: String,
-    pub profile: Option<String>, // TODO: unused
+    pub profile: Option<String>,
     pub(crate) credentials: Option<S3CredentialsConfig>,
 }
 
@@ -326,4 +326,250 @@ impl S3ClientConfig {
 pub struct S3CredentialsConfig {
     pub access_key_id: String,
     pub secret_access_key: String,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigReadError {
+    #[error("Env var not found: {0}")]
+    EnvVarNotFound(#[from] std::env::VarError),
+    #[error("Read error: {0}")]
+    ReadError(String),
+    #[error("Profile missing: {0}")]
+    ProfileMissing(String),
+    #[error("Value missing: {0}")]
+    ValueMissing(&'static str),
+}
+
+pub(crate) fn read_aws_credentials_file(
+    profile: &str,
+) -> Result<(String, String), ConfigReadError> {
+    let home_dir = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE"))?;
+    let credentials_path = format!("{home_dir}/.aws/credentials");
+
+    let mut config = configparser::ini::Ini::new();
+    let config_map = config
+        .load(&credentials_path)
+        .map_err(ConfigReadError::ReadError)?;
+    parse_aws_credentials_file(&config_map, profile)
+}
+
+fn parse_aws_credentials_file(
+    config_map: &std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, Option<String>>,
+    >,
+    profile: &str,
+) -> Result<(String, String), ConfigReadError> {
+    let profile_map = if let Some(profile_map) = config_map.get(profile) {
+        profile_map
+    } else if let Some(profile_map) = config_map.get(&format!("profile {profile}")) {
+        profile_map
+    } else {
+        let mut r_section_map = None;
+        for (section_name, section_map) in config_map {
+            let trimmed_section = section_name.trim();
+            if trimmed_section == profile || trimmed_section == format!("profile {profile}") {
+                r_section_map = Some(section_map);
+                break;
+            }
+        }
+        if let Some(section_map) = r_section_map {
+            section_map
+        } else {
+            return Err(ConfigReadError::ProfileMissing(profile.into()));
+        }
+    };
+
+    let access_key = profile_map
+        .get("aws_access_key_id")
+        .and_then(ToOwned::to_owned)
+        .ok_or(ConfigReadError::ValueMissing("aws_access_key_id"))?
+        .clone();
+    let secret_key = profile_map
+        .get("aws_secret_access_key")
+        .and_then(ToOwned::to_owned)
+        .ok_or(ConfigReadError::ValueMissing("aws_secret_access_key"))?
+        .clone();
+
+    Ok((access_key, secret_key))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ConfigReadError, parse_aws_credentials_file};
+
+    #[test]
+    fn test_parsing_default_profile_works() {
+        let mut config = configparser::ini::Ini::new();
+        let config_map = config
+            .read(
+                r"
+# AWS credentials file format:
+# ~/.aws/credentials
+[default]
+aws_access_key_id = AKIAIOSFODNN7EXAMPLE
+aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+[production]
+aws_access_key_id = AKIAI44QH8DHBEXAMPLE
+aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvbEXAMPLEKEY"
+                    .into(),
+            )
+            .unwrap();
+
+        let (access_key, secret_key) = parse_aws_credentials_file(&config_map, "default").unwrap();
+        assert_eq!(access_key, "AKIAIOSFODNN7EXAMPLE");
+        assert_eq!(secret_key, "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+    }
+
+    #[test]
+    fn test_parsing_profile_with_spaces_and_comments() {
+        let mut config = configparser::ini::Ini::new();
+        let config_map = config
+            .read(
+                r"
+# This is a comment
+# AWS credentials file with various formatting
+[default]
+# Another comment before the key
+aws_access_key_id = AKIAIOSFODNN7EXAMPLE
+aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+# Profile with spaces in name
+[profile test]
+aws_access_key_id = AKIAI44QH8DHBEXAMPLE
+aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvbEXAMPLEKEY
+
+# Profile with extra whitespace
+[   staging   ]
+aws_access_key_id = AKIAI44QH8DHBSTAGING
+aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvbSTAGINGKEY"
+                    .into(),
+            )
+            .unwrap();
+
+        // Debug: print what keys are available
+        println!(
+            "Available profiles: {:?}",
+            config_map.keys().collect::<Vec<_>>()
+        );
+
+        let (access_key, secret_key) = parse_aws_credentials_file(&config_map, "default").unwrap();
+        assert_eq!(access_key, "AKIAIOSFODNN7EXAMPLE");
+        assert_eq!(secret_key, "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+
+        let (access_key, secret_key) = parse_aws_credentials_file(&config_map, "test").unwrap();
+        assert_eq!(access_key, "AKIAI44QH8DHBEXAMPLE");
+        assert_eq!(secret_key, "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbEXAMPLEKEY");
+
+        let (access_key, secret_key) = parse_aws_credentials_file(&config_map, "staging").unwrap();
+        assert_eq!(access_key, "AKIAI44QH8DHBSTAGING");
+        assert_eq!(secret_key, "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbSTAGINGKEY");
+    }
+
+    #[test]
+    fn test_missing_profile_returns_error() {
+        let mut config = configparser::ini::Ini::new();
+        let config_map = config
+            .read(
+                r"
+[default]
+aws_access_key_id = AKIAIOSFODNN7EXAMPLE
+aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                    .into(),
+            )
+            .unwrap();
+
+        let result = parse_aws_credentials_file(&config_map, "nonexistent");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ConfigReadError::ProfileMissing(_)
+        ));
+    }
+
+    #[test]
+    fn test_missing_access_key_returns_error() {
+        let mut config = configparser::ini::Ini::new();
+        let config_map = config
+            .read(
+                r"
+[default]
+aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                    .into(),
+            )
+            .unwrap();
+
+        let result = parse_aws_credentials_file(&config_map, "default");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ConfigReadError::ValueMissing("aws_access_key_id")
+        ));
+    }
+
+    #[test]
+    fn test_missing_secret_key_returns_error() {
+        let mut config = configparser::ini::Ini::new();
+        let config_map = config
+            .read(
+                r"
+[default]
+aws_access_key_id = AKIAIOSFODNN7EXAMPLE"
+                    .into(),
+            )
+            .unwrap();
+
+        let result = parse_aws_credentials_file(&config_map, "default");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ConfigReadError::ValueMissing("aws_secret_access_key")
+        ));
+    }
+
+    #[test]
+    fn test_empty_credentials_file_returns_error() {
+        let mut config = configparser::ini::Ini::new();
+        let config_map = config.read(String::new()).unwrap();
+
+        let result = parse_aws_credentials_file(&config_map, "default");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ConfigReadError::ProfileMissing(_)
+        ));
+    }
+
+    #[test]
+    fn test_profile_with_special_characters() {
+        let mut config = configparser::ini::Ini::new();
+        let config_map = config
+            .read(
+                r"
+[default]
+aws_access_key_id = AKIAIOSFODNN7EXAMPLE
+aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+[my-test_profile]
+aws_access_key_id = AKIAI44QH8DHBTEST
+aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvbTESTKEY
+
+[profile_123]
+aws_access_key_id = AKIAI44QH8DHB123
+aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY"
+                    .into(),
+            )
+            .unwrap();
+
+        let (access_key, secret_key) =
+            parse_aws_credentials_file(&config_map, "my-test_profile").unwrap();
+        assert_eq!(access_key, "AKIAI44QH8DHBTEST");
+        assert_eq!(secret_key, "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbTESTKEY");
+
+        let (access_key, secret_key) =
+            parse_aws_credentials_file(&config_map, "profile_123").unwrap();
+        assert_eq!(access_key, "AKIAI44QH8DHB123");
+        assert_eq!(secret_key, "je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY");
+    }
 }

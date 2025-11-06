@@ -2,11 +2,12 @@ use binary_cache::S3BinaryCacheClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let _tracing_guard = hydra_tracing::init()?;
     let client = S3BinaryCacheClient::new(
-        "s3://store?region=unknown&endpoint=http://localhost:9000&scheme=http&write-nar-listing=1&ls-compression=br&log-compression=br".parse()?,
+        "s3://store?region=unknown&endpoint=http://localhost:9000&scheme=http&write-nar-listing=1&ls-compression=br&log-compression=br&profile=local_nix_store".parse()?,
     )
     .await?;
-    println!("{:#?}", client.cfg);
+    log::info!("{:#?}", client.cfg);
 
     let file = tokio::fs::File::open("/tmp/asdf").await.unwrap();
     let reader = Box::new(tokio::io::BufReader::new(file));
@@ -15,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let stats = client.s3_stats();
-    println!(
+    log::info!(
         "stats: put={}, put_bytes={}, put_time_ms={}, get={}, get_bytes={}, get_time_ms={}, head={}",
         stats.put,
         stats.put_bytes,

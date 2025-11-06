@@ -3,15 +3,16 @@ use nix_utils::BaseStore as _;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let _tracing_guard = hydra_tracing::init()?;
     let local = nix_utils::LocalStore::init();
     let client = S3BinaryCacheClient::new(
         format!(
-            "s3://store2?region=unknown&endpoint=http://localhost:9000&scheme=http&write-nar-listing=1&compression=zstd&ls-compression=br&log-compression=br&secret-key={}/../../example-secret-key",
+            "s3://store2?region=unknown&endpoint=http://localhost:9000&scheme=http&write-nar-listing=1&compression=zstd&ls-compression=br&log-compression=br&secret-key={}/../../example-secret-key&profile=local_nix_store",
             env!("CARGO_MANIFEST_DIR")
         ).parse()?,
     )
     .await?;
-    println!("{:#?}", client.cfg);
+    log::info!("{:#?}", client.cfg);
 
     let paths_to_copy = local
         .query_requisites(
@@ -26,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     client.copy_paths(&local, paths_to_copy, true).await?;
 
     let stats = client.s3_stats();
-    println!(
+    log::info!(
         "stats: put={}, put_bytes={}, put_time_ms={}, get={}, get_bytes={}, get_time_ms={}, head={}",
         stats.put,
         stats.put_bytes,

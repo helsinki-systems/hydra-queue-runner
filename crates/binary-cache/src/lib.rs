@@ -155,12 +155,27 @@ impl S3BinaryCacheClient {
     ) -> Result<object_store::aws::AmazonS3, object_store::Error> {
         let mut builder = object_store::aws::AmazonS3Builder::from_env()
             .with_region(&cfg.region)
-            .with_bucket_name(&cfg.bucket);
+            .with_bucket_name(&cfg.bucket)
+            .with_imdsv1_fallback();
 
         if let Some(credentials) = &cfg.credentials {
             builder = builder
                 .with_access_key_id(&credentials.access_key_id)
                 .with_secret_access_key(&credentials.secret_access_key);
+        } else if std::env::var("AWS_ACCESS_KEY_ID").ok().is_none()
+            && std::env::var("AWS_SECRET_ACCESS_KEY").ok().is_none()
+        {
+            let profile = cfg.profile.as_deref().unwrap_or("default");
+            if let Ok((access_key, secret_key)) = crate::cfg::read_aws_credentials_file(profile) {
+                log::info!("Using AWS credentials from credentials file for profile: {profile}",);
+                builder = builder
+                    .with_access_key_id(&access_key)
+                    .with_secret_access_key(&secret_key);
+            } else {
+                log::warn!(
+                    "AWS credentials not found in environment variables or credentials file for profile: {profile}",
+                );
+            }
         }
 
         if let Some(endpoint) = &cfg.endpoint {

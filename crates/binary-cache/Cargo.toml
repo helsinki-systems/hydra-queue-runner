@@ -22,5 +22,9 @@ pin-project.workspace = true
 digest.workspace = true
 sha2.workspace = true
 secrecy.workspace = true
+configparser.workspace = true
 
 nix-utils = { path = "../nix-utils" }
+
+[dev-dependencies]
+hydra-tracing = { path = "../tracing" }
