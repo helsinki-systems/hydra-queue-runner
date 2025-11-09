@@ -1115,12 +1115,18 @@ impl State {
                 .map(Clone::clone)
                 .collect::<Vec<_>>();
 
-            let _ = self.uploader.schedule_upload(
+            if let Err(e) = self.uploader.schedule_upload(
                 outputs,
                 format!("log/{}", job.path.base_name()),
                 // TODO: handle compression
                 job.result.log_file,
-            );
+            ) {
+                log::error!(
+                    "Failed to schedule upload for build {} outputs: {}",
+                    job.build_id,
+                    e
+                );
+            }
         }
 
         let mut direct = Vec::new();
@@ -1842,15 +1848,19 @@ impl State {
             {
                 // we have all paths locally, so we can just upload them to the remote_store
                 if let Ok(log_file) = self.construct_log_file_path(&drv_path).await {
-                    let _ = self.uploader.schedule_upload(
-                        missing.into_iter().filter_map(|v| v.path).collect(),
+                    let missing_paths: Vec<nix_utils::StorePath> =
+                        missing.iter().filter_map(|v| v.path.clone()).collect();
+                    if let Err(e) = self.uploader.schedule_upload(
+                        missing_paths,
                         format!("log/{}", drv_path.base_name()),
                         log_file.to_string_lossy().to_string(),
-                    );
-                    missing = vec![];
+                    ) {
+                        log::error!("Failed to schedule upload for derivation {drv_path}: {e}");
+                    } else {
+                        missing.clear();
+                    }
                 }
             }
-
             missing
         } else {
             self.store.query_missing_outputs(drv.outputs.clone()).await
