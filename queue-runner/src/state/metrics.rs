@@ -46,6 +46,16 @@ pub struct PromMetrics {
     pub machines_in_use: prometheus::IntGauge, // hydra_queue_machines_in_use
     pub runnable_per_machine_type: prometheus::IntGaugeVec, // hydra_queue_machines_runnable
     pub running_per_machine_type: prometheus::IntGaugeVec, // hydra_queue_machines_running
+
+    // Per-machine metrics
+    pub machine_current_jobs: prometheus::IntGaugeVec, // hydra_queue_machine_current_jobs
+    pub machine_steps_done: prometheus::IntGaugeVec,   // hydra_queue_machine_steps_done
+    pub machine_total_step_time_ms: prometheus::IntGaugeVec, // hydra_queue_machine_total_step_time_ms
+    pub machine_total_step_import_time_ms: prometheus::IntGaugeVec, // hydra_queue_machine_total_step_import_time_ms
+    pub machine_total_step_build_time_ms: prometheus::IntGaugeVec, // hydra_queue_machine_total_step_build_time_ms
+    pub machine_consecutive_failures: prometheus::IntGaugeVec, // hydra_queue_machine_consecutive_failures
+    pub machine_last_ping_timestamp: prometheus::IntGaugeVec, // hydra_queue_machine_last_ping_timestamp
+    pub machine_idle_since_timestamp: prometheus::IntGaugeVec, // hydra_queue_machine_idle_since_timestamp
 }
 
 impl PromMetrics {
@@ -219,7 +229,63 @@ impl PromMetrics {
             &["machine_type"],
         )?;
 
-        // TODO: per machine metrics
+        // Per-machine metrics
+        let machine_current_jobs = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydra_queue_machine_current_jobs",
+                "Number of currently running jobs on each machine",
+            ),
+            &["machine_id", "hostname", "system_type"],
+        )?;
+        let machine_steps_done = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydra_queue_machine_steps_done",
+                "Total number of steps completed by each machine",
+            ),
+            &["machine_id", "hostname", "system_type"],
+        )?;
+        let machine_total_step_time_ms = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydra_queue_machine_total_step_time_ms",
+                "Total time in milliseconds spent on all steps by each machine",
+            ),
+            &["machine_id", "hostname", "system_type"],
+        )?;
+        let machine_total_step_import_time_ms = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydra_queue_machine_total_step_import_time_ms",
+                "Total time in milliseconds spent importing steps by each machine",
+            ),
+            &["machine_id", "hostname", "system_type"],
+        )?;
+        let machine_total_step_build_time_ms = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydra_queue_machine_total_step_build_time_ms",
+                "Total time in milliseconds spent building steps by each machine",
+            ),
+            &["machine_id", "hostname", "system_type"],
+        )?;
+        let machine_consecutive_failures = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydra_queue_machine_consecutive_failures",
+                "Number of consecutive failures for each machine",
+            ),
+            &["machine_id", "hostname", "system_type"],
+        )?;
+        let machine_last_ping_timestamp = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydra_queue_machine_last_ping_timestamp",
+                "Unix timestamp of the last ping received from each machine",
+            ),
+            &["machine_id", "hostname", "system_type"],
+        )?;
+        let machine_idle_since_timestamp = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydra_queue_machine_idle_since_timestamp",
+                "Unix timestamp since when each machine has been idle (0 if currently busy)",
+            ),
+            &["machine_id", "hostname", "system_type"],
+        )?;
 
         let r = prometheus::default_registry();
         r.register(Box::new(queue_checks_started.clone()))?;
@@ -261,6 +327,14 @@ impl PromMetrics {
         r.register(Box::new(machines_in_use.clone()))?;
         r.register(Box::new(runnable_per_machine_type.clone()))?;
         r.register(Box::new(running_per_machine_type.clone()))?;
+        r.register(Box::new(machine_current_jobs.clone()))?;
+        r.register(Box::new(machine_steps_done.clone()))?;
+        r.register(Box::new(machine_total_step_time_ms.clone()))?;
+        r.register(Box::new(machine_total_step_import_time_ms.clone()))?;
+        r.register(Box::new(machine_total_step_build_time_ms.clone()))?;
+        r.register(Box::new(machine_consecutive_failures.clone()))?;
+        r.register(Box::new(machine_last_ping_timestamp.clone()))?;
+        r.register(Box::new(machine_idle_since_timestamp.clone()))?;
 
         Ok(Self {
             queue_checks_started,
@@ -302,6 +376,14 @@ impl PromMetrics {
             machines_in_use,
             runnable_per_machine_type,
             running_per_machine_type,
+            machine_current_jobs,
+            machine_steps_done,
+            machine_total_step_time_ms,
+            machine_total_step_import_time_ms,
+            machine_total_step_build_time_ms,
+            machine_consecutive_failures,
+            machine_last_ping_timestamp,
+            machine_idle_since_timestamp,
         })
     }
 
@@ -345,6 +427,64 @@ impl PromMetrics {
                 if let Ok(v) = i64::try_from(s.active_runnable) {
                     self.running_per_machine_type.with_label_values(&[t]).set(v);
                 }
+            }
+        }
+
+        {
+            self.machine_current_jobs.reset();
+            self.machine_steps_done.reset();
+            self.machine_total_step_time_ms.reset();
+            self.machine_total_step_import_time_ms.reset();
+            self.machine_total_step_build_time_ms.reset();
+            self.machine_consecutive_failures.reset();
+            self.machine_last_ping_timestamp.reset();
+            self.machine_idle_since_timestamp.reset();
+
+            for machine in state.machines.get_all_machines() {
+                let machine_id = machine.id.to_string();
+                let hostname = &machine.hostname;
+                let system_type = machine
+                    .systems
+                    .first()
+                    .unwrap_or(&"unknown".to_string())
+                    .clone();
+
+                let labels = &[machine_id.as_str(), hostname, &system_type];
+
+                if let Ok(v) = i64::try_from(machine.stats.get_current_jobs()) {
+                    self.machine_current_jobs.with_label_values(labels).set(v);
+                }
+
+                if let Ok(v) = i64::try_from(machine.stats.get_nr_steps_done()) {
+                    self.machine_steps_done.with_label_values(labels).set(v);
+                }
+                if let Ok(v) = i64::try_from(machine.stats.get_total_step_time_ms()) {
+                    self.machine_total_step_time_ms
+                        .with_label_values(labels)
+                        .set(v);
+                }
+                if let Ok(v) = i64::try_from(machine.stats.get_total_step_import_time_ms()) {
+                    self.machine_total_step_import_time_ms
+                        .with_label_values(labels)
+                        .set(v);
+                }
+                if let Ok(v) = i64::try_from(machine.stats.get_total_step_build_time_ms()) {
+                    self.machine_total_step_build_time_ms
+                        .with_label_values(labels)
+                        .set(v);
+                }
+
+                if let Ok(v) = i64::try_from(machine.stats.get_consecutive_failures()) {
+                    self.machine_consecutive_failures
+                        .with_label_values(labels)
+                        .set(v);
+                }
+                self.machine_last_ping_timestamp
+                    .with_label_values(labels)
+                    .set(machine.stats.get_last_ping());
+                self.machine_idle_since_timestamp
+                    .with_label_values(labels)
+                    .set(machine.stats.get_idle_since());
             }
         }
     }
