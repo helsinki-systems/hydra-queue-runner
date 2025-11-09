@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use prometheus::Encoder;
+use prometheus::Encoder as _;
+
+use nix_utils::BaseStore as _;
 
 #[derive(Debug)]
 pub struct PromMetrics {
@@ -62,6 +64,35 @@ pub struct PromMetrics {
     pub machine_consecutive_failures: prometheus::IntGaugeVec, // hydra_queue_machine_consecutive_failures
     pub machine_last_ping_timestamp: prometheus::IntGaugeVec, // hydra_queue_machine_last_ping_timestamp
     pub machine_idle_since_timestamp: prometheus::IntGaugeVec, // hydra_queue_machine_idle_since_timestamp
+
+    // Store metrics (single store)
+    pub store_nar_info_read: prometheus::IntGauge, // hydra_queue_store_nar_info_read
+    pub store_nar_info_read_averted: prometheus::IntGauge, // hydra_queue_store_nar_info_read_averted
+    pub store_nar_info_missing: prometheus::IntGauge,      // hydra_queue_store_nar_info_missing
+    pub store_nar_info_write: prometheus::IntGauge,        // hydra_queue_store_nar_info_write
+    pub store_path_info_cache_size: prometheus::IntGauge,  // hydra_queue_store_path_info_cache_size
+    pub store_nar_read: prometheus::IntGauge,              // hydra_queue_store_nar_read
+    pub store_nar_read_bytes: prometheus::IntGauge,        // hydra_queue_store_nar_read_bytes
+    pub store_nar_read_compressed_bytes: prometheus::IntGauge, // hydra_queue_store_nar_read_compressed_bytes
+    pub store_nar_write: prometheus::IntGauge,                 // hydra_queue_store_nar_write
+    pub store_nar_write_averted: prometheus::IntGauge, // hydra_queue_store_nar_write_averted
+    pub store_nar_write_bytes: prometheus::IntGauge,   // hydra_queue_store_nar_write_bytes
+    pub store_nar_write_compressed_bytes: prometheus::IntGauge, // hydra_queue_store_nar_write_compressed_bytes
+    pub store_nar_write_compression_time_ms: prometheus::IntGauge, // hydra_queue_store_nar_write_compression_time_ms
+    pub store_nar_compression_savings: prometheus::Gauge, // hydra_queue_store_nar_compression_savings
+    pub store_nar_compression_speed: prometheus::Gauge,   // hydra_queue_store_nar_compression_speed
+
+    // S3 metrics (multiple backends)
+    pub s3_put: prometheus::IntGaugeVec, // hydra_queue_s3_put
+    pub s3_put_bytes: prometheus::IntGaugeVec, // hydra_queue_s3_put_bytes
+    pub s3_put_time_ms: prometheus::IntGaugeVec, // hydra_queue_s3_put_time_ms
+    pub s3_put_speed: prometheus::GaugeVec, // hydra_queue_s3_put_speed
+    pub s3_get: prometheus::IntGaugeVec, // hydra_queue_s3_get
+    pub s3_get_bytes: prometheus::IntGaugeVec, // hydra_queue_s3_get_bytes
+    pub s3_get_time_ms: prometheus::IntGaugeVec, // hydra_queue_s3_get_time_ms
+    pub s3_get_speed: prometheus::GaugeVec, // hydra_queue_s3_get_speed
+    pub s3_head: prometheus::IntGaugeVec, // hydra_queue_s3_head
+    pub s3_cost_dollar_approx: prometheus::GaugeVec, // hydra_queue_s3_cost_dollar_approx
 }
 
 impl PromMetrics {
@@ -323,6 +354,122 @@ impl PromMetrics {
             &["machine_id", "hostname", "system_type"],
         )?;
 
+        // Store metrics (single store)
+        let store_nar_info_read = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_store_nar_info_read",
+            "Number of NAR info reads from store",
+        ))?;
+        let store_nar_info_read_averted = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_store_nar_info_read_averted",
+            "Number of NAR info reads averted from store",
+        ))?;
+        let store_nar_info_missing = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_store_nar_info_missing",
+            "Number of missing NAR info in store",
+        ))?;
+        let store_nar_info_write = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_store_nar_info_write",
+            "Number of NAR info writes to store",
+        ))?;
+        let store_path_info_cache_size = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_store_path_info_cache_size",
+            "Size of path info cache in store",
+        ))?;
+        let store_nar_read = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_store_nar_read",
+            "Number of NAR reads from store",
+        ))?;
+        let store_nar_read_bytes = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_store_nar_read_bytes",
+            "Number of bytes read from NARs in store",
+        ))?;
+        let store_nar_read_compressed_bytes =
+            prometheus::IntGauge::with_opts(prometheus::Opts::new(
+                "hydra_queue_store_nar_read_compressed_bytes",
+                "Number of compressed bytes read from NARs in store",
+            ))?;
+        let store_nar_write = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_store_nar_write",
+            "Number of NAR writes to store",
+        ))?;
+        let store_nar_write_averted = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_store_nar_write_averted",
+            "Number of NAR writes averted to store",
+        ))?;
+        let store_nar_write_bytes = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_store_nar_write_bytes",
+            "Number of bytes written to NARs in store",
+        ))?;
+        let store_nar_write_compressed_bytes =
+            prometheus::IntGauge::with_opts(prometheus::Opts::new(
+                "hydra_queue_store_nar_write_compressed_bytes",
+                "Number of compressed bytes written to NARs in store",
+            ))?;
+        let store_nar_write_compression_time_ms =
+            prometheus::IntGauge::with_opts(prometheus::Opts::new(
+                "hydra_queue_store_nar_write_compression_time_ms",
+                "Time in milliseconds spent compressing NARs in store",
+            ))?;
+        let store_nar_compression_savings = prometheus::Gauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_store_nar_compression_savings",
+            "Compression savings ratio for NARs in store",
+        ))?;
+        let store_nar_compression_speed = prometheus::Gauge::with_opts(prometheus::Opts::new(
+            "hydra_queue_store_nar_compression_speed",
+            "Compression speed for NARs in store",
+        ))?;
+
+        // S3 metrics (multiple backends)
+        let s3_put = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new("hydra_queue_s3_put", "Number of S3 put operations"),
+            &["remote_store"],
+        )?;
+        let s3_put_bytes = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new("hydra_queue_s3_put_bytes", "Number of bytes put to S3"),
+            &["remote_store"],
+        )?;
+        let s3_put_time_ms = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydra_queue_s3_put_time_ms",
+                "Time in milliseconds spent on S3 put operations",
+            ),
+            &["remote_store"],
+        )?;
+        let s3_put_speed = prometheus::GaugeVec::new(
+            prometheus::Opts::new("hydra_queue_s3_put_speed", "Speed of S3 put operations"),
+            &["remote_store"],
+        )?;
+        let s3_get = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new("hydra_queue_s3_get", "Number of S3 get operations"),
+            &["remote_store"],
+        )?;
+        let s3_get_bytes = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new("hydra_queue_s3_get_bytes", "Number of bytes gotten from S3"),
+            &["remote_store"],
+        )?;
+        let s3_get_time_ms = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydra_queue_s3_get_time_ms",
+                "Time in milliseconds spent on S3 get operations",
+            ),
+            &["remote_store"],
+        )?;
+        let s3_get_speed = prometheus::GaugeVec::new(
+            prometheus::Opts::new("hydra_queue_s3_get_speed", "Speed of S3 get operations"),
+            &["remote_store"],
+        )?;
+        let s3_head = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new("hydra_queue_s3_head", "Number of S3 head operations"),
+            &["remote_store"],
+        )?;
+        let s3_cost_dollar_approx = prometheus::GaugeVec::new(
+            prometheus::Opts::new(
+                "hydra_queue_s3_cost_dollar_approx",
+                "Approximate cost in dollars for S3 operations",
+            ),
+            &["remote_store"],
+        )?;
+
         let r = prometheus::default_registry();
         r.register(Box::new(queue_checks_started.clone()))?;
         r.register(Box::new(queue_build_loads.clone()))?;
@@ -376,6 +523,35 @@ impl PromMetrics {
         r.register(Box::new(machine_last_ping_timestamp.clone()))?;
         r.register(Box::new(machine_idle_since_timestamp.clone()))?;
 
+        // Store metrics
+        r.register(Box::new(store_nar_info_read.clone()))?;
+        r.register(Box::new(store_nar_info_read_averted.clone()))?;
+        r.register(Box::new(store_nar_info_missing.clone()))?;
+        r.register(Box::new(store_nar_info_write.clone()))?;
+        r.register(Box::new(store_path_info_cache_size.clone()))?;
+        r.register(Box::new(store_nar_read.clone()))?;
+        r.register(Box::new(store_nar_read_bytes.clone()))?;
+        r.register(Box::new(store_nar_read_compressed_bytes.clone()))?;
+        r.register(Box::new(store_nar_write.clone()))?;
+        r.register(Box::new(store_nar_write_averted.clone()))?;
+        r.register(Box::new(store_nar_write_bytes.clone()))?;
+        r.register(Box::new(store_nar_write_compressed_bytes.clone()))?;
+        r.register(Box::new(store_nar_write_compression_time_ms.clone()))?;
+        r.register(Box::new(store_nar_compression_savings.clone()))?;
+        r.register(Box::new(store_nar_compression_speed.clone()))?;
+
+        // S3 metrics
+        r.register(Box::new(s3_put.clone()))?;
+        r.register(Box::new(s3_put_bytes.clone()))?;
+        r.register(Box::new(s3_put_time_ms.clone()))?;
+        r.register(Box::new(s3_put_speed.clone()))?;
+        r.register(Box::new(s3_get.clone()))?;
+        r.register(Box::new(s3_get_bytes.clone()))?;
+        r.register(Box::new(s3_get_time_ms.clone()))?;
+        r.register(Box::new(s3_get_speed.clone()))?;
+        r.register(Box::new(s3_head.clone()))?;
+        r.register(Box::new(s3_cost_dollar_approx.clone()))?;
+
         Ok(Self {
             queue_checks_started,
             queue_build_loads,
@@ -428,6 +604,35 @@ impl PromMetrics {
             machine_consecutive_failures,
             machine_last_ping_timestamp,
             machine_idle_since_timestamp,
+
+            // Store metrics
+            store_nar_info_read,
+            store_nar_info_read_averted,
+            store_nar_info_missing,
+            store_nar_info_write,
+            store_path_info_cache_size,
+            store_nar_read,
+            store_nar_read_bytes,
+            store_nar_read_compressed_bytes,
+            store_nar_write,
+            store_nar_write_averted,
+            store_nar_write_bytes,
+            store_nar_write_compressed_bytes,
+            store_nar_write_compression_time_ms,
+            store_nar_compression_savings,
+            store_nar_compression_speed,
+
+            // S3 metrics
+            s3_put,
+            s3_put_bytes,
+            s3_put_time_ms,
+            s3_put_speed,
+            s3_get,
+            s3_get_bytes,
+            s3_get_time_ms,
+            s3_get_speed,
+            s3_head,
+            s3_cost_dollar_approx,
         })
     }
 
@@ -460,6 +665,8 @@ impl PromMetrics {
 
         self.refresh_per_machine_type_metrics(state).await;
         self.refresh_per_machine_metrics(state);
+        self.refresh_store_metrics(state);
+        self.refresh_s3_metrics(state);
     }
 
     async fn refresh_per_machine_type_metrics(&self, state: &Arc<super::State>) {
@@ -559,6 +766,106 @@ impl PromMetrics {
             self.machine_idle_since_timestamp
                 .with_label_values(labels)
                 .set(machine.stats.get_idle_since());
+        }
+    }
+
+    fn refresh_store_metrics(&self, state: &Arc<super::State>) {
+        if let Ok(store_stats) = state.store.get_store_stats() {
+            let store_stats = crate::io::StoreStats::new(&store_stats);
+            if let Ok(v) = i64::try_from(store_stats.nar_info_read) {
+                self.store_nar_info_read.set(v);
+            }
+            if let Ok(v) = i64::try_from(store_stats.nar_info_read_averted) {
+                self.store_nar_info_read_averted.set(v);
+            }
+            if let Ok(v) = i64::try_from(store_stats.nar_info_missing) {
+                self.store_nar_info_missing.set(v);
+            }
+            if let Ok(v) = i64::try_from(store_stats.nar_info_write) {
+                self.store_nar_info_write.set(v);
+            }
+            if let Ok(v) = i64::try_from(store_stats.path_info_cache_size) {
+                self.store_path_info_cache_size.set(v);
+            }
+            if let Ok(v) = i64::try_from(store_stats.nar_read) {
+                self.store_nar_read.set(v);
+            }
+            if let Ok(v) = i64::try_from(store_stats.nar_read_bytes) {
+                self.store_nar_read_bytes.set(v);
+            }
+            if let Ok(v) = i64::try_from(store_stats.nar_read_compressed_bytes) {
+                self.store_nar_read_compressed_bytes.set(v);
+            }
+            if let Ok(v) = i64::try_from(store_stats.nar_write) {
+                self.store_nar_write.set(v);
+            }
+            if let Ok(v) = i64::try_from(store_stats.nar_write_averted) {
+                self.store_nar_write_averted.set(v);
+            }
+            if let Ok(v) = i64::try_from(store_stats.nar_write_bytes) {
+                self.store_nar_write_bytes.set(v);
+            }
+            if let Ok(v) = i64::try_from(store_stats.nar_write_compressed_bytes) {
+                self.store_nar_write_compressed_bytes.set(v);
+            }
+            if let Ok(v) = i64::try_from(store_stats.nar_write_compression_time_ms) {
+                self.store_nar_write_compression_time_ms.set(v);
+            }
+            self.store_nar_compression_savings
+                .set(store_stats.nar_compression_savings);
+            self.store_nar_compression_speed
+                .set(store_stats.nar_compression_speed);
+        }
+    }
+
+    fn refresh_s3_metrics(&self, state: &Arc<super::State>) {
+        self.s3_put.reset();
+        self.s3_put_bytes.reset();
+        self.s3_put_time_ms.reset();
+        self.s3_put_speed.reset();
+        self.s3_get.reset();
+        self.s3_get_bytes.reset();
+        self.s3_get_time_ms.reset();
+        self.s3_get_speed.reset();
+        self.s3_head.reset();
+        self.s3_cost_dollar_approx.reset();
+
+        let s3_backends = state.remote_stores.read();
+        for remote_store in s3_backends.iter() {
+            let backend_name = &remote_store.cfg.client_config.bucket;
+            let s3_stats = crate::io::S3Stats::new(&remote_store.s3_stats());
+            let labels = &[backend_name.as_str()];
+
+            if let Ok(v) = i64::try_from(s3_stats.put) {
+                self.s3_put.with_label_values(labels).set(v);
+            }
+            if let Ok(v) = i64::try_from(s3_stats.put_bytes) {
+                self.s3_put_bytes.with_label_values(labels).set(v);
+            }
+            if let Ok(v) = i64::try_from(s3_stats.put_time_ms) {
+                self.s3_put_time_ms.with_label_values(labels).set(v);
+            }
+            self.s3_put_speed
+                .with_label_values(labels)
+                .set(s3_stats.put_speed);
+            if let Ok(v) = i64::try_from(s3_stats.get) {
+                self.s3_get.with_label_values(labels).set(v);
+            }
+            if let Ok(v) = i64::try_from(s3_stats.get_bytes) {
+                self.s3_get_bytes.with_label_values(labels).set(v);
+            }
+            if let Ok(v) = i64::try_from(s3_stats.get_time_ms) {
+                self.s3_get_time_ms.with_label_values(labels).set(v);
+            }
+            self.s3_get_speed
+                .with_label_values(labels)
+                .set(s3_stats.get_speed);
+            if let Ok(v) = i64::try_from(s3_stats.head) {
+                self.s3_head.with_label_values(labels).set(v);
+            }
+            self.s3_cost_dollar_approx
+                .with_label_values(labels)
+                .set(s3_stats.cost_dollar_approx);
         }
     }
 

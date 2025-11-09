@@ -420,25 +420,26 @@ impl Process {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoreStats {
-    nar_info_read: u64,
-    nar_info_read_averted: u64,
-    nar_info_missing: u64,
-    nar_info_write: u64,
-    path_info_cache_size: u64,
-    nar_read: u64,
-    nar_read_bytes: u64,
-    nar_read_compressed_bytes: u64,
-    nar_write: u64,
-    nar_write_averted: u64,
-    nar_write_bytes: u64,
-    nar_write_compressed_bytes: u64,
-    nar_write_compression_time_ms: u64,
-    nar_compression_savings: f64,
-    nar_compression_speed: f64,
+    pub nar_info_read: u64,
+    pub nar_info_read_averted: u64,
+    pub nar_info_missing: u64,
+    pub nar_info_write: u64,
+    pub path_info_cache_size: u64,
+    pub nar_read: u64,
+    pub nar_read_bytes: u64,
+    pub nar_read_compressed_bytes: u64,
+    pub nar_write: u64,
+    pub nar_write_averted: u64,
+    pub nar_write_bytes: u64,
+    pub nar_write_compressed_bytes: u64,
+    pub nar_write_compression_time_ms: u64,
+    pub nar_compression_savings: f64,
+    pub nar_compression_speed: f64,
 }
 
 impl StoreStats {
-    fn new(v: &nix_utils::StoreStats) -> Self {
+    #[must_use]
+    pub fn new(v: &nix_utils::StoreStats) -> Self {
         #[allow(clippy::cast_precision_loss)]
         Self {
             nar_info_read: v.nar_info_read,
@@ -472,20 +473,21 @@ impl StoreStats {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct S3Stats {
-    put: u64,
-    put_bytes: u64,
-    put_time_ms: u64,
-    put_speed: f64,
-    get: u64,
-    get_bytes: u64,
-    get_time_ms: u64,
-    get_speed: f64,
-    head: u64,
-    cost_dollar_approx: f64,
+    pub put: u64,
+    pub put_bytes: u64,
+    pub put_time_ms: u64,
+    pub put_speed: f64,
+    pub get: u64,
+    pub get_bytes: u64,
+    pub get_time_ms: u64,
+    pub get_speed: f64,
+    pub head: u64,
+    pub cost_dollar_approx: f64,
 }
 
 impl S3Stats {
-    fn new(v: &binary_cache::S3Stats) -> Self {
+    #[must_use]
+    pub fn new(v: &binary_cache::S3Stats) -> Self {
         #[allow(clippy::cast_precision_loss)]
         Self {
             put: v.put,
