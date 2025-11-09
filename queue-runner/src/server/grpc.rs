@@ -341,21 +341,23 @@ impl RunnerService for Server {
         req: tonic::Request<tonic::Streaming<NarData>>,
     ) -> BuilderResult<runner_v1::Empty> {
         let stream = req.into_inner();
-        // TODO: we leak memory if we use the store from state, so we open and close a new
+
+        // We leak memory if we use the store from state, so we open and close a new
         // connection for each import. This sucks but using the state.store will result in the path
         // not being closed!
-        let store = nix_utils::LocalStore::init();
-        store
-            .import_paths(
-                tokio_stream::StreamExt::map(stream, |s| {
-                    s.map(|v| v.chunk.into())
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::UnexpectedEof, e))
-                }),
-                false,
-            )
-            .await
-            .map_err(|_| tonic::Status::internal("Failed to import path."))?;
-
+        {
+            let store = nix_utils::LocalStore::init();
+            store
+                .import_paths(
+                    tokio_stream::StreamExt::map(stream, |s| {
+                        s.map(|v| v.chunk.into())
+                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::UnexpectedEof, e))
+                    }),
+                    false,
+                )
+                .await
+        }
+        .map_err(|_| tonic::Status::internal("Failed to import path."))?;
         Ok(tonic::Response::new(runner_v1::Empty {}))
     }
 
