@@ -8,7 +8,7 @@ pub struct PromMetrics {
     pub queue_build_loads: prometheus::IntCounter,
     pub queue_steps_created: prometheus::IntCounter,
     pub queue_checks_early_exits: prometheus::IntCounter,
-    pub queue_checks_finished: prometheus::IntCounter, // TODO
+    pub queue_checks_finished: prometheus::IntCounter,
 
     pub dispatcher_time_spent_running: prometheus::IntCounter,
     pub dispatcher_time_spent_waiting: prometheus::IntCounter,
@@ -44,8 +44,14 @@ pub struct PromMetrics {
     pub dispatch_time_ms: prometheus::IntGauge, // hydra_queue_dispatch_time
     pub machines_total: prometheus::IntGauge, // hydra_queue_machines_total
     pub machines_in_use: prometheus::IntGauge, // hydra_queue_machines_in_use
+
+    // Per-machine-type metrics
     pub runnable_per_machine_type: prometheus::IntGaugeVec, // hydra_queue_machines_runnable
-    pub running_per_machine_type: prometheus::IntGaugeVec, // hydra_queue_machines_running
+    pub running_per_machine_type: prometheus::IntGaugeVec,  // hydra_queue_machines_running
+    pub waiting_per_machine_type: prometheus::IntGaugeVec,  // hydra_queue_machines_waiting
+    pub disabled_per_machine_type: prometheus::IntGaugeVec, // hydra_queue_machines_disabled
+    pub avg_runnable_time_per_machine_type: prometheus::IntGaugeVec, // hydra_queue_machines_avg_runnable_time
+    pub wait_time_per_machine_type: prometheus::IntGaugeVec, // hydra_queue_machines_wait_time
 
     // Per-machine metrics
     pub machine_current_jobs: prometheus::IntGaugeVec, // hydra_queue_machine_current_jobs
@@ -214,6 +220,8 @@ impl PromMetrics {
             "hydra_queue_machines_in_use",
             "Number of machines currently in use for building",
         ))?;
+
+        // Per-machine-type metrics
         let runnable_per_machine_type = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydra_queue_machines_runnable",
@@ -225,6 +233,34 @@ impl PromMetrics {
             prometheus::Opts::new(
                 "hydra_queue_machines_running",
                 "Number of running build steps per machine type",
+            ),
+            &["machine_type"],
+        )?;
+        let waiting_per_machine_type = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydra_queue_machines_waiting",
+                "Number of waiting build steps per machine type",
+            ),
+            &["machine_type"],
+        )?;
+        let disabled_per_machine_type = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydra_queue_machines_disabled",
+                "Number of disabled build steps per machine type",
+            ),
+            &["machine_type"],
+        )?;
+        let avg_runnable_time_per_machine_type = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydra_queue_machines_avg_runnable_time",
+                "Average runnable time for build steps per machine type",
+            ),
+            &["machine_type"],
+        )?;
+        let wait_time_per_machine_type = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydra_queue_machines_wait_time",
+                "Wait time for build steps per machine type",
             ),
             &["machine_type"],
         )?;
@@ -327,6 +363,10 @@ impl PromMetrics {
         r.register(Box::new(machines_in_use.clone()))?;
         r.register(Box::new(runnable_per_machine_type.clone()))?;
         r.register(Box::new(running_per_machine_type.clone()))?;
+        r.register(Box::new(waiting_per_machine_type.clone()))?;
+        r.register(Box::new(disabled_per_machine_type.clone()))?;
+        r.register(Box::new(avg_runnable_time_per_machine_type.clone()))?;
+        r.register(Box::new(wait_time_per_machine_type.clone()))?;
         r.register(Box::new(machine_current_jobs.clone()))?;
         r.register(Box::new(machine_steps_done.clone()))?;
         r.register(Box::new(machine_total_step_time_ms.clone()))?;
@@ -376,6 +416,10 @@ impl PromMetrics {
             machines_in_use,
             runnable_per_machine_type,
             running_per_machine_type,
+            waiting_per_machine_type,
+            disabled_per_machine_type,
+            avg_runnable_time_per_machine_type,
+            wait_time_per_machine_type,
             machine_current_jobs,
             machine_steps_done,
             machine_total_step_time_ms,
@@ -414,78 +458,107 @@ impl PromMetrics {
             self.machines_in_use.set(v);
         }
 
-        {
-            let queue_stats = state.queues.read().await.get_stats_per_queue();
-            self.runnable_per_machine_type.reset();
-            self.running_per_machine_type.reset();
-            for (t, s) in queue_stats {
-                if let Ok(v) = i64::try_from(s.total_runnable) {
-                    self.runnable_per_machine_type
-                        .with_label_values(std::slice::from_ref(&t))
-                        .set(v);
-                }
-                if let Ok(v) = i64::try_from(s.active_runnable) {
-                    self.running_per_machine_type.with_label_values(&[t]).set(v);
-                }
+        self.refresh_per_machine_type_metrics(state).await;
+        self.refresh_per_machine_metrics(state);
+    }
+
+    async fn refresh_per_machine_type_metrics(&self, state: &Arc<super::State>) {
+        let queue_stats = state.queues.read().await.get_stats_per_queue();
+        self.runnable_per_machine_type.reset();
+        self.running_per_machine_type.reset();
+        self.waiting_per_machine_type.reset();
+        self.disabled_per_machine_type.reset();
+        self.avg_runnable_time_per_machine_type.reset();
+        self.wait_time_per_machine_type.reset();
+        for (t, s) in queue_stats {
+            if let Ok(v) = i64::try_from(s.total_runnable) {
+                self.runnable_per_machine_type
+                    .with_label_values(std::slice::from_ref(&t))
+                    .set(v);
+            }
+            if let Ok(v) = i64::try_from(s.active_runnable) {
+                self.running_per_machine_type
+                    .with_label_values(&[&t])
+                    .set(v);
+            }
+            if let Ok(v) = i64::try_from(s.nr_runnable_waiting) {
+                self.waiting_per_machine_type
+                    .with_label_values(&[&t])
+                    .set(v);
+            }
+            if let Ok(v) = i64::try_from(s.nr_runnable_disabled) {
+                self.disabled_per_machine_type
+                    .with_label_values(&[&t])
+                    .set(v);
+            }
+            if let Ok(v) = i64::try_from(s.avg_runnable_time) {
+                self.avg_runnable_time_per_machine_type
+                    .with_label_values(&[&t])
+                    .set(v);
+            }
+            if let Ok(v) = i64::try_from(s.wait_time) {
+                self.wait_time_per_machine_type
+                    .with_label_values(&[&t])
+                    .set(v);
             }
         }
+    }
 
-        {
-            self.machine_current_jobs.reset();
-            self.machine_steps_done.reset();
-            self.machine_total_step_time_ms.reset();
-            self.machine_total_step_import_time_ms.reset();
-            self.machine_total_step_build_time_ms.reset();
-            self.machine_consecutive_failures.reset();
-            self.machine_last_ping_timestamp.reset();
-            self.machine_idle_since_timestamp.reset();
+    fn refresh_per_machine_metrics(&self, state: &Arc<super::State>) {
+        self.machine_current_jobs.reset();
+        self.machine_steps_done.reset();
+        self.machine_total_step_time_ms.reset();
+        self.machine_total_step_import_time_ms.reset();
+        self.machine_total_step_build_time_ms.reset();
+        self.machine_consecutive_failures.reset();
+        self.machine_last_ping_timestamp.reset();
+        self.machine_idle_since_timestamp.reset();
 
-            for machine in state.machines.get_all_machines() {
-                let machine_id = machine.id.to_string();
-                let hostname = &machine.hostname;
-                let system_type = machine
-                    .systems
-                    .first()
-                    .unwrap_or(&"unknown".to_string())
-                    .clone();
+        for machine in state.machines.get_all_machines() {
+            let machine_id = machine.id.to_string();
+            let hostname = &machine.hostname;
+            let system_type = machine
+                .systems
+                .first()
+                .unwrap_or(&"unknown".to_string())
+                .clone();
 
-                let labels = &[machine_id.as_str(), hostname, &system_type];
+            let labels = &[machine_id.as_str(), hostname, &system_type];
 
-                if let Ok(v) = i64::try_from(machine.stats.get_current_jobs()) {
-                    self.machine_current_jobs.with_label_values(labels).set(v);
-                }
-
-                if let Ok(v) = i64::try_from(machine.stats.get_nr_steps_done()) {
-                    self.machine_steps_done.with_label_values(labels).set(v);
-                }
-                if let Ok(v) = i64::try_from(machine.stats.get_total_step_time_ms()) {
-                    self.machine_total_step_time_ms
-                        .with_label_values(labels)
-                        .set(v);
-                }
-                if let Ok(v) = i64::try_from(machine.stats.get_total_step_import_time_ms()) {
-                    self.machine_total_step_import_time_ms
-                        .with_label_values(labels)
-                        .set(v);
-                }
-                if let Ok(v) = i64::try_from(machine.stats.get_total_step_build_time_ms()) {
-                    self.machine_total_step_build_time_ms
-                        .with_label_values(labels)
-                        .set(v);
-                }
-
-                if let Ok(v) = i64::try_from(machine.stats.get_consecutive_failures()) {
-                    self.machine_consecutive_failures
-                        .with_label_values(labels)
-                        .set(v);
-                }
-                self.machine_last_ping_timestamp
-                    .with_label_values(labels)
-                    .set(machine.stats.get_last_ping());
-                self.machine_idle_since_timestamp
-                    .with_label_values(labels)
-                    .set(machine.stats.get_idle_since());
+            if let Ok(v) = i64::try_from(machine.stats.get_current_jobs()) {
+                self.machine_current_jobs.with_label_values(labels).set(v);
             }
+
+            if let Ok(v) = i64::try_from(machine.stats.get_nr_steps_done()) {
+                self.machine_steps_done.with_label_values(labels).set(v);
+            }
+            if let Ok(v) = i64::try_from(machine.stats.get_total_step_time_ms()) {
+                self.machine_total_step_time_ms
+                    .with_label_values(labels)
+                    .set(v);
+            }
+            if let Ok(v) = i64::try_from(machine.stats.get_total_step_import_time_ms()) {
+                self.machine_total_step_import_time_ms
+                    .with_label_values(labels)
+                    .set(v);
+            }
+            if let Ok(v) = i64::try_from(machine.stats.get_total_step_build_time_ms()) {
+                self.machine_total_step_build_time_ms
+                    .with_label_values(labels)
+                    .set(v);
+            }
+
+            if let Ok(v) = i64::try_from(machine.stats.get_consecutive_failures()) {
+                self.machine_consecutive_failures
+                    .with_label_values(labels)
+                    .set(v);
+            }
+            self.machine_last_ping_timestamp
+                .with_label_values(labels)
+                .set(machine.stats.get_last_ping());
+            self.machine_idle_since_timestamp
+                .with_label_values(labels)
+                .set(machine.stats.get_idle_since());
         }
     }
 
