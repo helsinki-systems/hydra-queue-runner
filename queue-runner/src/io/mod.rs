@@ -178,10 +178,12 @@ impl Machine {
         free_fn: crate::config::MachineFreeFn,
     ) -> Self {
         let jobs = { item.jobs.read().iter().map(|j| j.path.clone()).collect() };
-        let time = chrono::Utc::now();
+        let time = jiff::Timestamp::now();
         Self {
             systems: item.systems.clone(),
-            uptime: (time - item.joined_at).as_seconds_f64(),
+            uptime: (time - item.joined_at)
+                .total(jiff::Unit::Second)
+                .unwrap_or_default(),
             hostname: item.hostname.clone(),
             cpu_count: item.cpu_count,
             bogomips: item.bogomips,
@@ -198,7 +200,7 @@ impl Machine {
             supported_features: item.supported_features.clone(),
             mandatory_features: item.mandatory_features.clone(),
             cgroups: item.cgroups,
-            stats: MachineStats::from(&item.stats, time.timestamp()),
+            stats: MachineStats::from(&item.stats, time.as_second()),
             jobs,
             has_capacity: item.has_capacity(free_fn),
             has_dynamic_capacity: item.has_dynamic_capacity(),
@@ -514,7 +516,7 @@ impl S3Stats {
 #[serde(rename_all = "camelCase")]
 pub struct QueueRunnerStats {
     status: &'static str,
-    time: chrono::DateTime<chrono::Utc>,
+    time: jiff::Timestamp,
     uptime: f64,
     proc: Option<Process>,
     supported_features: Vec<String>,
@@ -583,11 +585,13 @@ impl QueueRunnerStats {
 
         state.metrics.refresh_dynamic_metrics(&state).await;
 
-        let time = chrono::Utc::now();
+        let time = jiff::Timestamp::now();
         Self {
             status: "up",
             time,
-            uptime: (time - state.started_at).as_seconds_f64(),
+            uptime: (time - state.started_at)
+                .total(jiff::Unit::Second)
+                .unwrap_or_default(),
             proc: Process::new(),
             supported_features: state.machines.get_supported_features(),
             build_count,
@@ -746,7 +750,7 @@ pub struct Build {
     drv_path: nix_utils::StorePath,
     jobset_id: crate::state::JobsetID,
     name: String,
-    timestamp: chrono::DateTime<chrono::Utc>,
+    timestamp: jiff::Timestamp,
     max_silent_time: i32,
     timeout: i32,
     local_priority: i32,
@@ -855,7 +859,7 @@ pub struct StepInfo {
     runnable: bool,
     finished: bool,
     cancelled: bool,
-    runnable_since: chrono::DateTime<chrono::Utc>,
+    runnable_since: jiff::Timestamp,
 
     tries: u32,
 

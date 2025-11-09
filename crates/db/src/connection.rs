@@ -126,7 +126,7 @@ impl Connection {
             build_id,
             BuildStatus::Aborted as i32,
             // TODO migrate to 64bit timestamp
-            chrono::Utc::now().timestamp() as i32,
+            jiff::Timestamp::now().as_second() as i32,
         )
         .execute(&mut *self.conn)
         .await?;
@@ -371,7 +371,7 @@ impl Transaction<'_> {
             build_id,
             status as i32,
             // TODO migrate to 64bit timestamp
-            chrono::Utc::now().timestamp() as i32,
+            jiff::Timestamp::now().as_second() as i32,
         )
         .execute(&mut *self.tx)
         .await?;
@@ -899,7 +899,7 @@ impl Transaction<'_> {
                 project: build.project_name,
                 jobset: build.jobset_name,
                 job: build.name,
-                timestamp: i32::try_from(build.timestamp.timestamp())?, // TODO
+                timestamp: i32::try_from(build.timestamp)?, // TODO
             })
             .await?;
         }

@@ -6,7 +6,6 @@ use std::sync::{
 };
 
 use ahash::{AHashMap, AHashSet};
-use chrono::TimeZone;
 
 use super::jobset::{Jobset, JobsetID};
 use db::models::{BuildID, BuildStatus};
@@ -21,7 +20,7 @@ pub struct Build {
     pub outputs: AHashMap<String, nix_utils::StorePath>,
     pub jobset_id: JobsetID,
     pub name: String,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub timestamp: jiff::Timestamp,
     pub max_silent_time: i32,
     pub timeout: i32,
     pub local_priority: i32,
@@ -58,7 +57,7 @@ impl Build {
             outputs: AHashMap::new(),
             jobset_id: JobsetID::MAX,
             name: "debug".into(),
-            timestamp: chrono::Utc::now(),
+            timestamp: jiff::Timestamp::now(),
             max_silent_time: i32::MAX,
             timeout: i32::MAX,
             local_priority: 1000,
@@ -77,9 +76,7 @@ impl Build {
             outputs: AHashMap::new(),
             jobset_id: v.jobset_id,
             name: v.job,
-            timestamp: chrono::Utc.timestamp_opt(v.timestamp, 0).single().ok_or(
-                anyhow::anyhow!("Failed to convert unix timestamp into chrono::UTC"),
-            )?,
+            timestamp: jiff::Timestamp::from_second(v.timestamp)?,
             max_silent_time: v.maxsilent.unwrap_or(3600),
             timeout: v.timeout.unwrap_or(36000),
             local_priority: v.priority,
@@ -180,10 +177,7 @@ pub struct StepAtomicState {
 }
 
 impl StepAtomicState {
-    pub fn new(
-        after: chrono::DateTime<chrono::Utc>,
-        runnable_since: chrono::DateTime<chrono::Utc>,
-    ) -> Self {
+    pub fn new(after: jiff::Timestamp, runnable_since: jiff::Timestamp) -> Self {
         Self {
             created: false.into(),
             tries: 0.into(),
@@ -274,8 +268,8 @@ impl Step {
             finished: false.into(),
             previous_failure: false.into(),
             atomic_state: StepAtomicState::new(
-                chrono::DateTime::<chrono::Utc>::from_timestamp_nanos(0),
-                chrono::DateTime::<chrono::Utc>::from_timestamp_nanos(0),
+                jiff::Timestamp::UNIX_EPOCH,
+                jiff::Timestamp::UNIX_EPOCH,
             ),
             state: parking_lot::RwLock::new(StepState::new()),
         })
@@ -325,24 +319,26 @@ impl Step {
         drv.as_ref().map(|drv| drv.input_drvs.clone())
     }
 
-    pub fn get_after(&self) -> chrono::DateTime<chrono::Utc> {
+    pub fn get_after(&self) -> jiff::Timestamp {
         self.atomic_state.after.load()
     }
 
-    pub fn set_after(&self, v: chrono::DateTime<chrono::Utc>) {
+    pub fn set_after(&self, v: jiff::Timestamp) {
         self.atomic_state.after.store(v);
     }
 
-    pub fn get_runnable_since(&self) -> chrono::DateTime<chrono::Utc> {
+    pub fn get_runnable_since(&self) -> jiff::Timestamp {
         self.atomic_state.runnable_since.load()
     }
 
-    pub fn get_last_supported(&self) -> chrono::DateTime<chrono::Utc> {
+    pub fn get_last_supported(&self) -> jiff::Timestamp {
         self.atomic_state.last_supported.load()
     }
 
     pub fn set_last_supported_now(&self) {
-        self.atomic_state.last_supported.store(chrono::Utc::now());
+        self.atomic_state
+            .last_supported
+            .store(jiff::Timestamp::now());
     }
 
     pub fn get_outputs(&self) -> Option<Vec<nix_utils::DerivationOutput>> {
@@ -440,7 +436,7 @@ impl Step {
         // only ever mark as runnable once
         if !self.runnable.load(Ordering::SeqCst) {
             self.runnable.store(true, Ordering::SeqCst);
-            let now = chrono::Utc::now();
+            let now = jiff::Timestamp::now();
             self.atomic_state.runnable_since.store(now);
             // we also say now, is the last time that we supported this step.
             // This ensure that we actually wait for max_unsupported_time until we mark it as
@@ -491,8 +487,8 @@ pub struct RemoteBuild {
     pub times_build: i32,
     pub is_non_deterministic: bool,
 
-    pub start_time: Option<chrono::DateTime<chrono::Utc>>,
-    pub stop_time: Option<chrono::DateTime<chrono::Utc>>,
+    pub start_time: Option<jiff::Timestamp>,
+    pub stop_time: Option<jiff::Timestamp>,
 
     pub overhead: i32,
     pub log_file: String,
@@ -523,9 +519,13 @@ impl RemoteBuild {
     }
 
     #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn get_total_step_time_ms(&self) -> u64 {
         if let (Some(start_time), Some(stop_time)) = (self.start_time, self.stop_time) {
-            (stop_time - start_time).num_milliseconds().unsigned_abs()
+            (stop_time - start_time)
+                .total(jiff::Unit::Millisecond)
+                .unwrap_or_default()
+                .abs() as u64
         } else {
             0
         }
@@ -791,7 +791,7 @@ pub fn get_mark_build_sccuess_data<'a>(
         project_name: &b.jobset.project_name,
         jobset_name: &b.jobset.name,
         finished_in_db: b.get_finished_in_db(),
-        timestamp: b.timestamp,
+        timestamp: b.timestamp.as_second(),
         failed: res.failed,
         closure_size: res.closure_size,
         size: res.size,

@@ -1,38 +1,36 @@
-use chrono::{DateTime, Utc};
-use std::sync::atomic::{AtomicI64, Ordering};
+use jiff::Timestamp;
+use std::sync::atomic::{AtomicI32, AtomicI64, Ordering};
 
 #[derive(Debug)]
 pub struct AtomicDateTime {
-    inner: AtomicI64,
+    seconds: AtomicI64,
+    nanoseconds: AtomicI32,
 }
 
 impl Default for AtomicDateTime {
     fn default() -> Self {
-        AtomicDateTime::new(Utc::now())
+        AtomicDateTime::new(Timestamp::now())
     }
 }
 
 impl AtomicDateTime {
     #[must_use]
-    #[allow(clippy::missing_panics_doc)]
-    pub fn new(dt: DateTime<Utc>) -> Self {
+    pub fn new(dt: Timestamp) -> Self {
         Self {
-            inner: AtomicI64::new(
-                dt
-                    .timestamp_nanos_opt()
-                    .expect("datetime not in range: 1677-09-21T00:12:43.145224192 and 2262-04-11T23:47:16.854775807."),
-            ),
+            seconds: AtomicI64::new(dt.as_second()),
+            nanoseconds: AtomicI32::new(dt.subsec_nanosecond()),
         }
     }
 
-    pub fn load(&self) -> DateTime<Utc> {
-        let nanos = self.inner.load(Ordering::Relaxed);
-        DateTime::<Utc>::from_timestamp_nanos(nanos)
+    pub fn load(&self) -> Timestamp {
+        let seconds = self.seconds.load(Ordering::Relaxed);
+        let nanoseconds = self.nanoseconds.load(Ordering::Relaxed);
+        Timestamp::new(seconds, nanoseconds).unwrap_or_default()
     }
 
-    pub fn store(&self, dt: DateTime<Utc>) {
-        if let Some(v) = dt.timestamp_nanos_opt() {
-            self.inner.store(v, Ordering::Relaxed);
-        }
+    pub fn store(&self, dt: Timestamp) {
+        self.seconds.store(dt.as_second(), Ordering::Relaxed);
+        self.nanoseconds
+            .store(dt.subsec_nanosecond(), Ordering::Relaxed);
     }
 }

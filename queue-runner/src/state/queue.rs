@@ -17,7 +17,7 @@ pub struct StepInfo {
     pub resolved_drv_path: Option<nix_utils::StorePath>,
     already_scheduled: AtomicBool,
     cancelled: AtomicBool,
-    pub runnable_since: chrono::DateTime<chrono::Utc>,
+    pub runnable_since: jiff::Timestamp,
 
     pub lowest_share_used: f64,
     pub highest_global_priority: i32,
@@ -126,7 +126,7 @@ impl BuildQueue {
     }
 
     #[tracing::instrument(skip(self, jobs))]
-    fn insert_new_jobs(&self, jobs: Vec<Weak<StepInfo>>, now: &chrono::DateTime<chrono::Utc>) {
+    fn insert_new_jobs(&self, jobs: Vec<Weak<StepInfo>>, now: &jiff::Timestamp) {
         let mut current_jobs = self.jobs.write();
         let mut wait_time_ms = 0u64;
 
@@ -144,9 +144,8 @@ impl BuildQueue {
                 }
 
                 // runnable since is always > now
-                wait_time_ms += (*now - owned.runnable_since)
-                    .num_milliseconds()
-                    .unsigned_abs();
+                wait_time_ms += u64::try_from(now.duration_since(owned.runnable_since).as_millis())
+                    .unwrap_or_default();
                 current_jobs.push(j);
             }
         }
@@ -237,7 +236,7 @@ impl Queues {
         &mut self,
         system: S,
         jobs: Vec<StepInfo>,
-        now: &chrono::DateTime<chrono::Utc>,
+        now: &jiff::Timestamp,
     ) {
         let mut submit_jobs: Vec<Weak<StepInfo>> = Vec::new();
         for j in jobs {

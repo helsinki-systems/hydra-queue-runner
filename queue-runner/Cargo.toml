@@ -46,11 +46,7 @@ http.workspace = true
 http-body-util.workspace = true
 hyper-util.workspace = true
 bytes.workspace = true
-chrono = { workspace = true, features = [
-  "clock",
-  "std",
-  "serde",
-] }
+jiff.workspace = true
 prometheus = { workspace = true, features = ["process"] }
 procfs.workspace = true
 

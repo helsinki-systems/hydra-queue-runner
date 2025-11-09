@@ -260,8 +260,8 @@ pub struct PreparedApp {
     max_retries: u32,
     retry_interval: f32,
     retry_backoff: f32,
-    max_unsupported_time: chrono::Duration,
-    stop_queue_run_after: Option<chrono::Duration>,
+    max_unsupported_time: jiff::SignedDuration,
+    stop_queue_run_after: Option<jiff::SignedDuration>,
     max_concurrent_downloads: u32,
     concurrent_upload_limit: usize,
     token_list: Option<Vec<String>>,
@@ -338,11 +338,13 @@ impl TryFrom<AppConfig> for PreparedApp {
             #[allow(clippy::cast_precision_loss)]
             retry_interval: val.retry_interval as f32,
             retry_backoff: val.retry_backoff,
-            max_unsupported_time: chrono::Duration::seconds(val.max_unsupported_time_in_s),
+            max_unsupported_time: jiff::SignedDuration::from_secs(val.max_unsupported_time_in_s),
             stop_queue_run_after: if val.stop_queue_run_after_in_s <= 0 {
                 None
             } else {
-                Some(chrono::Duration::seconds(val.stop_queue_run_after_in_s))
+                Some(jiff::SignedDuration::from_secs(
+                    val.stop_queue_run_after_in_s,
+                ))
             },
             max_concurrent_downloads: val.max_concurrent_downloads,
             concurrent_upload_limit: val.concurrent_upload_limit,
@@ -456,13 +458,13 @@ impl App {
     }
 
     #[must_use]
-    pub fn get_max_unsupported_time(&self) -> chrono::Duration {
+    pub fn get_max_unsupported_time(&self) -> jiff::SignedDuration {
         let inner = self.inner.load();
         inner.max_unsupported_time
     }
 
     #[must_use]
-    pub fn get_stop_queue_run_after(&self) -> Option<chrono::Duration> {
+    pub fn get_stop_queue_run_after(&self) -> Option<jiff::SignedDuration> {
         let inner = self.inner.load();
         inner.stop_queue_run_after
     }

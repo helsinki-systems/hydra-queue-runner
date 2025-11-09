@@ -64,7 +64,7 @@ pub struct State {
 
     pub fod_checker: Option<Arc<FodChecker>>,
 
-    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: jiff::Timestamp,
 
     pub metrics: metrics::PromMetrics,
     pub notify_dispatch: tokio::sync::Notify,
@@ -111,7 +111,7 @@ impl State {
             } else {
                 None
             },
-            started_at: chrono::Utc::now(),
+            started_at: jiff::Timestamp::now(),
             metrics: metrics::PromMetrics::new()?,
             notify_dispatch: tokio::sync::Notify::new(),
             uploader: uploader::Uploader::new(),
@@ -287,7 +287,7 @@ impl State {
             drv.to_owned(),
             step_info.resolved_drv_path.clone(),
         );
-        job.result.start_time = Some(chrono::Utc::now());
+        job.result.start_time = Some(jiff::Timestamp::now());
         if self.check_cached_failure(step_info.step.clone()).await {
             job.result.step_status = BuildStatus::CachedFailure;
             self.inner_fail_job(drv, None, job, step_info.step.clone())
@@ -306,7 +306,7 @@ impl State {
 
             let step_nr = tx
                 .create_build_step(
-                    job.result.start_time.map(|s| s.timestamp()),
+                    job.result.start_time.map(jiff::Timestamp::as_second),
                     build_id,
                     &step_info.step.get_drv_path().get_full_path(),
                     step_info.step.get_system().as_deref(),
@@ -390,7 +390,7 @@ impl State {
             AHashSet::<nix_utils::StorePath>::new(),
         ));
 
-        let starttime = chrono::Utc::now();
+        let starttime = jiff::Timestamp::now();
         for id in new_ids {
             let build = {
                 let new_builds_by_id = new_builds_by_id.read();
@@ -438,7 +438,7 @@ impl State {
             let stop_queue_run_after = self.config.get_stop_queue_run_after();
 
             if let Some(stop_queue_run_after) = stop_queue_run_after
-                && chrono::Utc::now() > (starttime + stop_queue_run_after)
+                && jiff::Timestamp::now() > (starttime + stop_queue_run_after)
             {
                 self.metrics.queue_checks_early_exits.inc();
                 break;
@@ -878,7 +878,7 @@ impl State {
             });
         }
 
-        let now = chrono::Utc::now();
+        let now = jiff::Timestamp::now();
         let mut new_queues = AHashMap::<System, Vec<StepInfo>>::default();
         for r in new_runnable {
             let Some(system) = r.get_system() else {
@@ -1063,7 +1063,7 @@ impl State {
         }
 
         job.result.step_status = BuildStatus::Success;
-        job.result.stop_time = Some(chrono::Utc::now());
+        job.result.stop_time = Some(jiff::Timestamp::now());
         {
             let total_step_time = job.result.get_total_step_time_ms();
             machine
@@ -1152,13 +1152,13 @@ impl State {
                     i32::try_from(
                         job.result
                             .start_time
-                            .map(|s| s.timestamp())
+                            .map(jiff::Timestamp::as_second)
                             .unwrap_or_default(),
                     )?, // TODO
                     i32::try_from(
                         job.result
                             .stop_time
-                            .map(|s| s.timestamp())
+                            .map(jiff::Timestamp::as_second)
                             .unwrap_or_default(),
                     )?, // TODO
                 )
@@ -1256,7 +1256,7 @@ impl State {
                 log::info!("will retry '{drv_path}' after {delta}s");
                 step_info
                     .step
-                    .set_after(chrono::Utc::now() + chrono::Duration::seconds(delta));
+                    .set_after(jiff::Timestamp::now() + jiff::SignedDuration::from_secs(delta));
                 if i64::from(tries) > self.metrics.max_nr_retries.get() {
                     self.metrics.max_nr_retries.set(i64::from(tries));
                 }
@@ -1311,7 +1311,7 @@ impl State {
         mut job: machine::Job,
         step: Arc<Step>,
     ) -> anyhow::Result<()> {
-        job.result.stop_time = Some(chrono::Utc::now());
+        job.result.stop_time = Some(jiff::Timestamp::now());
         {
             let total_step_time = job.result.get_total_step_time_ms();
             self.metrics
@@ -1408,13 +1408,13 @@ impl State {
                         i32::try_from(
                             job.result
                                 .start_time
-                                .map(|s| s.timestamp())
+                                .map(jiff::Timestamp::as_second)
                                 .unwrap_or_default(),
                         )?, // TODO
                         i32::try_from(
                             job.result
                                 .stop_time
-                                .map(|s| s.timestamp())
+                                .map(jiff::Timestamp::as_second)
                                 .unwrap_or_default(),
                         )?, // TODO
                         job.result.step_status == BuildStatus::CachedFailure,
@@ -2027,7 +2027,7 @@ impl State {
             let mut tx = db.begin_transaction().await?;
 
             log::info!("marking build {} as succeeded (cached)", build.id);
-            let now = chrono::Utc::now().timestamp();
+            let now = jiff::Timestamp::now().as_second();
             tx.mark_succeeded_build(
                 get_mark_build_sccuess_data(&build, &res),
                 true,
@@ -2107,7 +2107,7 @@ impl State {
                 .collect::<Vec<_>>()
         };
 
-        let now = chrono::Utc::now();
+        let now = jiff::Timestamp::now();
 
         let mut aborted = AHashSet::new();
         let mut count = 0;
@@ -2121,7 +2121,11 @@ impl State {
             }
 
             count += 1;
-            if (now - step.get_last_supported()) < max_unsupported_time {
+            if (now - step.get_last_supported())
+                .total(jiff::Unit::Second)
+                .unwrap_or_default()
+                < max_unsupported_time.as_secs_f64()
+            {
                 continue;
             }
 

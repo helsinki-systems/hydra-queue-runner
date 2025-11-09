@@ -19,8 +19,16 @@ pub async fn finish_build_step(
         step_nr,
         status: res.step_status,
         error_msg: res.error_msg.as_deref(),
-        start_time: i32::try_from(res.start_time.map(|s| s.timestamp()).unwrap_or_default())?,
-        stop_time: i32::try_from(res.stop_time.map(|s| s.timestamp()).unwrap_or_default())?,
+        start_time: i32::try_from(
+            res.start_time
+                .map(jiff::Timestamp::as_second)
+                .unwrap_or_default(),
+        )?,
+        stop_time: i32::try_from(
+            res.stop_time
+                .map(jiff::Timestamp::as_second)
+                .unwrap_or_default(),
+        )?,
         machine: machine.as_deref(),
         overhead: if res.overhead != 0 {
             Some(res.overhead)
@@ -81,7 +89,7 @@ pub async fn substitute_output(
         return Ok(false);
     };
 
-    let starttime = i32::try_from(chrono::Utc::now().timestamp())?; // TODO
+    let starttime = i32::try_from(jiff::Timestamp::now().as_second())?; // TODO
     if let Err(e) = store.ensure_path(path).await {
         log::debug!("Path not found, can't import={e}");
         return Ok(false);
@@ -99,7 +107,7 @@ pub async fn substitute_output(
             );
         }
     }
-    let stoptime = i32::try_from(chrono::Utc::now().timestamp())?; // TODO
+    let stoptime = i32::try_from(jiff::Timestamp::now().as_second())?; // TODO
 
     let mut db = db.get().await?;
     let mut tx = db.begin_transaction().await?;

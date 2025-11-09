@@ -19,7 +19,7 @@ configparser = "3.1"
 backon = "1.5.2"
 byte-unit = "5.1.6"
 bytes = "1"
-chrono = { version = "0.4.38", default-features = false }
+jiff = { version = "0.2", default-features = false, features = ["std", "serde"] }
 clap = "4"
 cxx = "1"
 cxx-build = "1"

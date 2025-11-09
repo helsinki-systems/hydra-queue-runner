@@ -12,15 +12,10 @@ futures.workspace = true
 ahash.workspace = true
 
 serde_json.workspace = true
-chrono = { workspace = true, features = [
-  "clock",
-  "std",
-  "serde",
-] }
+jiff.workspace = true
 
 sqlx = { workspace = true, features = [
   "runtime-tokio",
   "tls-native-tls",
   "postgres",
-  "chrono",
 ] }

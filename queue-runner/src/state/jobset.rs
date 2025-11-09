@@ -80,7 +80,7 @@ impl Jobset {
     }
 
     pub fn prune_steps(&self) {
-        let now = chrono::Utc::now().timestamp();
+        let now = jiff::Timestamp::now().as_second();
         let mut steps = self.steps.write();
 
         loop {

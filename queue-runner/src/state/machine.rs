@@ -83,7 +83,7 @@ impl Stats {
             total_step_time_ms: 0.into(),
             total_step_import_time_ms: 0.into(),
             total_step_build_time_ms: 0.into(),
-            idle_since: (chrono::Utc::now().timestamp()).into(),
+            idle_since: (jiff::Timestamp::now().as_second()).into(),
             last_failure: 0.into(),
             disabled_until: 0.into(),
             consecutive_failures: 0.into(),
@@ -106,7 +106,7 @@ impl Stats {
     pub fn store_current_jobs(&self, c: u64) {
         if c == 0 && self.idle_since.load(Ordering::Relaxed) == 0 {
             self.idle_since
-                .store(chrono::Utc::now().timestamp(), Ordering::Relaxed);
+                .store(jiff::Timestamp::now().as_second(), Ordering::Relaxed);
         } else {
             self.idle_since.store(0, Ordering::Relaxed);
         }
@@ -168,7 +168,7 @@ impl Stats {
 
     pub fn store_last_failure_now(&self) {
         self.last_failure
-            .store(chrono::Utc::now().timestamp(), Ordering::Relaxed);
+            .store(jiff::Timestamp::now().as_second(), Ordering::Relaxed);
         self.consecutive_failures.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -190,7 +190,7 @@ impl Stats {
 
     pub fn store_ping(&self, msg: &crate::server::grpc::runner_v1::PingMessage) {
         self.last_ping
-            .store(chrono::Utc::now().timestamp(), Ordering::Relaxed);
+            .store(jiff::Timestamp::now().as_second(), Ordering::Relaxed);
 
         self.load1.store(msg.load1, Ordering::Relaxed);
         self.load5.store(msg.load5, Ordering::Relaxed);
@@ -511,7 +511,7 @@ pub struct Machine {
     pub supported_features: Vec<String>,
     pub mandatory_features: Vec<String>,
     pub cgroups: bool,
-    pub joined_at: chrono::DateTime<chrono::Utc>,
+    pub joined_at: jiff::Timestamp,
 
     msg_queue: mpsc::Sender<Message>,
     pub stats: Arc<Stats>,
@@ -558,7 +558,7 @@ impl Machine {
             mandatory_features: msg.mandatory_features,
             cgroups: msg.cgroups,
             msg_queue: tx,
-            joined_at: chrono::Utc::now(),
+            joined_at: jiff::Timestamp::now(),
             stats: Arc::new(Stats::new()),
             jobs: Arc::new(parking_lot::RwLock::new(Vec::new())),
         })
@@ -580,7 +580,7 @@ impl Machine {
         if self.stats.jobs_in_last_30s_count.load(Ordering::Relaxed) == 0 {
             self.stats
                 .jobs_in_last_30s_start
-                .store(chrono::Utc::now().timestamp(), Ordering::Relaxed);
+                .store(jiff::Timestamp::now().as_second(), Ordering::Relaxed);
         }
 
         self.insert_job(job);
@@ -636,7 +636,7 @@ impl Machine {
 
     #[must_use]
     pub fn has_capacity(&self, free_fn: MachineFreeFn) -> bool {
-        let now = chrono::Utc::now().timestamp();
+        let now = jiff::Timestamp::now().as_second();
         let jobs_in_last_30s_start = self.stats.jobs_in_last_30s_start.load(Ordering::Relaxed);
         let jobs_in_last_30s_count = self.stats.jobs_in_last_30s_count.load(Ordering::Relaxed);
 
@@ -725,7 +725,7 @@ impl Machine {
 
         {
             // if build finished fast we can subtract 1 here
-            let now = chrono::Utc::now().timestamp();
+            let now = jiff::Timestamp::now().as_second();
             let jobs_in_last_30s_start = self.stats.jobs_in_last_30s_start.load(Ordering::Relaxed);
 
             if now <= (jobs_in_last_30s_start + 30) {

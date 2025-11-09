@@ -73,7 +73,6 @@ pub struct Build {
     pub drvpath: String,
     pub maxsilent: Option<i32>, // maxsilent integer default 3600
     pub timeout: Option<i32>,   // timeout integer default 36000
-    // // pub timestamp: chrono::NaiveDateTime,
     pub timestamp: i64,
     pub globalpriority: i32,
     pub priority: i32,
@@ -210,7 +209,7 @@ pub struct MarkBuildSuccessData<'a> {
     pub project_name: &'a str,
     pub jobset_name: &'a str,
     pub finished_in_db: bool,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub timestamp: i64,
 
     pub failed: bool,
     pub closure_size: u64,
