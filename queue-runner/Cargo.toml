@@ -21,6 +21,7 @@ parking_lot.workspace = true
 
 thiserror.workspace = true
 anyhow.workspace = true
+backon.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
 uuid = { workspace = true, features = ["v4", "serde"] }
 atomic_float.workspace = true

@@ -2496,6 +2496,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "atomic_float",
+ "backon",
  "binary-cache",
  "byte-unit",
  "bytes",

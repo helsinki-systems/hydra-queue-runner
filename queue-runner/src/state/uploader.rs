@@ -1,9 +1,12 @@
+use backon::ExponentialBuilder;
+use backon::Retryable;
 use nix_utils::BaseStore as _;
 
 // TODO: scheduling is shit, because if we crash/restart we need to start again as the builds are
 //       already done in the db.
 //       So we need to make this persistent!
 
+#[derive(Debug)]
 struct Message {
     store_paths: Vec<nix_utils::StorePath>,
     log_remote_path: String,
@@ -46,43 +49,79 @@ impl Uploader {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, local_store, remote_stores))]
     async fn upload_msg(
         &self,
         local_store: nix_utils::LocalStore,
         remote_stores: Vec<binary_cache::S3BinaryCacheClient>,
         msg: Message,
     ) {
-        // TODO: we need retries for this! We can not affored to have a failure on cache push
-        log::info!("Uploading paths: {:?}", msg.store_paths);
+        log::info!("Uploading {} paths", msg.store_paths.len());
+
+        let paths_to_copy = match local_store
+            .query_requisites(&msg.store_paths.iter().collect::<Vec<_>>(), false)
+            .await
+        {
+            Ok(paths) => paths,
+            Err(e) => {
+                log::error!("Failed to query requisites: {e}");
+                return;
+            }
+        };
 
         for remote_store in remote_stores {
-            let file = tokio::fs::File::open(&msg.log_local_path).await.unwrap();
-            let reader = Box::new(tokio::io::BufReader::new(file));
+            let bucket = &remote_store.cfg.client_config.bucket;
 
-            if let Err(e) = remote_store
-                .upsert_file_stream(&msg.log_remote_path, reader, "text/plain; charset=utf-8")
-                .await
-            {
-                log::error!("Failed to copy path to remote store: {e}");
+            // Upload log file with backon retry
+            let log_upload_result = (|| async {
+                let file = tokio::fs::File::open(&msg.log_local_path).await?;
+                let reader = Box::new(tokio::io::BufReader::new(file));
+
+                remote_store
+                    .upsert_file_stream(&msg.log_remote_path, reader, "text/plain; charset=utf-8")
+                    .await?;
+
+                Ok::<(), anyhow::Error>(())
+            })
+            .retry(
+                ExponentialBuilder::default()
+                    .with_max_delay(std::time::Duration::from_secs(30))
+                    .with_max_times(3),
+            )
+            .await;
+
+            if let Err(e) = log_upload_result {
+                log::error!("Failed to upload log file after retries: {e}");
             }
+            let paths_to_copy = remote_store
+                .query_missing_paths(paths_to_copy.clone())
+                .await;
 
-            let paths_to_copy = local_store
-                .query_requisites(&msg.store_paths.iter().collect::<Vec<_>>(), false)
-                .await
-                .unwrap_or_default();
-            let paths_to_copy = remote_store.query_missing_paths(paths_to_copy).await;
-            if let Err(e) = remote_store
-                .copy_paths(&local_store, paths_to_copy, false)
-                .await
-            {
-                log::error!(
-                    "Failed to copy paths to remote store({}): {e}",
-                    remote_store.cfg.client_config.bucket
+            let copy_result = (|| async {
+                remote_store
+                    .copy_paths(&local_store, paths_to_copy.clone(), false)
+                    .await?;
+
+                Ok::<(), anyhow::Error>(())
+            })
+            .retry(
+                ExponentialBuilder::default()
+                    .with_max_delay(std::time::Duration::from_secs(60))
+                    .with_max_times(5),
+            )
+            .await;
+
+            if let Err(e) = copy_result {
+                log::error!("Failed to copy paths after retries: {e}");
+            } else {
+                log::debug!(
+                    "Successfully uploaded {} paths to bucket {bucket}",
+                    msg.store_paths.len()
                 );
             }
         }
 
-        log::info!("Finished uploading paths: {:?}", msg.store_paths);
+        log::info!("Finished uploading {} paths", msg.store_paths.len());
     }
 
     pub async fn upload_once(
