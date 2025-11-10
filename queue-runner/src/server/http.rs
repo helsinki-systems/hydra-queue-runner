@@ -306,12 +306,12 @@ mod handler {
         ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
             let queues = state
                 .queues
-                .read()
+                .clone_inner()
                 .await
-                .iter()
+                .into_iter()
                 .map(|(s, q)| {
                     (
-                        s.clone(),
+                        s,
                         q.clone_inner()
                             .into_iter()
                             .filter_map(|v| v.upgrade().map(Into::into))
@@ -330,9 +330,8 @@ mod handler {
         ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
             let stepinfos = state
                 .queues
-                .read()
-                .await
                 .get_jobs()
+                .await
                 .into_iter()
                 .map(Into::into)
                 .collect();
@@ -347,9 +346,8 @@ mod handler {
         ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
             let stepinfos = state
                 .queues
-                .read()
-                .await
                 .get_scheduled()
+                .await
                 .into_iter()
                 .map(Into::into)
                 .collect();

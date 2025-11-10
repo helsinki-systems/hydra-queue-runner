@@ -670,14 +670,13 @@ impl PromMetrics {
     }
 
     async fn refresh_per_machine_type_metrics(&self, state: &Arc<super::State>) {
-        let queue_stats = state.queues.read().await.get_stats_per_queue();
         self.runnable_per_machine_type.reset();
         self.running_per_machine_type.reset();
         self.waiting_per_machine_type.reset();
         self.disabled_per_machine_type.reset();
         self.avg_runnable_time_per_machine_type.reset();
         self.wait_time_per_machine_type.reset();
-        for (t, s) in queue_stats {
+        for (t, s) in state.queues.get_stats_per_queue().await {
             if let Ok(v) = i64::try_from(s.total_runnable) {
                 self.runnable_per_machine_type
                     .with_label_values(std::slice::from_ref(&t))

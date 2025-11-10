@@ -578,10 +578,12 @@ impl QueueRunnerStats {
         let step_count = state.get_nr_steps_unfinished();
         let runnable_count = state.get_nr_runnable();
         let queue_stats = {
-            let queues = state.queues.read().await;
-            queues
-                .iter()
-                .map(|(system, queue)| (system.clone(), queue.get_stats().into()))
+            state
+                .queues
+                .get_stats_per_queue()
+                .await
+                .into_iter()
+                .map(|(system, stats)| (system, stats.into()))
                 .collect()
         };
 

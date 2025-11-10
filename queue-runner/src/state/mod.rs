@@ -60,7 +60,7 @@ pub struct State {
     // Projectname, Jobsetname
     pub jobsets: parking_lot::RwLock<AHashMap<(String, String), Arc<Jobset>>>,
     pub steps: parking_lot::RwLock<AHashMap<nix_utils::StorePath, Weak<Step>>>,
-    pub queues: tokio::sync::RwLock<queue::Queues>,
+    pub queues: queue::Queues,
 
     pub fod_checker: Option<Arc<FodChecker>>,
 
@@ -105,7 +105,7 @@ impl State {
             builds: parking_lot::RwLock::new(AHashMap::new()),
             jobsets: parking_lot::RwLock::new(AHashMap::new()),
             steps: parking_lot::RwLock::new(AHashMap::new()),
-            queues: tokio::sync::RwLock::new(queue::Queues::new()),
+            queues: queue::Queues::new(),
             fod_checker: if config.get_enable_fod_checker() {
                 Some(Arc::new(FodChecker::new(None)))
             } else {
@@ -227,25 +227,19 @@ impl State {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, step_info, system), err)]
+    #[tracing::instrument(skip(self, constraint), err)]
     async fn realise_drv_on_valid_machine(
-        &self,
-        step_info: Arc<StepInfo>,
-        system: &System,
+        self: Arc<Self>,
+        constraint: queue::JobConstraint,
     ) -> anyhow::Result<RealiseStepResult> {
-        let drv = step_info.step.get_drv_path();
         let free_fn = self.config.get_free_fn();
 
-        let Some(machine) = self.machines.get_machine_for_system(
-            system,
-            &step_info.step.get_required_features(),
-            Some(free_fn),
-        ) else {
-            log::debug!("No free machine found for system={system} drv={drv}");
+        let Some((machine, step_info)) = constraint.resolve(&self.machines, free_fn) else {
             return Ok(RealiseStepResult::None);
         };
-
+        let drv = step_info.step.get_drv_path();
         let mut build_options = nix_utils::BuildOptions::new(None);
+
         let build_id = {
             let mut dependents = AHashSet::new();
             let mut steps = AHashSet::new();
@@ -498,8 +492,7 @@ impl State {
             }
         }
 
-        let queues = self.queues.read().await;
-        let cancelled_steps = queues.kill_active_steps().await;
+        let cancelled_steps = self.queues.kill_active_steps().await;
         for (drv_path, machine_id) in cancelled_steps {
             if let Err(e) = self
                 .fail_step(
@@ -683,7 +676,7 @@ impl State {
 
                     self.metrics.nr_dispatcher_wakeups.add(1);
                     let before_work = Instant::now();
-                    self.do_dispatch_once().await;
+                    self.clone().do_dispatch_once().await;
 
                     let elapsed = before_work.elapsed();
 
@@ -848,7 +841,7 @@ impl State {
 
     #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self))]
-    async fn do_dispatch_once(&self) {
+    async fn do_dispatch_once(self: Arc<Self>) {
         // Prune old historical build step info from the jobsets.
         {
             let jobsets = self.jobsets.read();
@@ -895,100 +888,23 @@ impl State {
                 .push(step_info);
         }
 
-        {
-            let mut queues = self.queues.write().await;
-            for (system, jobs) in new_queues {
-                queues.insert_new_jobs(system, jobs, &now);
-            }
-            queues.remove_all_weak_pointer();
+        for (system, jobs) in new_queues {
+            self.queues.insert_new_jobs(system, jobs, &now).await;
         }
+        self.queues.remove_all_weak_pointer().await;
 
-        {
-            let mut nr_steps_waiting_all_queues = 0;
-            let inner_queues = {
-                // We clone the inner queues here to unlock it again fast for other jobs
-                let queues = self.queues.read().await;
-                queues.clone_inner()
-            };
-            let sort_fn = self.config.get_sort_fn();
-            for (system, queue) in inner_queues {
-                let mut nr_disabled = 0;
-                let mut nr_waiting = 0;
-                for job in queue.clone_inner() {
-                    let Some(job) = job.upgrade() else {
-                        continue;
-                    };
-                    if job.get_already_scheduled() {
-                        log::debug!(
-                            "Can't schedule job because job is already scheduled system={system} drv={}",
-                            job.step.get_drv_path()
-                        );
-                        continue;
-                    }
-                    if job.step.get_finished() {
-                        log::debug!(
-                            "Can't schedule job because job is already finished system={system} drv={}",
-                            job.step.get_drv_path()
-                        );
-                        continue;
-                    }
-                    {
-                        let after = job.step.get_after();
-                        if after > now {
-                            nr_disabled += 1;
-                            log::debug!(
-                                "Can't schedule job because job is not yet ready system={system} drv={} after={after}",
-                                job.step.get_drv_path(),
-                            );
-                            continue;
-                        }
-                    }
-
-                    match self
-                        .realise_drv_on_valid_machine(job.clone(), &system)
-                        .await
-                    {
-                        Ok(RealiseStepResult::Valid(m)) => {
-                            let queues = self.queues.read().await;
-                            queues.add_job_to_scheduled(&job, &queue, m);
-                            // if we sort after each successful schedule we basically get a least
-                            // current builds as tie breaker, if we have the same score.
-                            self.machines.sort(sort_fn);
-                        }
-                        Ok(RealiseStepResult::None) => {
-                            log::debug!(
-                                "Waiting for job to schedule because no builder is ready system={system} drv={}",
-                                job.step.get_drv_path(),
-                            );
-                            nr_waiting += 1;
-                            nr_steps_waiting_all_queues += 1;
-                        }
-                        Ok(
-                            RealiseStepResult::MaybeCancelled | RealiseStepResult::CachedFailure,
-                        ) => {
-                            // If this is maybe cancelled (and the cancellation is correct) it is
-                            // enough to remove it from jobs which will then reduce the ref count
-                            // to 0 as it has no dependents.
-                            // If its a cached failure we need to also remove it from jobs, we
-                            // already wrote cached failure into the db, at this point in time
-                            let mut queues = self.queues.write().await;
-                            queues.remove_job(&job, &queue);
-                        }
-                        Err(e) => {
-                            log::warn!(
-                                "Failed to realise drv on valid machine, will be skipped: drv={} e={e}",
-                                job.step.get_drv_path(),
-                            );
-                        }
-                    }
-                    queue.set_nr_runnable_waiting(nr_waiting);
-                    queue.set_nr_runnable_disabled(nr_disabled);
+        let nr_steps_waiting_all_queues = self
+            .queues
+            .process({
+                let state = self.clone();
+                async move |constraint: queue::JobConstraint| {
+                    Box::pin(state.clone().realise_drv_on_valid_machine(constraint)).await
                 }
-            }
-            self.metrics
-                .nr_steps_waiting
-                .set(nr_steps_waiting_all_queues);
-        }
+            })
+            .await;
+        self.metrics
+            .nr_steps_waiting
+            .set(nr_steps_waiting_all_queues);
 
         self.abort_unsupported().await;
     }
@@ -1037,12 +953,11 @@ impl State {
         output: BuildOutput,
     ) -> anyhow::Result<()> {
         log::info!("marking job as done: drv_path={drv_path}");
-        let (step_info, queue, machine) = {
-            let queues = self.queues.read().await;
-            queues
-                .remove_job_from_scheduled(drv_path)
-                .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?
-        };
+        let (step_info, queue, machine) = self
+            .queues
+            .remove_job_from_scheduled(drv_path)
+            .await
+            .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?;
 
         step_info.step.set_finished(true);
         self.metrics.nr_steps_done.add(1);
@@ -1055,11 +970,7 @@ impl State {
         let mut job = machine.remove_job(drv_path).ok_or(anyhow::anyhow!(
             "Job is missing in machine.jobs m={machine}",
         ))?;
-
-        {
-            let mut queues = self.queues.write().await;
-            queues.remove_job(&step_info, &queue);
-        }
+        self.queues.remove_job(&step_info, &queue).await;
 
         job.result.step_status = BuildStatus::Success;
         job.result.stop_time = Some(jiff::Timestamp::now());
@@ -1213,12 +1124,11 @@ impl State {
         build_elapsed: std::time::Duration,
     ) -> anyhow::Result<()> {
         log::info!("removing job from running in system queue: drv_path={drv_path}");
-        let (step_info, queue, machine) = {
-            let queues = self.queues.read().await;
-            queues
-                .remove_job_from_scheduled(drv_path)
-                .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?
-        };
+        let (step_info, queue, machine) = self
+            .queues
+            .remove_job_from_scheduled(drv_path)
+            .await
+            .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?;
 
         step_info.step.set_finished(false);
         self.metrics.nr_steps_done.add(1);
@@ -1287,10 +1197,7 @@ impl State {
         }
 
         // remove job from queues, aka actually fail the job
-        {
-            let mut queues = self.queues.write().await;
-            queues.remove_job(&step_info, &queue);
-        }
+        self.queues.remove_job(&step_info, &queue).await;
 
         machine
             .stats
@@ -2215,11 +2122,10 @@ impl State {
         }
 
         {
-            let mut queues = self.queues.write().await;
             for step in &aborted {
-                queues.remove_job_by_path(step.get_drv_path());
+                self.queues.remove_job_by_path(step.get_drv_path()).await;
             }
-            queues.remove_all_weak_pointer();
+            self.queues.remove_all_weak_pointer().await;
         }
         self.metrics.nr_unsupported_steps.set(count);
         self.metrics

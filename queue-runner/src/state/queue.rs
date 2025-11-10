@@ -206,7 +206,7 @@ impl BuildQueue {
     }
 }
 
-pub struct Queues {
+pub struct InnerQueues {
     // flat list of all step infos in queues, owning those steps inner queue dont own them
     jobs: AHashMap<nix_utils::StorePath, Arc<StepInfo>>,
     inner: AHashMap<System, Arc<BuildQueue>>,
@@ -216,14 +216,14 @@ pub struct Queues {
     >,
 }
 
-impl Default for Queues {
+impl Default for InnerQueues {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Queues {
-    pub fn new() -> Self {
+impl InnerQueues {
+    fn new() -> Self {
         Self {
             jobs: AHashMap::new(),
             inner: AHashMap::new(),
@@ -232,7 +232,7 @@ impl Queues {
     }
 
     #[tracing::instrument(skip(self, jobs))]
-    pub fn insert_new_jobs<S: Into<String> + std::fmt::Debug>(
+    fn insert_new_jobs<S: Into<String> + std::fmt::Debug>(
         &mut self,
         system: S,
         jobs: Vec<StepInfo>,
@@ -262,22 +262,18 @@ impl Queues {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn remove_all_weak_pointer(&mut self) {
+    fn remove_all_weak_pointer(&mut self) {
         for queue in self.inner.values() {
             queue.scrube_jobs();
         }
     }
 
-    pub fn clone_inner(&self) -> AHashMap<String, Arc<BuildQueue>> {
+    fn clone_inner(&self) -> AHashMap<System, Arc<BuildQueue>> {
         self.inner.clone()
     }
 
-    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, System, Arc<BuildQueue>> {
-        self.inner.iter()
-    }
-
     #[tracing::instrument(skip(self, step, queue))]
-    pub fn add_job_to_scheduled(
+    fn add_job_to_scheduled(
         &self,
         step: &Arc<StepInfo>,
         queue: &Arc<BuildQueue>,
@@ -292,7 +288,7 @@ impl Queues {
     }
 
     #[tracing::instrument(skip(self), fields(%drv))]
-    pub fn remove_job_from_scheduled(
+    fn remove_job_from_scheduled(
         &self,
         drv: &nix_utils::StorePath,
     ) -> Option<(Arc<StepInfo>, Arc<BuildQueue>, Arc<super::Machine>)> {
@@ -304,14 +300,14 @@ impl Queues {
         Some((step_info, queue, machine))
     }
 
-    pub fn remove_job_by_path(&mut self, drv: &nix_utils::StorePath) {
+    fn remove_job_by_path(&mut self, drv: &nix_utils::StorePath) {
         if self.jobs.remove(drv).is_none() {
             log::error!("Failed to remove stepinfo drv={drv} from jobs!");
         }
     }
 
     #[tracing::instrument(skip(self, stepinfo, queue))]
-    pub fn remove_job(&mut self, stepinfo: &Arc<StepInfo>, queue: &Arc<BuildQueue>) {
+    fn remove_job(&mut self, stepinfo: &Arc<StepInfo>, queue: &Arc<BuildQueue>) {
         if self.jobs.remove(stepinfo.step.get_drv_path()).is_none() {
             log::error!(
                 "Failed to remove stepinfo drv={} from jobs!",
@@ -323,7 +319,7 @@ impl Queues {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn kill_active_steps(&self) -> Vec<(nix_utils::StorePath, uuid::Uuid)> {
+    async fn kill_active_steps(&self) -> Vec<(nix_utils::StorePath, uuid::Uuid)> {
         log::info!("Kill all active steps");
         let active = {
             let scheduled = self.scheduled.read();
@@ -366,19 +362,223 @@ impl Queues {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn get_stats_per_queue(&self) -> AHashMap<System, BuildQueueStats> {
+    fn get_stats_per_queue(&self) -> AHashMap<System, BuildQueueStats> {
         self.inner
             .iter()
             .map(|(k, v)| (k.clone(), v.get_stats()))
             .collect()
     }
 
-    pub fn get_jobs(&self) -> Vec<Arc<StepInfo>> {
+    fn get_jobs(&self) -> Vec<Arc<StepInfo>> {
         self.jobs.values().map(Clone::clone).collect()
     }
 
-    pub fn get_scheduled(&self) -> Vec<Arc<StepInfo>> {
+    fn get_scheduled(&self) -> Vec<Arc<StepInfo>> {
         let s = self.scheduled.read();
         s.iter().map(|(_, (s, _, _))| s.clone()).collect()
+    }
+}
+
+pub struct JobConstraint {
+    job: Arc<StepInfo>,
+    system: System,
+    queue_features: Vec<String>,
+}
+
+impl JobConstraint {
+    pub fn new(job: Arc<StepInfo>, system: System, queue_features: Vec<String>) -> Self {
+        Self {
+            job,
+            system,
+            queue_features,
+        }
+    }
+
+    pub fn resolve(
+        self,
+        machines: &crate::state::Machines,
+        free_fn: crate::config::MachineFreeFn,
+    ) -> Option<(Arc<crate::state::Machine>, Arc<StepInfo>)> {
+        let step_features = self.job.step.get_required_features();
+        let merged_features = if self.queue_features.is_empty() {
+            step_features
+        } else {
+            [step_features.as_slice(), self.queue_features.as_slice()].concat()
+        };
+        if let Some(machine) =
+            machines.get_machine_for_system(&self.system, &merged_features, Some(free_fn))
+        {
+            Some((machine, self.job))
+        } else {
+            let drv = self.job.step.get_drv_path();
+            log::debug!("No free machine found for system={} drv={drv}", self.system);
+            None
+        }
+    }
+}
+
+pub struct Queues {
+    inner: tokio::sync::RwLock<InnerQueues>,
+}
+
+impl Default for Queues {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Queues {
+    pub fn new() -> Self {
+        Self {
+            inner: tokio::sync::RwLock::new(InnerQueues::new()),
+        }
+    }
+
+    #[tracing::instrument(skip(self, jobs))]
+    pub async fn insert_new_jobs<S: Into<String> + std::fmt::Debug>(
+        &self,
+        system: S,
+        jobs: Vec<StepInfo>,
+        now: &jiff::Timestamp,
+    ) {
+        let mut wq = self.inner.write().await;
+        wq.insert_new_jobs(system, jobs, now);
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn remove_all_weak_pointer(&self) {
+        let mut wq = self.inner.write().await;
+        wq.remove_all_weak_pointer();
+    }
+
+    pub(super) async fn process<F>(&self, processor: F) -> i64
+    where
+        F: AsyncFn(JobConstraint) -> anyhow::Result<crate::state::RealiseStepResult>,
+    {
+        let now = jiff::Timestamp::now();
+        let mut nr_steps_waiting_all_queues = 0;
+        let queues = self.clone_inner().await;
+        for (system, queue) in queues {
+            let mut nr_disabled = 0;
+            let mut nr_waiting = 0;
+            for job in queue.clone_inner() {
+                let Some(job) = job.upgrade() else {
+                    continue;
+                };
+                if job.get_already_scheduled() {
+                    log::debug!(
+                        "Can't schedule job because job is already scheduled system={system} drv={}",
+                        job.step.get_drv_path()
+                    );
+                    continue;
+                }
+                if job.step.get_finished() {
+                    log::debug!(
+                        "Can't schedule job because job is already finished system={system} drv={}",
+                        job.step.get_drv_path()
+                    );
+                    continue;
+                }
+                let after = job.step.get_after();
+                if after > now {
+                    nr_disabled += 1;
+                    log::debug!(
+                        "Can't schedule job because job is not yet ready system={system} drv={} after={after}",
+                        job.step.get_drv_path(),
+                    );
+                    continue;
+                }
+                let constraint = JobConstraint::new(job.clone(), system.clone(), vec![]);
+                match processor(constraint).await {
+                    Ok(crate::state::RealiseStepResult::Valid(m)) => {
+                        self.add_job_to_scheduled(&job, &queue, m).await;
+                    }
+                    Ok(crate::state::RealiseStepResult::None) => {
+                        log::debug!(
+                            "Waiting for job to schedule because no builder is ready system={system} drv={}",
+                            job.step.get_drv_path(),
+                        );
+                        nr_waiting += 1;
+                        nr_steps_waiting_all_queues += 1;
+                    }
+                    Ok(
+                        crate::state::RealiseStepResult::MaybeCancelled
+                        | crate::state::RealiseStepResult::CachedFailure,
+                    ) => {
+                        // If this is maybe cancelled (and the cancellation is correct) it is
+                        // enough to remove it from jobs which will then reduce the ref count
+                        // to 0 as it has no dependents.
+                        // If its a cached failure we need to also remove it from jobs, we
+                        // already wrote cached failure into the db, at this point in time
+                        self.remove_job(&job, &queue).await;
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to realise drv on valid machine, will be skipped: drv={} e={e}",
+                            job.step.get_drv_path(),
+                        );
+                    }
+                }
+                queue.set_nr_runnable_waiting(nr_waiting);
+                queue.set_nr_runnable_disabled(nr_disabled);
+            }
+        }
+        nr_steps_waiting_all_queues
+    }
+
+    pub async fn clone_inner(&self) -> AHashMap<System, Arc<BuildQueue>> {
+        self.inner.read().await.clone_inner()
+    }
+
+    #[tracing::instrument(skip(self, step, queue))]
+    pub async fn add_job_to_scheduled(
+        &self,
+        step: &Arc<StepInfo>,
+        queue: &Arc<BuildQueue>,
+        machine: Arc<super::Machine>,
+    ) {
+        let rq = self.inner.read().await;
+        rq.add_job_to_scheduled(step, queue, machine);
+    }
+
+    #[tracing::instrument(skip(self), fields(%drv))]
+    pub async fn remove_job_from_scheduled(
+        &self,
+        drv: &nix_utils::StorePath,
+    ) -> Option<(Arc<StepInfo>, Arc<BuildQueue>, Arc<super::Machine>)> {
+        let rq = self.inner.read().await;
+        rq.remove_job_from_scheduled(drv)
+    }
+
+    pub async fn remove_job_by_path(&self, drv: &nix_utils::StorePath) {
+        let mut wq = self.inner.write().await;
+        wq.remove_job_by_path(drv);
+    }
+
+    #[tracing::instrument(skip(self, stepinfo, queue))]
+    pub async fn remove_job(&self, stepinfo: &Arc<StepInfo>, queue: &Arc<BuildQueue>) {
+        let mut wq = self.inner.write().await;
+        wq.remove_job(stepinfo, queue);
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn kill_active_steps(&self) -> Vec<(nix_utils::StorePath, uuid::Uuid)> {
+        let rq = self.inner.read().await;
+        rq.kill_active_steps().await
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_stats_per_queue(&self) -> AHashMap<System, BuildQueueStats> {
+        self.inner.read().await.get_stats_per_queue()
+    }
+
+    pub async fn get_jobs(&self) -> Vec<Arc<StepInfo>> {
+        let rq = self.inner.read().await;
+        rq.get_jobs()
+    }
+
+    pub async fn get_scheduled(&self) -> Vec<Arc<StepInfo>> {
+        let rq = self.inner.read().await;
+        rq.get_scheduled()
     }
 }
