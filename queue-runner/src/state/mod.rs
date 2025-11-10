@@ -239,7 +239,7 @@ impl State {
         let Some(machine) = self.machines.get_machine_for_system(
             system,
             &step_info.step.get_required_features(),
-            free_fn,
+            Some(free_fn),
         ) else {
             log::debug!("No free machine found for system={system} drv={drv}");
             return Ok(RealiseStepResult::None);

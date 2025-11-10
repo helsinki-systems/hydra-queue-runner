@@ -293,26 +293,6 @@ impl Machines {
         supported_features.iter().cloned().collect()
     }
 
-    pub fn support_step(&self, s: &Arc<super::Step>) -> bool {
-        // dup of machines.get_machine_for_system
-        let inner = self.inner.read();
-        let Some(system) = s.get_system() else {
-            return false;
-        };
-        let features = s.get_required_features();
-        if system == "builtin" {
-            inner
-                .by_uuid
-                .values()
-                .any(|m| m.supports_all_features(&features))
-        } else {
-            inner
-                .by_system
-                .get(&system)
-                .is_some_and(|v| v.iter().any(|m| m.supports_all_features(&features)))
-        }
-    }
-
     #[allow(dead_code)]
     fn has_supported_features(&self, required_features: &[String]) -> bool {
         let supported_features = self.supported_features.read();
@@ -382,12 +362,20 @@ impl Machines {
         inner.by_uuid.get(&machine_id).cloned()
     }
 
+    pub fn support_step(&self, s: &Arc<super::Step>) -> bool {
+        let Some(system) = s.get_system() else {
+            return false;
+        };
+        self.get_machine_for_system(&system, &s.get_required_features(), None)
+            .is_some()
+    }
+
     #[tracing::instrument(skip(self, system))]
     pub fn get_machine_for_system(
         &self,
         system: &str,
         required_features: &[String],
-        free_fn: MachineFreeFn,
+        free_fn: Option<MachineFreeFn>,
     ) -> Option<Arc<Machine>> {
         // dup of machines.support_step
         let inner = self.inner.read();
@@ -395,13 +383,33 @@ impl Machines {
             inner
                 .by_uuid
                 .values()
-                .find(|m| m.has_capacity(free_fn) && m.supports_all_features(required_features))
+                .find(|m| {
+                    (if let Some(free_fn) = free_fn {
+                        m.has_capacity(free_fn)
+                    } else {
+                        true
+                    }) && m
+                        .mandatory_features
+                        .iter()
+                        .all(|s| required_features.contains(s))
+                        && m.supports_all_features(required_features)
+                })
                 .cloned()
         } else {
             inner.by_system.get(system).and_then(|machines| {
                 machines
                     .iter()
-                    .find(|m| m.has_capacity(free_fn) && m.supports_all_features(required_features))
+                    .find(|m| {
+                        (if let Some(free_fn) = free_fn {
+                            m.has_capacity(free_fn)
+                        } else {
+                            true
+                        }) && m
+                            .mandatory_features
+                            .iter()
+                            .all(|s| required_features.contains(s))
+                            && m.supports_all_features(required_features)
+                    })
                     .cloned()
             })
         }
