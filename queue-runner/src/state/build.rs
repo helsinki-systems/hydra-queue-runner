@@ -444,6 +444,17 @@ impl Step {
             self.atomic_state.last_supported.store(now);
         }
     }
+
+    pub fn get_lowest_share_used(&self) -> f64 {
+        let state = self.state.read();
+
+        state
+            .jobsets
+            .iter()
+            .map(|v| v.share_used())
+            .min_by(f64::total_cmp)
+            .unwrap_or(1e9)
+    }
 }
 
 #[derive(Debug)]

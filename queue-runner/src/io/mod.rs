@@ -883,10 +883,10 @@ impl From<std::sync::Arc<crate::state::StepInfo>> for StepInfo {
             cancelled: item.get_cancelled(),
             runnable_since: item.runnable_since,
             tries: item.step.atomic_state.tries.load(Ordering::Relaxed),
-            lowest_share_used: item.lowest_share_used,
-            highest_global_priority: item.highest_global_priority,
-            highest_local_priority: item.highest_local_priority,
-            lowest_build_id: item.lowest_build_id,
+            lowest_share_used: item.get_lowest_share_used(),
+            highest_global_priority: item.get_highest_global_priority(),
+            highest_local_priority: item.get_highest_local_priority(),
+            lowest_build_id: item.get_lowest_build_id(),
         }
     }
 }

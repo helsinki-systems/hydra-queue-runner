@@ -18,44 +18,49 @@ pub struct StepInfo {
     already_scheduled: AtomicBool,
     cancelled: AtomicBool,
     pub runnable_since: jiff::Timestamp,
-
-    pub lowest_share_used: f64,
-    pub highest_global_priority: i32,
-    pub highest_local_priority: i32,
-    pub lowest_build_id: BuildID,
+    lowest_share_used: atomic_float::AtomicF64,
 }
 
 impl StepInfo {
     pub async fn new(store: &nix_utils::LocalStore, step: Arc<Step>) -> Self {
-        let (lowest_share_used, runnable_since) = {
-            let state = step.state.read();
-
-            let lowest_share_used = state
-                .jobsets
-                .iter()
-                .map(|v| v.share_used())
-                .min_by(f64::total_cmp)
-                .unwrap_or(1e9);
-            (lowest_share_used, step.get_runnable_since())
-        };
-
         Self {
             resolved_drv_path: store.try_resolve_drv(step.get_drv_path()).await,
             already_scheduled: false.into(),
             cancelled: false.into(),
-            runnable_since,
-            lowest_share_used,
-            highest_global_priority: step
-                .atomic_state
-                .highest_global_priority
-                .load(Ordering::Relaxed),
-            highest_local_priority: step
-                .atomic_state
-                .highest_local_priority
-                .load(Ordering::Relaxed),
-            lowest_build_id: step.atomic_state.lowest_build_id.load(Ordering::Relaxed),
+            runnable_since: step.get_runnable_since(),
+            lowest_share_used: step.get_lowest_share_used().into(),
             step,
         }
+    }
+
+    pub fn update_internal_stats(&self) {
+        self.lowest_share_used
+            .store(self.step.get_lowest_share_used(), Ordering::Relaxed);
+    }
+
+    pub fn get_lowest_share_used(&self) -> f64 {
+        self.lowest_share_used.load(Ordering::Relaxed)
+    }
+
+    pub fn get_highest_global_priority(&self) -> i32 {
+        self.step
+            .atomic_state
+            .highest_global_priority
+            .load(Ordering::Relaxed)
+    }
+
+    pub fn get_highest_local_priority(&self) -> i32 {
+        self.step
+            .atomic_state
+            .highest_local_priority
+            .load(Ordering::Relaxed)
+    }
+
+    pub fn get_lowest_build_id(&self) -> BuildID {
+        self.step
+            .atomic_state
+            .lowest_build_id
+            .load(Ordering::Relaxed)
     }
 
     pub fn get_already_scheduled(&self) -> bool {
@@ -161,19 +166,36 @@ impl BuildQueue {
     pub fn sort_jobs(&self) -> u64 {
         let start_time = std::time::Instant::now();
         let mut current_jobs = self.jobs.write();
-        let delta = 0.00001;
+        for job in current_jobs.iter_mut() {
+            let Some(job) = job.upgrade() else { continue };
+            job.update_internal_stats();
+        }
+
         current_jobs.sort_by(|a, b| {
             let a = a.upgrade();
             let b = b.upgrade();
             match (a, b) {
-                (Some(a), Some(b)) => (if a.highest_global_priority != b.highest_global_priority {
-                    a.highest_global_priority.cmp(&b.highest_global_priority)
-                } else if (a.lowest_share_used - b.lowest_share_used).abs() > delta {
-                    b.lowest_share_used.total_cmp(&a.lowest_share_used)
-                } else if a.highest_local_priority != b.highest_local_priority {
-                    a.highest_local_priority.cmp(&b.highest_local_priority)
+                #[allow(irrefutable_let_patterns)]
+                (Some(a), Some(b)) => (if let c1 = a
+                    .get_highest_global_priority()
+                    .cmp(&b.get_highest_global_priority())
+                    && c1 != std::cmp::Ordering::Equal
+                {
+                    c1
+                } else if let c2 = b
+                    .get_lowest_share_used()
+                    .total_cmp(&a.get_lowest_share_used())
+                    && c2 != std::cmp::Ordering::Equal
+                {
+                    c2
+                } else if let c3 = a
+                    .get_highest_local_priority()
+                    .cmp(&b.get_highest_local_priority())
+                    && c3 != std::cmp::Ordering::Equal
+                {
+                    c3
                 } else {
-                    b.lowest_build_id.cmp(&a.lowest_build_id)
+                    b.get_lowest_build_id().cmp(&a.get_lowest_build_id())
                 })
                 .reverse(),
                 (Some(_), None) => std::cmp::Ordering::Greater,
