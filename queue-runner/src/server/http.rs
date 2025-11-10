@@ -173,8 +173,8 @@ mod handler {
             state: std::sync::Arc<State>,
         ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
             let queue_stats = io::QueueRunnerStats::new(state.clone()).await;
-            let sort_fn = state.config.get_sort_fn();
-            let free_fn = state.config.get_free_fn();
+            let sort_fn = state.config.get_machine_sort_fn();
+            let free_fn = state.config.get_machine_free_fn();
             let machines = state
                 .machines
                 .get_all_machines()
@@ -212,8 +212,8 @@ mod handler {
             _req: hyper::Request<hyper::body::Incoming>,
             state: std::sync::Arc<State>,
         ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
-            let sort_fn = state.config.get_sort_fn();
-            let free_fn = state.config.get_free_fn();
+            let sort_fn = state.config.get_machine_sort_fn();
+            let free_fn = state.config.get_machine_free_fn();
             let machines = state
                 .machines
                 .get_all_machines()

@@ -128,7 +128,8 @@ impl State {
         // thing we do.
 
         let curr_db_url = self.config.get_db_url();
-        let curr_sort_fn = self.config.get_sort_fn();
+        let curr_machine_sort_fn = self.config.get_machine_sort_fn();
+        let curr_step_sort_fn = self.config.get_step_sort_fn();
         let curr_remote_stores = self.config.get_remote_store_addrs();
         let curr_enable_fod_checker = self.config.get_enable_fod_checker();
         let mut new_remote_stores = vec![];
@@ -142,8 +143,11 @@ impl State {
             self.db
                 .reconfigure_pool(new_config.db_url.expose_secret())?;
         }
-        if curr_sort_fn != new_config.machine_sort_fn {
+        if curr_machine_sort_fn != new_config.machine_sort_fn {
             self.machines.sort(new_config.machine_sort_fn);
+        }
+        if curr_step_sort_fn != new_config.step_sort_fn {
+            self.queues.sort_queues(curr_step_sort_fn).await;
         }
         if curr_remote_stores != new_config.remote_store_addr {
             let mut remote_stores = self.remote_stores.write();
@@ -181,7 +185,7 @@ impl State {
     pub async fn insert_machine(&self, machine: Machine) -> uuid::Uuid {
         let machine_id = self
             .machines
-            .insert_machine(machine, self.config.get_sort_fn());
+            .insert_machine(machine, self.config.get_machine_sort_fn());
         self.trigger_dispatch();
         machine_id
     }
@@ -232,7 +236,7 @@ impl State {
         self: Arc<Self>,
         constraint: queue::JobConstraint,
     ) -> anyhow::Result<RealiseStepResult> {
-        let free_fn = self.config.get_free_fn();
+        let free_fn = self.config.get_machine_free_fn();
 
         let Some((machine, step_info)) = constraint.resolve(&self.machines, free_fn) else {
             return Ok(RealiseStepResult::None);
@@ -712,8 +716,8 @@ impl State {
 
             let state = state.clone();
             let queue_stats = crate::io::QueueRunnerStats::new(state.clone()).await;
-            let sort_fn = state.config.get_sort_fn();
-            let free_fn = state.config.get_free_fn();
+            let sort_fn = state.config.get_machine_sort_fn();
+            let free_fn = state.config.get_machine_free_fn();
             let machines = state
                 .machines
                 .get_all_machines()
@@ -890,7 +894,13 @@ impl State {
 
         for (system, jobs) in new_queues {
             self.queues
-                .insert_new_jobs(system, jobs, &now, &self.metrics)
+                .insert_new_jobs(
+                    system,
+                    jobs,
+                    &now,
+                    self.config.get_step_sort_fn(),
+                    &self.metrics,
+                )
                 .await;
         }
         self.queues.remove_all_weak_pointer().await;

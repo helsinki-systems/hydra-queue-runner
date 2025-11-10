@@ -7,6 +7,8 @@ use ahash::{AHashMap, AHashSet};
 use db::models::BuildID;
 use nix_utils::BaseStore as _;
 
+use crate::config::StepSortFn;
+
 use super::System;
 use super::build::Step;
 
@@ -78,6 +80,67 @@ impl StepInfo {
     pub fn get_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::SeqCst)
     }
+
+    fn legacy_compare(&self, other: &StepInfo) -> std::cmp::Ordering {
+        #[allow(irrefutable_let_patterns)]
+        (if let c1 = self
+            .get_highest_global_priority()
+            .cmp(&other.get_highest_global_priority())
+            && c1 != std::cmp::Ordering::Equal
+        {
+            c1
+        } else if let c2 = other
+            .get_lowest_share_used()
+            .total_cmp(&self.get_lowest_share_used())
+            && c2 != std::cmp::Ordering::Equal
+        {
+            c2
+        } else if let c3 = self
+            .get_highest_local_priority()
+            .cmp(&other.get_highest_local_priority())
+            && c3 != std::cmp::Ordering::Equal
+        {
+            c3
+        } else {
+            other.get_lowest_build_id().cmp(&self.get_lowest_build_id())
+        })
+        .reverse()
+    }
+
+    fn compare_with_rdeps(&self, other: &StepInfo) -> std::cmp::Ordering {
+        #[allow(irrefutable_let_patterns)]
+        (if let c1 = self
+            .get_highest_global_priority()
+            .cmp(&other.get_highest_global_priority())
+            && c1 != std::cmp::Ordering::Equal
+        {
+            c1
+        } else if let c2 = other
+            .get_lowest_share_used()
+            .total_cmp(&self.get_lowest_share_used())
+            && c2 != std::cmp::Ordering::Equal
+        {
+            c2
+        } else if let c3 = self
+            .step
+            .atomic_state
+            .rdeps_len
+            .load(Ordering::Relaxed)
+            .cmp(&other.step.atomic_state.rdeps_len.load(Ordering::Relaxed))
+            && c3 != std::cmp::Ordering::Equal
+        {
+            c3
+        } else if let c4 = self
+            .get_highest_local_priority()
+            .cmp(&other.get_highest_local_priority())
+            && c4 != std::cmp::Ordering::Equal
+        {
+            c4
+        } else {
+            other.get_lowest_build_id().cmp(&self.get_lowest_build_id())
+        })
+        .reverse()
+    }
 }
 
 pub struct BuildQueue {
@@ -131,7 +194,12 @@ impl BuildQueue {
     }
 
     #[tracing::instrument(skip(self, jobs))]
-    fn insert_new_jobs(&self, jobs: Vec<Weak<StepInfo>>, now: &jiff::Timestamp) -> u64 {
+    fn insert_new_jobs(
+        &self,
+        jobs: Vec<Weak<StepInfo>>,
+        now: &jiff::Timestamp,
+        sort_fn: StepSortFn,
+    ) -> u64 {
         let mut current_jobs = self.jobs.write();
         let mut wait_time_ms = 0u64;
 
@@ -159,45 +227,27 @@ impl BuildQueue {
         // only keep valid pointers
         drop(current_jobs);
         self.scrube_jobs();
-        self.sort_jobs()
+        self.sort_jobs(sort_fn)
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn sort_jobs(&self) -> u64 {
+    pub fn sort_jobs(&self, sort_fn: StepSortFn) -> u64 {
         let start_time = std::time::Instant::now();
         let mut current_jobs = self.jobs.write();
         for job in current_jobs.iter_mut() {
             let Some(job) = job.upgrade() else { continue };
             job.update_internal_stats();
         }
+        let cmp_fn = match sort_fn {
+            StepSortFn::Legacy => StepInfo::legacy_compare,
+            StepSortFn::WithRdeps => StepInfo::compare_with_rdeps,
+        };
 
         current_jobs.sort_by(|a, b| {
             let a = a.upgrade();
             let b = b.upgrade();
             match (a, b) {
-                #[allow(irrefutable_let_patterns)]
-                (Some(a), Some(b)) => (if let c1 = a
-                    .get_highest_global_priority()
-                    .cmp(&b.get_highest_global_priority())
-                    && c1 != std::cmp::Ordering::Equal
-                {
-                    c1
-                } else if let c2 = b
-                    .get_lowest_share_used()
-                    .total_cmp(&a.get_lowest_share_used())
-                    && c2 != std::cmp::Ordering::Equal
-                {
-                    c2
-                } else if let c3 = a
-                    .get_highest_local_priority()
-                    .cmp(&b.get_highest_local_priority())
-                    && c3 != std::cmp::Ordering::Equal
-                {
-                    c3
-                } else {
-                    b.get_lowest_build_id().cmp(&a.get_lowest_build_id())
-                })
-                .reverse(),
+                (Some(a), Some(b)) => cmp_fn(a.as_ref(), b.as_ref()),
                 (Some(_), None) => std::cmp::Ordering::Greater,
                 (None, Some(_)) => std::cmp::Ordering::Less,
                 (None, None) => std::cmp::Ordering::Equal,
@@ -261,6 +311,7 @@ impl InnerQueues {
         system: S,
         jobs: Vec<StepInfo>,
         now: &jiff::Timestamp,
+        sort_fn: StepSortFn,
     ) -> u64 {
         let mut submit_jobs: Vec<Weak<StepInfo>> = Vec::new();
         for j in jobs {
@@ -282,7 +333,7 @@ impl InnerQueues {
             .entry(system.into())
             .or_insert_with(|| Arc::new(BuildQueue::new()));
         // queues are sorted afterwards
-        queue.insert_new_jobs(submit_jobs, now)
+        queue.insert_new_jobs(submit_jobs, now, sort_fn)
     }
 
     #[tracing::instrument(skip(self))]
@@ -401,6 +452,12 @@ impl InnerQueues {
         let s = self.scheduled.read();
         s.iter().map(|(_, (s, _, _))| s.clone()).collect()
     }
+
+    pub fn sort_queues(&self, sort_fn: StepSortFn) {
+        for q in self.inner.values() {
+            q.sort_jobs(sort_fn);
+        }
+    }
 }
 
 pub struct JobConstraint {
@@ -464,10 +521,11 @@ impl Queues {
         system: S,
         jobs: Vec<StepInfo>,
         now: &jiff::Timestamp,
+        sort_fn: StepSortFn,
         metrics: &super::metrics::PromMetrics,
     ) {
         let mut wq = self.inner.write().await;
-        let sort_duration = wq.insert_new_jobs(system, jobs, now);
+        let sort_duration = wq.insert_new_jobs(system, jobs, now, sort_fn);
         metrics.queue_sort_duration_ms_total.inc_by(sort_duration);
     }
 
@@ -615,5 +673,10 @@ impl Queues {
     pub async fn get_scheduled(&self) -> Vec<Arc<StepInfo>> {
         let rq = self.inner.read().await;
         rq.get_scheduled()
+    }
+
+    pub async fn sort_queues(&self, sort_fn: StepSortFn) {
+        let rq = self.inner.read().await;
+        rq.sort_queues(sort_fn);
     }
 }

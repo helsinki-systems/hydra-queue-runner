@@ -178,6 +178,13 @@ pub enum MachineFreeFn {
     Static,
 }
 
+#[derive(Debug, Default, serde::Deserialize, Copy, Clone, PartialEq, Eq)]
+pub enum StepSortFn {
+    Legacy,
+    #[default]
+    WithRdeps,
+}
+
 /// Main configuration of the application
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -197,6 +204,9 @@ struct AppConfig {
 
     #[serde(default)]
     machine_free_fn: MachineFreeFn,
+
+    #[serde(default)]
+    step_sort_fn: StepSortFn,
 
     // setting this to -1, will disable the timer
     #[serde(default = "default_dispatch_trigger_timer_in_s")]
@@ -252,6 +262,7 @@ pub struct PreparedApp {
     max_db_connections: u32,
     pub machine_sort_fn: MachineSortFn,
     machine_free_fn: MachineFreeFn,
+    pub step_sort_fn: StepSortFn,
     dispatch_trigger_timer: Option<tokio::time::Duration>,
     queue_trigger_timer: Option<tokio::time::Duration>,
     pub remote_store_addr: Vec<String>,
@@ -313,6 +324,7 @@ impl TryFrom<AppConfig> for PreparedApp {
             max_db_connections: val.max_db_connections,
             machine_sort_fn: val.machine_sort_fn,
             machine_free_fn: val.machine_free_fn,
+            step_sort_fn: val.step_sort_fn,
             dispatch_trigger_timer: u64::try_from(val.dispatch_trigger_timer_in_s)
                 .ok()
                 .and_then(|v| {
@@ -410,15 +422,21 @@ impl App {
     }
 
     #[must_use]
-    pub fn get_sort_fn(&self) -> MachineSortFn {
+    pub fn get_machine_sort_fn(&self) -> MachineSortFn {
         let inner = self.inner.load();
         inner.machine_sort_fn
     }
 
     #[must_use]
-    pub fn get_free_fn(&self) -> MachineFreeFn {
+    pub fn get_machine_free_fn(&self) -> MachineFreeFn {
         let inner = self.inner.load();
         inner.machine_free_fn
+    }
+
+    #[must_use]
+    pub fn get_step_sort_fn(&self) -> StepSortFn {
+        let inner = self.inner.load();
+        inner.step_sort_fn
     }
 
     #[must_use]
