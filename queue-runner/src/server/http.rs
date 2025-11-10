@@ -32,7 +32,6 @@ pub enum Error {
     NotFound,
 
     #[error("Fatal")]
-    #[allow(dead_code)]
     Fatal,
 }
 

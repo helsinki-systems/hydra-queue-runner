@@ -42,7 +42,6 @@ impl BuildStatus {
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum StepStatus {
     Preparing = 1,
     Connecting = 10,

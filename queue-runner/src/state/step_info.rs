@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use db::models::BuildID;
 use nix_utils::BaseStore as _;
 
-use super::build::Step;
+use super::Step;
 
 pub struct StepInfo {
     pub step: Arc<Step>,
