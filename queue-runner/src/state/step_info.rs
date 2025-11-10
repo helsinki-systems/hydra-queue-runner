@@ -134,3 +134,172 @@ impl StepInfo {
         .reverse()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use db::models::BuildID;
+
+    fn create_test_step(
+        highest_global_priority: i32,
+        highest_local_priority: i32,
+        lowest_build_id: BuildID,
+        lowest_share_used: f64,
+        rdeps_len: u64,
+    ) -> StepInfo {
+        let step = Step::new(nix_utils::StorePath::new(
+            "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-test.drv",
+        ));
+
+        step.atomic_state.highest_global_priority.store(
+            highest_global_priority,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        step.atomic_state
+            .highest_local_priority
+            .store(highest_local_priority, std::sync::atomic::Ordering::Relaxed);
+        step.atomic_state
+            .lowest_build_id
+            .store(lowest_build_id, std::sync::atomic::Ordering::Relaxed);
+        step.atomic_state
+            .rdeps_len
+            .store(rdeps_len, std::sync::atomic::Ordering::Relaxed);
+
+        StepInfo {
+            step,
+            resolved_drv_path: None,
+            already_scheduled: false.into(),
+            cancelled: false.into(),
+            runnable_since: jiff::Timestamp::now(),
+            lowest_share_used: lowest_share_used.into(),
+        }
+    }
+
+    #[test]
+    fn test_legacy_compare_global_priority() {
+        let step1 = create_test_step(10, 1, 1, 1.0, 0);
+        let step2 = create_test_step(5, 1, 2, 1.0, 0);
+
+        assert_eq!(step1.legacy_compare(&step2), std::cmp::Ordering::Less);
+        assert_eq!(step2.legacy_compare(&step1), std::cmp::Ordering::Greater);
+    }
+
+    #[test]
+    fn test_legacy_compare_share_used() {
+        let step1 = create_test_step(5, 1, 1, 0.5, 0);
+        let step2 = create_test_step(5, 1, 2, 1.0, 0);
+
+        assert_eq!(step1.legacy_compare(&step2), std::cmp::Ordering::Less);
+        assert_eq!(step2.legacy_compare(&step1), std::cmp::Ordering::Greater);
+    }
+
+    #[test]
+    fn test_legacy_compare_local_priority() {
+        let step1 = create_test_step(5, 10, 1, 1.0, 0);
+        let step2 = create_test_step(5, 5, 2, 1.0, 0);
+
+        assert_eq!(step1.legacy_compare(&step2), std::cmp::Ordering::Less);
+        assert_eq!(step2.legacy_compare(&step1), std::cmp::Ordering::Greater);
+    }
+
+    #[test]
+    fn test_legacy_compare_build_id() {
+        let step1 = create_test_step(5, 1, 1, 1.0, 0);
+        let step2 = create_test_step(5, 1, 2, 1.0, 0);
+
+        assert_eq!(step1.legacy_compare(&step2), std::cmp::Ordering::Less);
+        assert_eq!(step2.legacy_compare(&step1), std::cmp::Ordering::Greater);
+    }
+
+    #[test]
+    fn test_legacy_compare_equal() {
+        let step1 = create_test_step(5, 1, 1, 1.0, 0);
+        let step2 = create_test_step(5, 1, 1, 1.0, 0);
+
+        assert_eq!(step1.legacy_compare(&step2), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn test_compare_with_rdeps_global_priority() {
+        let step1 = create_test_step(10, 1, 1, 1.0, 0);
+        let step2 = create_test_step(5, 1, 2, 1.0, 0);
+
+        assert_eq!(step1.compare_with_rdeps(&step2), std::cmp::Ordering::Less);
+        assert_eq!(
+            step2.compare_with_rdeps(&step1),
+            std::cmp::Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn test_compare_with_rdeps_share_used() {
+        let step1 = create_test_step(5, 1, 1, 0.5, 0);
+        let step2 = create_test_step(5, 1, 2, 1.0, 0);
+
+        assert_eq!(step1.compare_with_rdeps(&step2), std::cmp::Ordering::Less);
+        assert_eq!(
+            step2.compare_with_rdeps(&step1),
+            std::cmp::Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn test_compare_with_rdeps_rdeps_len() {
+        let step1 = create_test_step(5, 1, 1, 1.0, 10);
+        let step2 = create_test_step(5, 1, 2, 1.0, 5);
+
+        assert_eq!(step1.compare_with_rdeps(&step2), std::cmp::Ordering::Less);
+        assert_eq!(
+            step2.compare_with_rdeps(&step1),
+            std::cmp::Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn test_compare_with_rdeps_local_priority() {
+        let step1 = create_test_step(5, 10, 1, 1.0, 0);
+        let step2 = create_test_step(5, 5, 2, 1.0, 0);
+
+        assert_eq!(step1.compare_with_rdeps(&step2), std::cmp::Ordering::Less);
+        assert_eq!(
+            step2.compare_with_rdeps(&step1),
+            std::cmp::Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn test_compare_with_rdeps_build_id() {
+        let step1 = create_test_step(5, 1, 1, 1.0, 0);
+        let step2 = create_test_step(5, 1, 2, 1.0, 0);
+
+        assert_eq!(step1.compare_with_rdeps(&step2), std::cmp::Ordering::Less);
+        assert_eq!(
+            step2.compare_with_rdeps(&step1),
+            std::cmp::Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn test_compare_with_rdeps_equal() {
+        let step1 = create_test_step(5, 1, 1, 1.0, 0);
+        let step2 = create_test_step(5, 1, 1, 1.0, 0);
+
+        assert_eq!(step1.compare_with_rdeps(&step2), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn test_difference_between_compare_functions() {
+        // Same global priority, share used, local priority, and build ID
+        // But different rdeps_len - this should affect compare_with_rdeps but not legacy_compare
+        let step1 = create_test_step(5, 1, 1, 1.0, 10);
+        let step2 = create_test_step(5, 1, 1, 1.0, 5);
+
+        assert_eq!(step1.legacy_compare(&step2), std::cmp::Ordering::Equal);
+
+        assert_eq!(step1.compare_with_rdeps(&step2), std::cmp::Ordering::Less);
+        assert_eq!(
+            step2.compare_with_rdeps(&step1),
+            std::cmp::Ordering::Greater
+        );
+    }
+}
