@@ -129,177 +129,177 @@ impl PromMetrics {
         ))?;
         let dispatcher_time_spent_running =
             prometheus::IntCounter::with_opts(prometheus::Opts::new(
-                "hydraqueuerunner_dispatcher_time_spent_running",
+                "hydraqueuerunner_dispatcher_time_spent_running_total",
                 "Time (in micros) spent running the dispatcher",
             ))?;
         let dispatcher_time_spent_waiting =
             prometheus::IntCounter::with_opts(prometheus::Opts::new(
-                "hydraqueuerunner_dispatcher_time_spent_waiting",
+                "hydraqueuerunner_dispatcher_time_spent_waiting_total",
                 "Time (in micros) spent waiting for the dispatcher to obtain work",
             ))?;
         let queue_monitor_time_spent_running =
             prometheus::IntCounter::with_opts(prometheus::Opts::new(
-                "hydraqueuerunner_queue_monitor_time_spent_running",
+                "hydraqueuerunner_monitor_time_spent_running_total",
                 "Time (in micros) spent running the queue monitor",
             ))?;
         let queue_monitor_time_spent_waiting =
             prometheus::IntCounter::with_opts(prometheus::Opts::new(
-                "hydraqueuerunner_queue_monitor_time_spent_waiting",
+                "hydraqueuerunner_monitor_time_spent_waiting_total",
                 "Time (in micros) spent waiting for the queue monitor to obtain work",
             ))?;
 
         let nr_builds_read = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_builds_read",
+            "hydraqueuerunner_builds_read",
             "Number of builds read from the database",
         ))?;
         let build_read_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_builds_time",
+            "hydraqueuerunner_builds_read_time_ms",
             "Time in milliseconds spent reading builds from the database",
         ))?;
         let nr_builds_unfinished = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_builds_unfinished",
+            "hydraqueuerunner_builds_unfinished",
             "Number of unfinished builds in the queue",
         ))?;
         let nr_builds_done = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_builds_finished",
+            "hydraqueuerunner_builds_finished",
             "Number of finished builds in the queue",
         ))?;
         let nr_steps_started = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_started",
+            "hydraqueuerunner_steps_started",
             "Number of build steps that have been started",
         ))?;
         let nr_steps_done = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_finished",
+            "hydraqueuerunner_steps_finished",
             "Number of build steps that have been completed",
         ))?;
         let nr_steps_building = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_building",
+            "hydraqueuerunner_steps_building",
             "Number of build steps currently being built",
         ))?;
         let nr_steps_waiting = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_waiting",
+            "hydraqueuerunner_steps_waiting",
             "Number of build steps waiting to be built",
         ))?;
         let nr_steps_runnable = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_runnable",
+            "hydraqueuerunner_steps_runnable",
             "Number of build steps that are ready to run",
         ))?;
         let nr_steps_unfinished = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_unfinished",
+            "hydraqueuerunner_steps_unfinished",
             "Number of unfinished build steps",
         ))?;
         let nr_unsupported_steps = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_unsupported",
+            "hydraqueuerunner_steps_unsupported",
             "Number of unsupported build steps",
         ))?;
         let nr_unsupported_steps_aborted = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_unsupported_aborted",
+            "hydraqueuerunner_steps_unsupported_aborted",
             "Number of unsupported build steps that were aborted",
         ))?;
         let nr_substitutes_started = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_substitutes_started",
+            "hydraqueuerunner_substitutes_started",
             "Number of substitute downloads that have been started",
         ))?;
         let nr_substitutes_failed = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_substitutes_failed",
+            "hydraqueuerunner_substitutes_failed",
             "Number of substitute downloads that have failed",
         ))?;
         let nr_substitutes_succeeded = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_substitutes_succeeded",
+            "hydraqueuerunner_substitutes_succeeded",
             "Number of substitute downloads that have succeeded",
         ))?;
         let nr_retries = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_retries",
+            "hydraqueuerunner_steps_retries",
             "Number of retries for build steps",
         ))?;
         let max_nr_retries = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_max_retries",
+            "hydraqueuerunner_steps_max_retries",
             "Maximum number of retries allowed for build steps",
         ))?;
         let avg_step_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_avg_time_ms",
+            "hydraqueuerunner_steps_avg_total_time_ms",
             "Average time in milliseconds for build steps to complete",
         ))?;
         let avg_step_import_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_avg_import_time_ms",
+            "hydraqueuerunner_steps_avg_import_time_ms",
             "Average time in milliseconds for importing build steps",
         ))?;
         let avg_step_build_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_avg_build_time_ms",
+            "hydraqueuerunner_steps_avg_build_time_ms",
             "Average time in milliseconds for building build steps",
         ))?;
         let total_step_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_total_time_ms",
+            "hydraqueuerunner_steps_total_time_ms",
             "Total time in milliseconds spent on all build steps",
         ))?;
         let total_step_import_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_total_import_time_ms",
+            "hydraqueuerunner_steps_total_import_time_ms",
             "Total time in milliseconds spent importing all build steps",
         ))?;
         let total_step_build_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_steps_total_build_time_ms",
+            "hydraqueuerunner_steps_total_build_time_ms",
             "Total time in milliseconds spent building all build steps",
         ))?;
         let nr_queue_wakeups = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_checks",
+            "hydraqueuerunner_monitor_checks",
             "Number of times the queue monitor has been woken up",
         ))?;
         let nr_dispatcher_wakeups = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_dispatch_wakeup",
+            "hydraqueuerunner_dispatch_wakeup",
             "Number of times the dispatcher has been woken up",
         ))?;
         let dispatch_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_dispatch_time",
+            "hydraqueuerunner_dispatch_time_ms",
             "Time in milliseconds spent dispatching build steps",
         ))?;
         let machines_total = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_machines_total",
+            "hydraqueuerunner_machines_total",
             "Total number of machines available for building",
         ))?;
         let machines_in_use = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_machines_in_use",
+            "hydraqueuerunner_machines_in_use",
             "Number of machines currently in use for building",
         ))?;
 
         // Per-machine-type metrics
         let runnable_per_machine_type = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_machines_runnable",
+                "hydraqueuerunner_machines_runnable",
                 "Number of runnable build steps per machine type",
             ),
             &["machine_type"],
         )?;
         let running_per_machine_type = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_machines_running",
+                "hydraqueuerunner_machines_running",
                 "Number of running build steps per machine type",
             ),
             &["machine_type"],
         )?;
         let waiting_per_machine_type = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_machines_waiting",
+                "hydraqueuerunner_machines_waiting",
                 "Number of waiting build steps per machine type",
             ),
             &["machine_type"],
         )?;
         let disabled_per_machine_type = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_machines_disabled",
+                "hydraqueuerunner_machines_disabled",
                 "Number of disabled build steps per machine type",
             ),
             &["machine_type"],
         )?;
         let avg_runnable_time_per_machine_type = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_machines_avg_runnable_time",
+                "hydraqueuerunner_machines_avg_runnable_time",
                 "Average runnable time for build steps per machine type",
             ),
             &["machine_type"],
         )?;
         let wait_time_per_machine_type = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_machines_wait_time",
+                "hydraqueuerunner_machines_wait_time",
                 "Wait time for build steps per machine type",
             ),
             &["machine_type"],
@@ -308,56 +308,56 @@ impl PromMetrics {
         // Per-machine metrics
         let machine_current_jobs = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_machine_current_jobs",
+                "hydraqueuerunner_machine_current_jobs",
                 "Number of currently running jobs on each machine",
             ),
             &["machine_id", "hostname", "system_type"],
         )?;
         let machine_steps_done = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_machine_steps_done",
+                "hydraqueuerunner_machine_steps_done",
                 "Total number of steps completed by each machine",
             ),
             &["machine_id", "hostname", "system_type"],
         )?;
         let machine_total_step_time_ms = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_machine_total_step_time_ms",
+                "hydraqueuerunner_machine_total_step_time_ms",
                 "Total time in milliseconds spent on all steps by each machine",
             ),
             &["machine_id", "hostname", "system_type"],
         )?;
         let machine_total_step_import_time_ms = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_machine_total_step_import_time_ms",
+                "hydraqueuerunner_machine_total_step_import_time_ms",
                 "Total time in milliseconds spent importing steps by each machine",
             ),
             &["machine_id", "hostname", "system_type"],
         )?;
         let machine_total_step_build_time_ms = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_machine_total_step_build_time_ms",
+                "hydraqueuerunner_machine_total_step_build_time_ms",
                 "Total time in milliseconds spent building steps by each machine",
             ),
             &["machine_id", "hostname", "system_type"],
         )?;
         let machine_consecutive_failures = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_machine_consecutive_failures",
+                "hydraqueuerunner_machine_consecutive_failures",
                 "Number of consecutive failures for each machine",
             ),
             &["machine_id", "hostname", "system_type"],
         )?;
         let machine_last_ping_timestamp = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_machine_last_ping_timestamp",
+                "hydraqueuerunner_machine_last_ping_timestamp",
                 "Unix timestamp of the last ping received from each machine",
             ),
             &["machine_id", "hostname", "system_type"],
         )?;
         let machine_idle_since_timestamp = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_machine_idle_since_timestamp",
+                "hydraqueuerunner_machine_idle_since_timestamp",
                 "Unix timestamp since when each machine has been idle (0 if currently busy)",
             ),
             &["machine_id", "hostname", "system_type"],
@@ -365,115 +365,124 @@ impl PromMetrics {
 
         // Store metrics (single store)
         let store_nar_info_read = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_store_nar_info_read",
+            "hydraqueuerunner_store_nar_info_read",
             "Number of NAR info reads from store",
         ))?;
         let store_nar_info_read_averted = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_store_nar_info_read_averted",
+            "hydraqueuerunner_store_nar_info_read_averted",
             "Number of NAR info reads averted from store",
         ))?;
         let store_nar_info_missing = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_store_nar_info_missing",
+            "hydraqueuerunner_store_nar_info_missing",
             "Number of missing NAR info in store",
         ))?;
         let store_nar_info_write = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_store_nar_info_write",
+            "hydraqueuerunner_store_nar_info_write",
             "Number of NAR info writes to store",
         ))?;
         let store_path_info_cache_size = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_store_path_info_cache_size",
+            "hydraqueuerunner_store_path_info_cache_size",
             "Size of path info cache in store",
         ))?;
         let store_nar_read = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_store_nar_read",
+            "hydraqueuerunner_store_nar_read",
             "Number of NAR reads from store",
         ))?;
         let store_nar_read_bytes = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_store_nar_read_bytes",
+            "hydraqueuerunner_store_nar_read_bytes",
             "Number of bytes read from NARs in store",
         ))?;
         let store_nar_read_compressed_bytes =
             prometheus::IntGauge::with_opts(prometheus::Opts::new(
-                "hydra_queue_store_nar_read_compressed_bytes",
+                "hydraqueuerunner_store_nar_read_compressed_bytes",
                 "Number of compressed bytes read from NARs in store",
             ))?;
         let store_nar_write = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_store_nar_write",
+            "hydraqueuerunner_store_nar_write",
             "Number of NAR writes to store",
         ))?;
         let store_nar_write_averted = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_store_nar_write_averted",
+            "hydraqueuerunner_store_nar_write_averted",
             "Number of NAR writes averted to store",
         ))?;
         let store_nar_write_bytes = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_store_nar_write_bytes",
+            "hydraqueuerunner_store_nar_write_bytes",
             "Number of bytes written to NARs in store",
         ))?;
         let store_nar_write_compressed_bytes =
             prometheus::IntGauge::with_opts(prometheus::Opts::new(
-                "hydra_queue_store_nar_write_compressed_bytes",
+                "hydraqueuerunner_store_nar_write_compressed_bytes",
                 "Number of compressed bytes written to NARs in store",
             ))?;
         let store_nar_write_compression_time_ms =
             prometheus::IntGauge::with_opts(prometheus::Opts::new(
-                "hydra_queue_store_nar_write_compression_time_ms",
+                "hydraqueuerunner_store_nar_write_compression_time_ms",
                 "Time in milliseconds spent compressing NARs in store",
             ))?;
         let store_nar_compression_savings = prometheus::Gauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_store_nar_compression_savings",
+            "hydraqueuerunner_store_nar_compression_savings",
             "Compression savings ratio for NARs in store",
         ))?;
         let store_nar_compression_speed = prometheus::Gauge::with_opts(prometheus::Opts::new(
-            "hydra_queue_store_nar_compression_speed",
+            "hydraqueuerunner_store_nar_compression_speed",
             "Compression speed for NARs in store",
         ))?;
 
         // S3 metrics (multiple backends)
         let s3_put = prometheus::IntGaugeVec::new(
-            prometheus::Opts::new("hydra_queue_s3_put", "Number of S3 put operations"),
+            prometheus::Opts::new("hydraqueuerunner_s3_put", "Number of S3 put operations"),
             &["remote_store"],
         )?;
         let s3_put_bytes = prometheus::IntGaugeVec::new(
-            prometheus::Opts::new("hydra_queue_s3_put_bytes", "Number of bytes put to S3"),
+            prometheus::Opts::new("hydraqueuerunner_s3_put_bytes", "Number of bytes put to S3"),
             &["remote_store"],
         )?;
         let s3_put_time_ms = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_s3_put_time_ms",
+                "hydraqueuerunner_s3_put_time_ms",
                 "Time in milliseconds spent on S3 put operations",
             ),
             &["remote_store"],
         )?;
         let s3_put_speed = prometheus::GaugeVec::new(
-            prometheus::Opts::new("hydra_queue_s3_put_speed", "Speed of S3 put operations"),
+            prometheus::Opts::new(
+                "hydraqueuerunner_s3_put_speed",
+                "Speed of S3 put operations",
+            ),
             &["remote_store"],
         )?;
         let s3_get = prometheus::IntGaugeVec::new(
-            prometheus::Opts::new("hydra_queue_s3_get", "Number of S3 get operations"),
+            prometheus::Opts::new("hydraqueuerunner_s3_get", "Number of S3 get operations"),
             &["remote_store"],
         )?;
         let s3_get_bytes = prometheus::IntGaugeVec::new(
-            prometheus::Opts::new("hydra_queue_s3_get_bytes", "Number of bytes gotten from S3"),
+            prometheus::Opts::new(
+                "hydraqueuerunner_s3_get_bytes",
+                "Number of bytes gotten from S3",
+            ),
             &["remote_store"],
         )?;
         let s3_get_time_ms = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_s3_get_time_ms",
+                "hydraqueuerunner_s3_get_time_ms",
                 "Time in milliseconds spent on S3 get operations",
             ),
             &["remote_store"],
         )?;
         let s3_get_speed = prometheus::GaugeVec::new(
-            prometheus::Opts::new("hydra_queue_s3_get_speed", "Speed of S3 get operations"),
+            prometheus::Opts::new(
+                "hydraqueuerunner_s3_get_speed",
+                "Speed of S3 get operations",
+            ),
             &["remote_store"],
         )?;
         let s3_head = prometheus::IntGaugeVec::new(
-            prometheus::Opts::new("hydra_queue_s3_head", "Number of S3 head operations"),
+            prometheus::Opts::new("hydraqueuerunner_s3_head", "Number of S3 head operations"),
             &["remote_store"],
         )?;
         let s3_cost_dollar_approx = prometheus::GaugeVec::new(
             prometheus::Opts::new(
-                "hydra_queue_s3_cost_dollar_approx",
+                "hydraqueuerunner_s3_cost_dollar_approx",
                 "Approximate cost in dollars for S3 operations",
             ),
             &["remote_store"],
@@ -482,7 +491,7 @@ impl PromMetrics {
         // Build dependency and complexity metrics
         let build_input_drvs_histogram = prometheus::HistogramVec::new(
             prometheus::HistogramOpts::new(
-                "hydra_queue_build_input_drvs_bucket",
+                "hydraqueuerunner_build_input_drvs_seconds",
                 "Distribution of number of input derivations per build",
             )
             .buckets(vec![
@@ -501,7 +510,7 @@ impl PromMetrics {
         )?;
         let build_closure_size_bytes_histogram = prometheus::HistogramVec::new(
             prometheus::HistogramOpts::new(
-                "hydra_queue_build_closure_size_bytes_bucket",
+                "hydraqueuerunner_build_closure_size_bytes",
                 "Distribution of build closure sizes in bytes",
             )
             .buckets(vec![
@@ -520,12 +529,12 @@ impl PromMetrics {
         // Queue performance metrics
         let queue_sort_duration_ms_total =
             prometheus::IntCounter::with_opts(prometheus::Opts::new(
-                "hydra_queue_sort_duration_ms_total",
+                "hydraqueuerunner_sort_duration_ms_total",
                 "Total time in milliseconds spent sorting jobs in queues",
             ))?;
         let queue_job_wait_time_histogram = prometheus::HistogramVec::new(
             prometheus::HistogramOpts::new(
-                "hydra_queue_job_wait_time_bucket",
+                "hydraqueuerunner_job_wait_time_seconds",
                 "Distribution of time jobs wait in queue before being scheduled",
             )
             .buckets(vec![
@@ -543,7 +552,7 @@ impl PromMetrics {
         )?;
 
         let queue_aborted_jobs_total = prometheus::IntCounter::with_opts(prometheus::Opts::new(
-            "hydraqueuerunner_queue_aborted_jobs_total",
+            "hydraqueuerunner_aborted_jobs_total",
             "Total number of jobs that were aborted",
         ))?;
 
