@@ -889,18 +889,23 @@ impl State {
         }
 
         for (system, jobs) in new_queues {
-            self.queues.insert_new_jobs(system, jobs, &now).await;
+            self.queues
+                .insert_new_jobs(system, jobs, &now, &self.metrics)
+                .await;
         }
         self.queues.remove_all_weak_pointer().await;
 
         let nr_steps_waiting_all_queues = self
             .queues
-            .process({
-                let state = self.clone();
-                async move |constraint: queue::JobConstraint| {
-                    Box::pin(state.clone().realise_drv_on_valid_machine(constraint)).await
-                }
-            })
+            .process(
+                {
+                    let state = self.clone();
+                    async move |constraint: queue::JobConstraint| {
+                        Box::pin(state.clone().realise_drv_on_valid_machine(constraint)).await
+                    }
+                },
+                &self.metrics,
+            )
             .await;
         self.metrics
             .nr_steps_waiting
@@ -1774,6 +1779,11 @@ impl State {
             fod_checker.add_ca_drv_parsed(&drv_path, &drv);
         }
 
+        let system_type = drv.system.as_str();
+        #[allow(clippy::cast_precision_loss)]
+        self.metrics
+            .observe_build_input_drvs(drv.input_drvs.len() as f64, system_type);
+
         let use_substitutes = self.config.get_use_substitutes();
         // TODO: check all remote stores
         let remote_store = {
@@ -2043,7 +2053,13 @@ impl State {
             }
         }
 
-        BuildOutput::new(&self.store, drv.outputs).await
+        let build_output = BuildOutput::new(&self.store, drv.outputs).await?;
+
+        #[allow(clippy::cast_precision_loss)]
+        self.metrics
+            .observe_build_closure_size(build_output.closure_size as f64, &drv.system);
+
+        Ok(build_output)
     }
 
     fn add_root(&self, drv_path: &nix_utils::StorePath) {

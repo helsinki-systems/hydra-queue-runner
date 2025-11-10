@@ -126,7 +126,7 @@ impl BuildQueue {
     }
 
     #[tracing::instrument(skip(self, jobs))]
-    fn insert_new_jobs(&self, jobs: Vec<Weak<StepInfo>>, now: &jiff::Timestamp) {
+    fn insert_new_jobs(&self, jobs: Vec<Weak<StepInfo>>, now: &jiff::Timestamp) -> u64 {
         let mut current_jobs = self.jobs.write();
         let mut wait_time_ms = 0u64;
 
@@ -154,11 +154,12 @@ impl BuildQueue {
         // only keep valid pointers
         drop(current_jobs);
         self.scrube_jobs();
-        self.sort_jobs();
+        self.sort_jobs()
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn sort_jobs(&self) {
+    pub fn sort_jobs(&self) -> u64 {
+        let start_time = std::time::Instant::now();
         let mut current_jobs = self.jobs.write();
         let delta = 0.00001;
         current_jobs.sort_by(|a, b| {
@@ -180,6 +181,7 @@ impl BuildQueue {
                 (None, None) => std::cmp::Ordering::Equal,
             }
         });
+        u64::try_from(start_time.elapsed().as_millis()).unwrap_or_default()
     }
 
     #[tracing::instrument(skip(self))]
@@ -237,7 +239,7 @@ impl InnerQueues {
         system: S,
         jobs: Vec<StepInfo>,
         now: &jiff::Timestamp,
-    ) {
+    ) -> u64 {
         let mut submit_jobs: Vec<Weak<StepInfo>> = Vec::new();
         for j in jobs {
             let j = Arc::new(j);
@@ -258,7 +260,7 @@ impl InnerQueues {
             .entry(system.into())
             .or_insert_with(|| Arc::new(BuildQueue::new()));
         // queues are sorted afterwards
-        queue.insert_new_jobs(submit_jobs, now);
+        queue.insert_new_jobs(submit_jobs, now)
     }
 
     #[tracing::instrument(skip(self))]
@@ -440,9 +442,11 @@ impl Queues {
         system: S,
         jobs: Vec<StepInfo>,
         now: &jiff::Timestamp,
+        metrics: &super::metrics::PromMetrics,
     ) {
         let mut wq = self.inner.write().await;
-        wq.insert_new_jobs(system, jobs, now);
+        let sort_duration = wq.insert_new_jobs(system, jobs, now);
+        metrics.queue_sort_duration_ms_total.inc_by(sort_duration);
     }
 
     #[tracing::instrument(skip(self))]
@@ -451,7 +455,11 @@ impl Queues {
         wq.remove_all_weak_pointer();
     }
 
-    pub(super) async fn process<F>(&self, processor: F) -> i64
+    pub(super) async fn process<F>(
+        &self,
+        processor: F,
+        metrics: &super::metrics::PromMetrics,
+    ) -> i64
     where
         F: AsyncFn(JobConstraint) -> anyhow::Result<crate::state::RealiseStepResult>,
     {
@@ -491,6 +499,9 @@ impl Queues {
                 let constraint = JobConstraint::new(job.clone(), system.clone(), vec![]);
                 match processor(constraint).await {
                     Ok(crate::state::RealiseStepResult::Valid(m)) => {
+                        let wait_seconds = now.duration_since(job.runnable_since).as_secs_f64();
+                        metrics.observe_job_wait_time(wait_seconds, &system);
+
                         self.add_job_to_scheduled(&job, &queue, m).await;
                     }
                     Ok(crate::state::RealiseStepResult::None) => {
@@ -511,6 +522,8 @@ impl Queues {
                         // If its a cached failure we need to also remove it from jobs, we
                         // already wrote cached failure into the db, at this point in time
                         self.remove_job(&job, &queue).await;
+
+                        metrics.queue_aborted_jobs_total.inc();
                     }
                     Err(e) => {
                         log::warn!(

@@ -93,6 +93,15 @@ pub struct PromMetrics {
     pub s3_get_speed: prometheus::GaugeVec, // hydra_queue_s3_get_speed
     pub s3_head: prometheus::IntGaugeVec, // hydra_queue_s3_head
     pub s3_cost_dollar_approx: prometheus::GaugeVec, // hydra_queue_s3_cost_dollar_approx
+
+    // Build dependency and complexity metrics
+    pub build_input_drvs_histogram: prometheus::HistogramVec, // hydra_queue_build_input_drvs_bucket
+    pub build_closure_size_bytes_histogram: prometheus::HistogramVec, // hydra_queue_build_closure_size_bytes_bucket
+
+    // Queue performance metrics
+    pub queue_sort_duration_ms_total: prometheus::IntCounter, // hydra_queue_sort_duration_ms_total
+    pub queue_job_wait_time_histogram: prometheus::HistogramVec, // hydra_queue_job_wait_time_bucket
+    pub queue_aborted_jobs_total: prometheus::IntCounter,     // hydra_queue_aborted_jobs_total
 }
 
 impl PromMetrics {
@@ -470,6 +479,74 @@ impl PromMetrics {
             &["remote_store"],
         )?;
 
+        // Build dependency and complexity metrics
+        let build_input_drvs_histogram = prometheus::HistogramVec::new(
+            prometheus::HistogramOpts::new(
+                "hydra_queue_build_input_drvs_bucket",
+                "Distribution of number of input derivations per build",
+            )
+            .buckets(vec![
+                0.0,
+                1.0,
+                5.0,
+                10.0,
+                25.0,
+                50.0,
+                100.0,
+                250.0,
+                500.0,
+                f64::INFINITY,
+            ]),
+            &["system_type"],
+        )?;
+        let build_closure_size_bytes_histogram = prometheus::HistogramVec::new(
+            prometheus::HistogramOpts::new(
+                "hydra_queue_build_closure_size_bytes_bucket",
+                "Distribution of build closure sizes in bytes",
+            )
+            .buckets(vec![
+                1000.0,
+                10_000.0,
+                100_000.0,
+                1_000_000.0,
+                10_000_000.0,
+                100_000_000.0,
+                1_000_000_000.0,
+                f64::INFINITY,
+            ]),
+            &["system_type"],
+        )?;
+
+        // Queue performance metrics
+        let queue_sort_duration_ms_total =
+            prometheus::IntCounter::with_opts(prometheus::Opts::new(
+                "hydra_queue_sort_duration_ms_total",
+                "Total time in milliseconds spent sorting jobs in queues",
+            ))?;
+        let queue_job_wait_time_histogram = prometheus::HistogramVec::new(
+            prometheus::HistogramOpts::new(
+                "hydra_queue_job_wait_time_bucket",
+                "Distribution of time jobs wait in queue before being scheduled",
+            )
+            .buckets(vec![
+                1.0,
+                10.0,
+                60.0,
+                300.0,
+                900.0,
+                3600.0,
+                7200.0,
+                86400.0,
+                f64::INFINITY,
+            ]),
+            &["system_type"],
+        )?;
+
+        let queue_aborted_jobs_total = prometheus::IntCounter::with_opts(prometheus::Opts::new(
+            "hydraqueuerunner_queue_aborted_jobs_total",
+            "Total number of jobs that were aborted",
+        ))?;
+
         let r = prometheus::default_registry();
         r.register(Box::new(queue_checks_started.clone()))?;
         r.register(Box::new(queue_build_loads.clone()))?;
@@ -552,6 +629,15 @@ impl PromMetrics {
         r.register(Box::new(s3_head.clone()))?;
         r.register(Box::new(s3_cost_dollar_approx.clone()))?;
 
+        // Build dependency and complexity metrics
+        r.register(Box::new(build_input_drvs_histogram.clone()))?;
+        r.register(Box::new(build_closure_size_bytes_histogram.clone()))?;
+
+        // Queue performance metrics
+        r.register(Box::new(queue_sort_duration_ms_total.clone()))?;
+        r.register(Box::new(queue_job_wait_time_histogram.clone()))?;
+        r.register(Box::new(queue_aborted_jobs_total.clone()))?;
+
         Ok(Self {
             queue_checks_started,
             queue_build_loads,
@@ -633,6 +719,15 @@ impl PromMetrics {
             s3_get_speed,
             s3_head,
             s3_cost_dollar_approx,
+
+            // Build dependency and complexity metrics
+            build_input_drvs_histogram,
+            build_closure_size_bytes_histogram,
+
+            // Queue performance metrics
+            queue_sort_duration_ms_total,
+            queue_job_wait_time_histogram,
+            queue_aborted_jobs_total,
         })
     }
 
@@ -895,5 +990,23 @@ impl PromMetrics {
         if let Ok(v) = i64::try_from(v) {
             self.total_step_build_time_ms.add(v);
         }
+    }
+
+    pub fn observe_build_input_drvs(&self, count: f64, system_type: &str) {
+        self.build_input_drvs_histogram
+            .with_label_values(&[system_type])
+            .observe(count);
+    }
+
+    pub fn observe_build_closure_size(&self, size_bytes: f64, system_type: &str) {
+        self.build_closure_size_bytes_histogram
+            .with_label_values(&[system_type])
+            .observe(size_bytes);
+    }
+
+    pub fn observe_job_wait_time(&self, wait_seconds: f64, system_type: &str) {
+        self.queue_job_wait_time_histogram
+            .with_label_values(&[system_type])
+            .observe(wait_seconds);
     }
 }
