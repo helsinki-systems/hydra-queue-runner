@@ -44,7 +44,7 @@ impl NarInfo {
             path.hash_part()
         };
 
-        let mut narinfo = NarInfo {
+        let narinfo = NarInfo {
             store_path: path.clone(),
             url: format!("nar/{}.{}", nar_hash_url, compression.ext()),
             compression,
@@ -58,16 +58,7 @@ impl NarInfo {
             sigs: vec![],
         };
 
-        if !signing_keys.is_empty()
-            && let Some(fp) = narinfo.fingerprint_path(store)
-        {
-            for s in signing_keys {
-                narinfo
-                    .sigs
-                    .push(nix_utils::sign_string(s.expose_secret(), &fp));
-            }
-        }
-
+        let mut narinfo = narinfo.clear_sigs_and_sign(store, signing_keys);
         if narinfo.sigs.is_empty() && !path_info.sigs.is_empty() {
             narinfo.sigs = path_info.sigs;
         }
@@ -76,7 +67,62 @@ impl NarInfo {
     }
 
     #[must_use]
-    pub fn fingerprint_path(&self, store: &nix_utils::LocalStore) -> Option<String> {
+    pub fn simple(
+        path: &nix_utils::StorePath,
+        path_info: nix_utils::PathInfo,
+        compression: Compression,
+    ) -> Self {
+        let nar_hash = if path_info.nar_hash.len() == 71 {
+            nix_utils::convert_hash(
+                &path_info.nar_hash[7..],
+                Some(nix_utils::HashAlgorithm::SHA256),
+                nix_utils::HashFormat::Nix32,
+            )
+            .unwrap_or(path_info.nar_hash)
+        } else {
+            path_info.nar_hash
+        };
+        let nar_hash_url = if let Some(h) = nar_hash.strip_prefix("sha256:") {
+            h
+        } else {
+            path.hash_part()
+        };
+
+        NarInfo {
+            store_path: path.clone(),
+            url: format!("nar/{}.{}", nar_hash_url, compression.ext()),
+            compression,
+            file_hash: None,
+            file_size: None,
+            nar_hash,
+            nar_size: path_info.nar_size,
+            references: path_info.refs,
+            deriver: path_info.deriver,
+            ca: path_info.ca.clone(),
+            sigs: vec![],
+        }
+    }
+
+    #[must_use]
+    pub fn clear_sigs_and_sign(
+        mut self,
+        store: &nix_utils::LocalStore,
+        signing_keys: &[secrecy::SecretString],
+    ) -> Self {
+        self.sigs.clear(); // if we call this sign, we dont trust the signatures
+        if !signing_keys.is_empty()
+            && let Some(fp) = self.fingerprint_path(store)
+        {
+            for s in signing_keys {
+                self.sigs
+                    .push(nix_utils::sign_string(s.expose_secret(), &fp));
+            }
+        }
+        self
+    }
+
+    #[must_use]
+    fn fingerprint_path(&self, store: &nix_utils::LocalStore) -> Option<String> {
         let root_store_dir = nix_utils::get_store_dir();
         let abs_path = store.print_store_path(&self.store_path);
 
@@ -107,6 +153,11 @@ impl NarInfo {
             self.nar_size,
             refs.join(",")
         ))
+    }
+
+    #[must_use]
+    pub fn get_ls_path(&self) -> String {
+        format!("{}.ls", self.store_path.hash_part())
     }
 
     pub fn render(&self, store: &nix_utils::LocalStore) -> Result<String, std::fmt::Error> {

@@ -3,6 +3,8 @@ use nix_utils::BaseStore as _;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let now = std::time::Instant::now();
+
     let _tracing_guard = hydra_tracing::init()?;
     let local = nix_utils::LocalStore::init();
     let client = S3BinaryCacheClient::new(
@@ -26,17 +28,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     client.copy_paths(&local, paths_to_copy, true).await?;
 
-    let stats = client.s3_stats();
-    tracing::info!(
-        "stats: put={}, put_bytes={}, put_time_ms={}, get={}, get_bytes={}, get_time_ms={}, head={}",
-        stats.put,
-        stats.put_bytes,
-        stats.put_time_ms,
-        stats.get,
-        stats.get_bytes,
-        stats.get_time_ms,
-        stats.head
-    );
+    tracing::info!("stats: {:#?}", client.s3_stats());
+    tracing::info!("Elapsed: {:#?}", now.elapsed());
 
     Ok(())
 }

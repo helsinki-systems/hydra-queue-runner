@@ -1,12 +1,15 @@
 use crate::Compression;
 
+const MIN_PRESIGNED_URL_EXPIRY_SECS: u64 = 60;
+const MAX_PRESIGNED_URL_EXPIRY_SECS: u64 = 24 * 60 * 60;
+
 #[derive(Debug, Clone)]
 pub struct S3CacheConfig {
     pub client_config: S3ClientConfig,
 
     pub compression: Compression,
     pub write_nar_listing: bool,
-    pub write_debug_info: bool, // TODO
+    pub write_debug_info: bool,
     pub secret_key_files: Vec<std::path::PathBuf>,
     pub parallel_compression: bool,
     pub compression_level: Option<i32>,
@@ -15,6 +18,8 @@ pub struct S3CacheConfig {
     pub ls_compression: Compression,
     pub log_compression: Compression,
     pub buffer_size: usize,
+
+    pub presigned_url_expiry: std::time::Duration,
 }
 
 impl S3CacheConfig {
@@ -32,6 +37,7 @@ impl S3CacheConfig {
             ls_compression: Compression::None,
             log_compression: Compression::None,
             buffer_size: 8 * 1024 * 1024,
+            presigned_url_expiry: std::time::Duration::from_secs(3600),
         }
     }
 
@@ -116,6 +122,25 @@ impl S3CacheConfig {
         self
     }
 
+    pub fn with_presigned_url_expiry(
+        mut self,
+        expiry_secs: Option<u64>,
+    ) -> Result<Self, UrlParseError> {
+        if let Some(expiry_secs) = expiry_secs {
+            if !(MIN_PRESIGNED_URL_EXPIRY_SECS..=MAX_PRESIGNED_URL_EXPIRY_SECS)
+                .contains(&expiry_secs)
+            {
+                return Err(UrlParseError::InvalidPresignedUrlExpiry(
+                    expiry_secs,
+                    MIN_PRESIGNED_URL_EXPIRY_SECS,
+                    MAX_PRESIGNED_URL_EXPIRY_SECS,
+                ));
+            }
+            self.presigned_url_expiry = std::time::Duration::from_secs(expiry_secs);
+        }
+        Ok(self)
+    }
+
     pub(crate) fn get_compression_level(&self) -> async_compression::Level {
         if let Some(l) = self.compression_level {
             async_compression::Level::Precise(l)
@@ -139,11 +164,14 @@ pub enum UrlParseError {
     BadSchema(String),
     #[error("Bucket not defined")]
     NoBucket,
+    #[error("Invalid presigned URL expiry: {0}. Must be between {1} and {2} seconds")]
+    InvalidPresignedUrlExpiry(u64, u64, u64),
 }
 
 impl std::str::FromStr for S3CacheConfig {
     type Err = UrlParseError;
 
+    #[allow(clippy::too_many_lines)]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let uri = url::Url::parse(&s.trim().to_ascii_lowercase())?;
         if uri.scheme() != "s3" {
@@ -169,7 +197,7 @@ impl std::str::FromStr for S3CacheConfig {
             .with_endpoint(query.get("endpoint").map(std::string::String::as_str))
             .with_profile(query.get("profile").map(std::string::String::as_str));
 
-        Ok(S3CacheConfig::new(cfg)
+        S3CacheConfig::new(cfg)
             .with_compression(
                 query
                     .get("compression")
@@ -241,7 +269,13 @@ impl std::str::FromStr for S3CacheConfig {
                     .get("buffer-size")
                     .map(|x| x.parse::<usize>())
                     .transpose()?,
-            ))
+            )
+            .with_presigned_url_expiry(
+                query
+                    .get("presigned-url-expiry")
+                    .map(|x| x.parse::<u64>())
+                    .transpose()?,
+            )
     }
 }
 
@@ -396,7 +430,8 @@ fn parse_aws_credentials_file(
 
 #[cfg(test)]
 mod tests {
-    use super::{ConfigReadError, parse_aws_credentials_file};
+    use super::{ConfigReadError, S3CacheConfig, UrlParseError, parse_aws_credentials_file};
+    use std::str::FromStr;
 
     #[test]
     fn test_parsing_default_profile_works() {
@@ -570,5 +605,31 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY"
             parse_aws_credentials_file(&config_map, "profile_123").unwrap();
         assert_eq!(access_key, "AKIAI44QH8DHB123");
         assert_eq!(secret_key, "je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY");
+    }
+
+    #[test]
+    fn test_presigned_url_expiry_validation() {
+        // Test valid expiry times
+        let valid_cases = vec!["60", "3600", "86400"]; // 1min, 1hr, 1day, 7days
+        for expiry in valid_cases {
+            let config_str = format!("s3://test-bucket?presigned-url-expiry={expiry}");
+            let result = S3CacheConfig::from_str(&config_str);
+            assert!(result.is_ok(), "Should accept expiry: {expiry}");
+        }
+
+        // Test invalid expiry times
+        let invalid_cases = vec!["0", "30", "604801"]; // too small, too small, too large
+        for expiry in invalid_cases {
+            let config_str = format!("s3://test-bucket?presigned-url-expiry={expiry}");
+            let result = S3CacheConfig::from_str(&config_str);
+            assert!(result.is_err(), "Should reject expiry: {expiry}");
+            if let Err(UrlParseError::InvalidPresignedUrlExpiry(value, min, max)) = result {
+                assert_eq!(value, expiry.parse::<u64>().unwrap());
+                assert_eq!(min, 60);
+                assert_eq!(max, 86_400);
+            } else {
+                panic!("Expected InvalidPresignedUrlExpiry error");
+            }
+        }
     }
 }

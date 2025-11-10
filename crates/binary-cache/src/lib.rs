@@ -9,6 +9,7 @@ use std::time::Instant;
 use bytes::Bytes;
 use moka::future::Cache;
 use object_store::ObjectStore as _;
+use object_store::signer::Signer as _;
 use secrecy::ExposeSecret;
 
 use nix_utils::BaseStore as _;
@@ -18,12 +19,43 @@ mod cfg;
 mod compression;
 mod debug_info;
 mod narinfo;
+mod presigned;
 mod streaming_hash;
 
 pub use crate::cfg::{S3CacheConfig, S3ClientConfig, S3CredentialsConfig, S3Scheme};
 pub use crate::compression::Compression;
+pub use crate::debug_info::get_debug_info_build_ids;
 pub use crate::narinfo::NarInfo;
 use crate::narinfo::NarInfoError;
+pub use crate::presigned::{
+    PresignedUpload, PresignedUploadClient, PresignedUploadMetrics, PresignedUploadResponse,
+    PresignedUploadResult,
+};
+pub use async_compression::Level as CompressionLevel;
+
+pub async fn path_to_narinfo(
+    store: &nix_utils::LocalStore,
+    path: &nix_utils::StorePath,
+) -> Result<NarInfo, CacheError> {
+    let Some(path_info) = store.query_path_info(path).await else {
+        return Err(CacheError::PathNotFound {
+            path: path.to_string(),
+        });
+    };
+    let narinfo = NarInfo::simple(path, path_info, Compression::None);
+    let queried_references = store
+        .query_path_infos(&narinfo.references.iter().collect::<Vec<_>>())
+        .await;
+    for r in &narinfo.references {
+        if !queried_references.contains_key(r) {
+            return Err(CacheError::ReferenceVerifyError(
+                narinfo.store_path,
+                r.to_owned(),
+            ));
+        }
+    }
+    Ok(narinfo)
+}
 
 #[derive(Debug, Default)]
 struct AtomicS3Stats {
@@ -97,6 +129,18 @@ pub enum CacheError {
     HashingError(#[from] crate::streaming_hash::Error),
     #[error("Render error: {0}")]
     RenderError(#[from] std::fmt::Error),
+    #[error("HTTP request failed: {0}")]
+    HttpRequestError(#[from] reqwest::Error),
+    #[error("Upload failed for {path}: {reason}")]
+    UploadError { path: String, reason: String },
+    #[error("Presigned URL generation failed for {path}: {reason}")]
+    PresignedUrlError { path: String, reason: String },
+    #[error("Request cloning failed")]
+    RequestCloneError,
+    #[error("Path not found: {path}")]
+    PathNotFound { path: String },
+    #[error("Configuration error: {message}")]
+    ConfigurationError { message: String },
 }
 
 #[derive(Clone)]
@@ -165,6 +209,7 @@ async fn run_multipart_upload(
 }
 
 impl S3BinaryCacheClient {
+    #[tracing::instrument(skip(cfg), err)]
     fn construct_client(
         cfg: &cfg::S3ClientConfig,
     ) -> Result<object_store::aws::AmazonS3, object_store::Error> {
@@ -453,16 +498,9 @@ impl S3BinaryCacheClient {
     }
 
     #[tracing::instrument(skip(self, listing), err)]
-    async fn upload_listing(
-        &self,
-        path: &nix_utils::StorePath,
-        listing: String,
-    ) -> Result<String, CacheError> {
-        let base = path.hash_part();
-        let info_key = format!("{base}.ls");
-        self.upsert_file(&info_key, listing, "application/json")
-            .await?;
-        Ok(info_key)
+    async fn upload_listing(&self, path: &str, listing: String) -> Result<(), CacheError> {
+        self.upsert_file(path, listing, "application/json").await?;
+        Ok(())
     }
 
     #[tracing::instrument(skip(self, store, narinfo), err)]
@@ -478,21 +516,18 @@ impl S3BinaryCacheClient {
         Ok(info_key)
     }
 
-    #[tracing::instrument(skip(self, store), err)]
-    pub async fn copy_path(
+    #[tracing::instrument(skip(self, store), fields(%path), err)]
+    async fn path_to_narinfo(
         &self,
         store: &nix_utils::LocalStore,
         path: &nix_utils::StorePath,
-        repair: bool,
-    ) -> Result<(), CacheError> {
-        if !repair && self.has_narinfo(path).await? {
-            return Ok(());
-        }
-
+    ) -> Result<NarInfo, CacheError> {
         let Some(path_info) = store.query_path_info(path).await else {
-            return Ok(()); // TODO: not found error?
+            return Err(CacheError::PathNotFound {
+                path: path.to_string(),
+            });
         };
-        let mut narinfo = NarInfo::new(
+        let narinfo = NarInfo::new(
             store,
             path,
             path_info,
@@ -510,10 +545,24 @@ impl S3BinaryCacheClient {
                 ));
             }
         }
+        Ok(narinfo)
+    }
 
+    #[tracing::instrument(skip(self, store), err)]
+    pub async fn copy_path(
+        &self,
+        store: &nix_utils::LocalStore,
+        path: &nix_utils::StorePath,
+        repair: bool,
+    ) -> Result<(), CacheError> {
+        if !repair && self.has_narinfo(path).await? {
+            return Ok(());
+        }
+
+        let mut narinfo = self.path_to_narinfo(store, path).await?;
         if self.cfg.write_nar_listing {
-            let ls = store.list_nar(path, true).await?;
-            self.upload_listing(path, ls).await?;
+            let ls = store.list_nar(&narinfo.store_path, true).await?;
+            self.upload_listing(&narinfo.get_ls_path(), ls).await?;
         }
 
         if self.cfg.write_debug_info {
@@ -541,7 +590,7 @@ impl S3BinaryCacheClient {
             self.cfg.parallel_compression,
         );
         let compressed_stream = compressor(stream);
-        let mut hashing_reader = crate::streaming_hash::HashingReader::new(compressed_stream);
+        let (mut hashing_reader, _) = crate::streaming_hash::HashingReader::new(compressed_stream);
         self.upload_file(
             &narinfo.url,
             &mut hashing_reader,
@@ -712,6 +761,132 @@ impl S3BinaryCacheClient {
             .filter_map(|o| async { o })
             .collect()
             .await
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    pub async fn generate_nar_upload_presigned_url(
+        &self,
+        path: &nix_utils::StorePath,
+        nix32_nar_hash: &str,
+        debug_info_build_ids: Vec<String>,
+    ) -> Result<PresignedUploadResponse, CacheError> {
+        let nar_hash_url = if let Some(h) = nix32_nar_hash.strip_prefix("sha256:") {
+            h
+        } else {
+            path.hash_part()
+        };
+
+        let nar_url = format!("nar/{}.{}", nar_hash_url, self.cfg.compression.ext());
+        let url = self
+            .s3
+            .signed_url(
+                reqwest::Method::PUT,
+                &object_store::path::Path::from(nar_url.as_str()),
+                self.cfg.presigned_url_expiry,
+            )
+            .await
+            .map_err(|e| CacheError::PresignedUrlError {
+                path: path.to_string(),
+                reason: format!("Failed to generate presigned URL for NAR: {e}"),
+            })?;
+        let ls_upload = if self.cfg.write_nar_listing {
+            let s3_file_path = format!("{}.ls", path.hash_part());
+            Some(PresignedUpload {
+                url: self
+                    .s3
+                    .signed_url(
+                        reqwest::Method::PUT,
+                        &object_store::path::Path::from(s3_file_path.as_str()),
+                        self.cfg.presigned_url_expiry,
+                    )
+                    .await
+                    .map_err(|e| CacheError::PresignedUrlError {
+                        path: s3_file_path.clone(),
+                        reason: format!("Failed to generate presigned URL for listing: {e}"),
+                    })?
+                    .to_string(),
+                path: s3_file_path,
+                compression: self.cfg.ls_compression,
+                compression_level: self.cfg.get_compression_level(),
+            })
+        } else {
+            None
+        };
+        let debug_info_upload = if self.cfg.write_debug_info && !debug_info_build_ids.is_empty() {
+            use futures::stream::StreamExt as _;
+
+            let mut o = Vec::with_capacity(debug_info_build_ids.len());
+            let mut stream = tokio_stream::iter(debug_info_build_ids)
+                .map(|build_id| async move {
+                    let s3_file_path = format!("debuginfo/{build_id}");
+                    // if this request fails, we assume default, which will then override the file
+                    if self.head_object(&s3_file_path).await.unwrap_or_default() {
+                        Ok(None)
+                    } else {
+                        Ok::<_, crate::CacheError>(Some(PresignedUpload {
+                            url: self
+                                .s3
+                                .signed_url(
+                                    reqwest::Method::PUT,
+                                    &object_store::path::Path::from(s3_file_path.as_str()),
+                                    self.cfg.presigned_url_expiry,
+                                )
+                                .await?
+                                .to_string(),
+                            path: s3_file_path,
+                            compression: Compression::None,
+                            compression_level: async_compression::Level::Default,
+                        }))
+                    }
+                })
+                .buffered(10);
+
+            while let Some(v) = tokio_stream::StreamExt::next(&mut stream).await {
+                if let Some(v) = v? {
+                    o.push(v);
+                }
+            }
+            o
+        } else {
+            vec![]
+        };
+
+        Ok(PresignedUploadResponse {
+            nar_url: nar_url.clone(), // we could deduplicate this, but its not that big of a deal
+            nar_upload: PresignedUpload {
+                path: nar_url,
+                url: url.to_string(),
+                compression: self.cfg.compression,
+                compression_level: self.cfg.get_compression_level(),
+            },
+            ls_upload,
+            debug_info_upload,
+        })
+    }
+
+    #[tracing::instrument(skip(self, store, narinfo), err)]
+    pub async fn upload_narinfo_after_presigned_upload(
+        &self,
+        store: &nix_utils::LocalStore,
+        narinfo: NarInfo,
+    ) -> Result<String, CacheError> {
+        if self.cfg.write_nar_listing {
+            self.head_object(&narinfo.get_ls_path())
+                .await?
+                .then_some(())
+                .ok_or(CacheError::PathNotFound {
+                    path: narinfo.get_ls_path(),
+                })?;
+        }
+        self.head_object(&narinfo.url)
+            .await?
+            .then_some(())
+            .ok_or(CacheError::PathNotFound {
+                path: narinfo.url.clone(),
+            })?;
+
+        let narinfo = narinfo.clear_sigs_and_sign(store, &self.signing_keys);
+        self.upload_narinfo(store, narinfo).await
     }
 }
 

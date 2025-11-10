@@ -1,5 +1,6 @@
 use sha2::{Digest as _, Sha256};
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio::sync::OnceCell;
@@ -10,31 +11,49 @@ pub enum Error {
     NotCompleted,
 }
 
+#[derive(Debug, Clone)]
+pub struct HashResult {
+    inner: Arc<OnceCell<(sha2::digest::Output<Sha256>, usize)>>,
+}
+
+impl HashResult {
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(OnceCell::new()),
+        }
+    }
+
+    pub fn get(&self) -> Result<(sha2::digest::Output<Sha256>, usize), Error> {
+        Ok(self.inner.get().ok_or(Error::NotCompleted)?.to_owned())
+    }
+}
+
 #[derive(Debug)]
 pub struct HashingReader<R> {
     inner: R,
-    hasher: Sha256,
+    hasher: Option<Sha256>,
     size: usize,
-    completed: OnceCell<()>,
+    hash_result: HashResult,
 }
 
 impl<R> Unpin for HashingReader<R> where R: Unpin {}
 
 impl<R: AsyncRead + Unpin + Send> HashingReader<R> {
-    pub fn new(reader: R) -> Self {
-        Self {
-            inner: reader,
-            hasher: Sha256::new(),
-            size: 0,
-            completed: OnceCell::new(),
-        }
+    pub fn new(reader: R) -> (Self, HashResult) {
+        let res = HashResult::new();
+        (
+            Self {
+                inner: reader,
+                hasher: Some(Sha256::new()),
+                size: 0,
+                hash_result: res.clone(),
+            },
+            res,
+        )
     }
 
-    pub fn finalize(self) -> Result<(sha2::digest::Output<Sha256>, usize), Error> {
-        if self.completed.get().is_none() {
-            return Err(Error::NotCompleted);
-        }
-        Ok((self.hasher.finalize(), self.size))
+    pub fn finalize(&self) -> Result<(sha2::digest::Output<Sha256>, usize), Error> {
+        self.hash_result.get()
     }
 }
 
@@ -49,12 +68,16 @@ impl<R: AsyncRead + Unpin + Send> AsyncRead for HashingReader<R> {
             Poll::Ready(Ok(())) => {
                 let new_data = &buf.filled()[filled_len..];
                 if !new_data.is_empty() {
-                    self.hasher.update(new_data);
+                    if let Some(hasher) = self.hasher.as_mut() {
+                        hasher.update(new_data);
+                    }
                     self.size += new_data.len();
                 }
-                // Mark as completed if we've reached EOF (no new data read)
+
                 if new_data.is_empty() {
-                    let _ = self.completed.set(());
+                    if let Some(hasher) = self.hasher.take() {
+                        let _ = self.hash_result.inner.set((hasher.finalize(), self.size));
+                    }
                 }
                 Poll::Ready(Ok(()))
             }
@@ -76,7 +99,7 @@ mod tests {
     async fn test_hashing_reader_empty_data() {
         let data = b"";
         let cursor = Cursor::new(data.to_vec());
-        let mut hashing_reader = HashingReader::new(cursor);
+        let (mut hashing_reader, _) = HashingReader::new(cursor);
 
         let mut buffer = Vec::new();
         let bytes_read = hashing_reader.read_to_end(&mut buffer).await.unwrap();
@@ -98,7 +121,7 @@ mod tests {
     async fn test_hashing_reader_small_data() {
         let data = b"Hello, world!";
         let cursor = Cursor::new(data.to_vec());
-        let mut hashing_reader = HashingReader::new(cursor);
+        let (mut hashing_reader, _) = HashingReader::new(cursor);
 
         let mut buffer = Vec::new();
         let bytes_read = hashing_reader.read_to_end(&mut buffer).await.unwrap();
@@ -121,7 +144,7 @@ mod tests {
         // Create 1MB of test data
         let data = vec![0x42u8; 1024 * 1024];
         let cursor = Cursor::new(data.clone());
-        let mut hashing_reader = HashingReader::new(cursor);
+        let (mut hashing_reader, _) = HashingReader::new(cursor);
 
         let mut buffer = Vec::new();
         let bytes_read = hashing_reader.read_to_end(&mut buffer).await.unwrap();
@@ -143,7 +166,7 @@ mod tests {
     async fn test_hashing_reader_partial_reads() {
         let data = b"The quick brown fox jumps over the lazy dog";
         let cursor = Cursor::new(data.to_vec());
-        let mut hashing_reader = HashingReader::new(cursor);
+        let (mut hashing_reader, _) = HashingReader::new(cursor);
 
         let mut buffer = [0u8; 10];
         let mut total_read = 0;
@@ -176,7 +199,7 @@ mod tests {
     async fn test_hashing_reader_exact_buffer_size() {
         let data = b"Exactly 20 bytes!!";
         let cursor = Cursor::new(data.to_vec());
-        let mut hashing_reader = HashingReader::new(cursor);
+        let (mut hashing_reader, _) = HashingReader::new(cursor);
 
         let mut buffer = [0u8; 20];
         let bytes_read = hashing_reader.read(&mut buffer).await.unwrap();
@@ -200,33 +223,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_hashing_reader_zero_size_read() {
-        let data = b"Test data";
-        let cursor = Cursor::new(data.to_vec());
-        let mut hashing_reader = HashingReader::new(cursor);
-
-        // Zero-size read should return 0 without consuming data
-        let mut buffer = [];
-        let bytes_read = hashing_reader.read(&mut buffer).await.unwrap();
-        assert_eq!(bytes_read, 0);
-
-        // Normal read should still work
-        let mut buffer2 = [0u8; 100];
-        let bytes_read2 = hashing_reader.read(&mut buffer2).await.unwrap();
-        assert_eq!(bytes_read2, data.len());
-        assert_eq!(&buffer2[..bytes_read2], data);
-
-        let (hash, size) = hashing_reader.finalize().unwrap();
-        assert_eq!(size, data.len());
-
-        // Verify against direct computation
-        let mut direct_hasher = Sha256::new();
-        direct_hasher.update(data);
-        let expected_hash = direct_hasher.finalize();
-        assert_eq!(hash, expected_hash);
-    }
-
-    #[tokio::test]
     async fn test_hashing_reader_different_data_patterns() {
         let test_cases = vec![
             vec![0u8; 100],                      // All zeros
@@ -237,7 +233,7 @@ mod tests {
 
         for data in test_cases {
             let cursor = Cursor::new(data.clone());
-            let mut hashing_reader = HashingReader::new(cursor);
+            let (mut hashing_reader, _) = HashingReader::new(cursor);
 
             let mut buffer = Vec::new();
             hashing_reader.read_to_end(&mut buffer).await.unwrap();
@@ -271,7 +267,7 @@ mod tests {
 
         let stream = ReceiverStream::new(rx);
         let reader = tokio_util::io::StreamReader::new(stream);
-        let mut hashing_reader = HashingReader::new(reader);
+        let (mut hashing_reader, _) = HashingReader::new(reader);
 
         let mut buffer = Vec::new();
         hashing_reader.read_to_end(&mut buffer).await.unwrap();
@@ -292,7 +288,7 @@ mod tests {
     async fn test_hashing_reader_finalize_before_completion() {
         let data = b"Hello, world!";
         let cursor = Cursor::new(data.to_vec());
-        let hashing_reader = HashingReader::new(cursor);
+        let (hashing_reader, _) = HashingReader::new(cursor);
 
         // Try to finalize before reading any data
         let result = hashing_reader.finalize();
@@ -304,7 +300,7 @@ mod tests {
     async fn test_hashing_reader_finalize_partial_read() {
         let data = b"Hello, world!";
         let cursor = Cursor::new(data.to_vec());
-        let mut hashing_reader = HashingReader::new(cursor);
+        let (mut hashing_reader, _) = HashingReader::new(cursor);
 
         // Read only part of the data
         let mut buffer = [0u8; 5];

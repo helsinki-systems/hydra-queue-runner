@@ -49,6 +49,25 @@ where
     Ok(())
 }
 
+pub async fn get_debug_info_build_ids(
+    store: &nix_utils::LocalStore,
+    store_path: &nix_utils::StorePath,
+) -> Result<Vec<String>, CacheError> {
+    let full_path = store.print_store_path(store_path);
+    let build_id_path = std::path::Path::new(&full_path).join("lib/debug/.build-id");
+
+    if !build_id_path.exists() {
+        tracing::debug!("No lib/debug/.build-id directory found in {}", store_path);
+        return Ok(vec![]);
+    }
+
+    Ok(find_debug_files(&build_id_path)
+        .await?
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect())
+}
+
 /// Finds debug files by scanning the build-id directory structure.
 async fn find_debug_files(
     build_id_path: &std::path::Path,
