@@ -293,14 +293,6 @@ impl Machines {
         supported_features.iter().cloned().collect()
     }
 
-    #[allow(dead_code)]
-    fn has_supported_features(&self, required_features: &[String]) -> bool {
-        let supported_features = self.supported_features.read();
-        required_features
-            .iter()
-            .all(|f| supported_features.contains(f))
-    }
-
     fn reconstruct_supported_features(&self) {
         let all_supported_features = {
             let inner = self.inner.read();

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
