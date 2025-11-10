@@ -99,7 +99,7 @@ pub async fn init_client(cli: &crate::config::Cli) -> anyhow::Result<BuilderClie
         .max_encoding_message_size(50 * 1024 * 1024))
 }
 
-#[tracing::instrument(skip(state, client, request), err)]
+#[tracing::instrument(skip(state, client), err)]
 async fn handle_request(
     state: Arc<crate::state::State>,
     client: &mut BuilderClient,
@@ -108,10 +108,10 @@ async fn handle_request(
     match request {
         runner_request::Message::Build(m) => {
             let client = client.clone();
-            state.schedule_build(client, m);
+            state.schedule_build(client, m)?;
         }
         runner_request::Message::Abort(m) => {
-            state.abort_build(&m);
+            state.abort_build(&m)?;
         }
         runner_request::Message::Join(m) => {
             state.max_concurrent_downloads.store(

@@ -27,7 +27,7 @@ message BuilderRequest {
 }
 
 message JoinMessage {
-  string machine_id = 1;
+  string machine_id = 1; // UUIDv4
   repeated string systems = 2;
   string hostname = 3;
   uint32 cpu_count = 4;
@@ -63,7 +63,7 @@ message PressureState {
 }
 
 message PingMessage {
-  string machine_id = 1;
+  string machine_id = 1; // UUIDv4
   float load1 = 2;
   float load5 = 3;
   float load15 = 4;
@@ -87,16 +87,17 @@ message RunnerRequest {
 }
 
 message JoinResponse {
-  string machine_id = 1;
+  string machine_id = 1; // UUIDv4
   uint32 max_concurrent_downloads = 2;
 }
 
 message BuildMessage {
-  string drv = 1;
-  optional string resolved_drv = 2;
-  uint64 max_log_size = 3;
-  int32 max_silent_time = 4;
-  int32 build_timeout = 5;
+  string build_id = 1; // UUIDv4
+  string drv = 2;
+  optional string resolved_drv = 3;
+  uint64 max_log_size = 4;
+  int32 max_silent_time = 5;
+  int32 build_timeout = 6;
   // bool is_deterministic = 5;
   // bool enforce_determinism = 6;
 }
@@ -106,7 +107,7 @@ message DrvRequisitesMessage {
 }
 
 message AbortMessage {
-  string drv = 1;
+  string build_id = 1; // UUIDv4
 }
 
 message LogChunk {
@@ -189,8 +190,9 @@ enum StepStatus {
 }
 
 message StepUpdate {
-  string machine_id = 1;
-  string drv = 2;
+  // UUID to uniquely identify the build request
+  string build_id = 1;
+  string machine_id = 2;
   StepStatus step_status = 3;
 }
 
@@ -204,8 +206,8 @@ enum BuildResultState {
 }
 
 message BuildResultInfo {
-  string machine_id = 1;
-  string drv = 2;
+  string build_id = 1; // UUIDv4
+  string machine_id = 2; // UUIDv4
   uint64 import_time_ms = 3;
   uint64 build_time_ms = 4;
   BuildResultState result_state = 5;

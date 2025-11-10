@@ -59,6 +59,7 @@ impl From<JobFailure> for BuildResultState {
 }
 
 pub struct BuildInfo {
+    drv_path: nix_utils::StorePath,
     handle: tokio::task::JoinHandle<()>,
     was_cancelled: Arc<AtomicBool>,
 }
@@ -91,7 +92,7 @@ pub struct Config {
 pub struct State {
     id: uuid::Uuid,
 
-    active_builds: parking_lot::RwLock<AHashMap<nix_utils::StorePath, Arc<BuildInfo>>>,
+    active_builds: parking_lot::RwLock<AHashMap<uuid::Uuid, Arc<BuildInfo>>>,
 
     pub config: Config,
 
@@ -234,12 +235,17 @@ impl State {
     }
 
     #[tracing::instrument(skip(self, client, m), fields(drv=%m.drv))]
-    pub fn schedule_build(self: Arc<Self>, client: BuilderClient, m: BuildMessage) {
+    pub fn schedule_build(
+        self: Arc<Self>,
+        client: BuilderClient,
+        m: BuildMessage,
+    ) -> anyhow::Result<()> {
         let drv = nix_utils::StorePath::new(&m.drv);
         if self.contains_build(&drv) {
-            return;
+            return Ok(());
         }
         log::info!("Building {drv}");
+        let build_id = uuid::Uuid::parse_str(&m.build_id)?;
 
         let was_cancelled = Arc::new(AtomicBool::new(false));
         let task_handle = tokio::spawn({
@@ -259,7 +265,7 @@ impl State {
                 {
                     Ok(()) => {
                         log::info!("Successfully completed build process for {drv}");
-                        self_.remove_build(&drv);
+                        self_.remove_build(build_id);
                     }
                     Err(e) => {
                         if was_cancelled.load(atomic::Ordering::SeqCst) {
@@ -268,17 +274,17 @@ impl State {
                         }
 
                         log::error!("Build of {drv} failed with {e}");
-                        self_.remove_build(&drv);
+                        self_.remove_build(build_id);
                         let failed_build = BuildResultInfo {
+                            build_id: build_id.to_string(),
                             machine_id: self_.id.to_string(),
-                            drv: drv.into_base_name(),
                             import_time_ms: u64::try_from(import_elapsed.as_millis())
                                 .unwrap_or_default(),
                             build_time_ms: u64::try_from(build_elapsed.as_millis())
                                 .unwrap_or_default(),
                             result_state: BuildResultState::from(e) as i32,
-                            outputs: vec![],
                             nix_support: None,
+                            outputs: vec![],
                         };
 
                         if let (_, Err(e)) = (|tuple: (BuilderClient, BuildResultInfo)| async {
@@ -302,42 +308,46 @@ impl State {
         });
 
         self.insert_new_build(
-            drv,
+            build_id,
             BuildInfo {
+                drv_path: drv,
                 handle: task_handle,
                 was_cancelled,
             },
         );
+        Ok(())
     }
 
     fn contains_build(&self, drv: &nix_utils::StorePath) -> bool {
         let active = self.active_builds.read();
-        active.contains_key(drv)
+        active.values().any(|b| b.drv_path == *drv)
     }
 
-    fn insert_new_build(&self, drv: nix_utils::StorePath, b: BuildInfo) {
+    fn insert_new_build(&self, build_id: uuid::Uuid, b: BuildInfo) {
         {
             let mut active = self.active_builds.write();
-            active.insert(drv, Arc::new(b));
+            active.insert(build_id, Arc::new(b));
         }
         self.publish_builds_to_sd_notify();
     }
 
-    fn remove_build(&self, drv: &nix_utils::StorePath) -> Option<Arc<BuildInfo>> {
+    fn remove_build(&self, build_id: uuid::Uuid) -> Option<Arc<BuildInfo>> {
         let b = {
             let mut active = self.active_builds.write();
-            active.remove(drv)
+            active.remove(&build_id)
         };
         self.publish_builds_to_sd_notify();
         b
     }
 
-    #[tracing::instrument(skip(self, m), fields(drv=%m.drv))]
-    pub fn abort_build(&self, m: &AbortMessage) {
+    #[tracing::instrument(skip(self, m), fields(build_id=%m.build_id))]
+    pub fn abort_build(&self, m: &AbortMessage) -> anyhow::Result<()> {
         log::info!("Try cancelling build");
-        if let Some(b) = self.remove_build(&nix_utils::StorePath::new(&m.drv)) {
+        let build_id = uuid::Uuid::parse_str(&m.build_id)?;
+        if let Some(b) = self.remove_build(build_id) {
             b.abort();
         }
+        Ok(())
     }
 
     pub fn abort_all_active_builds(&self) {
@@ -378,8 +388,8 @@ impl State {
 
         let _ = client // we ignore the error here, as this step status has no prio
             .build_step_update(StepUpdate {
+                build_id: m.build_id.clone(),
                 machine_id: machine_id.to_string(),
-                drv: drv.base_name().to_owned(),
                 step_status: StepStatus::SeningInputs as i32,
             })
             .await;
@@ -420,8 +430,8 @@ impl State {
 
         let _ = client // we ignore the error here, as this step status has no prio
             .build_step_update(StepUpdate {
+                build_id: m.build_id.clone(),
                 machine_id: machine_id.to_string(),
-                drv: drv.base_name().to_owned(),
                 step_status: StepStatus::Building as i32,
             })
             .await;
@@ -473,8 +483,8 @@ impl State {
 
         let _ = client // we ignore the error here, as this step status has no prio
             .build_step_update(StepUpdate {
+                build_id: m.build_id.clone(),
                 machine_id: machine_id.to_string(),
-                drv: drv.base_name().to_owned(),
                 step_status: StepStatus::ReceivingOutputs as i32,
             })
             .await;
@@ -484,8 +494,8 @@ impl State {
 
         let _ = client // we ignore the error here, as this step status has no prio
             .build_step_update(StepUpdate {
+                build_id: m.build_id.clone(),
                 machine_id: machine_id.to_string(),
-                drv: drv.base_name().to_owned(),
                 step_status: StepStatus::PostProcessing as i32,
             })
             .await;
@@ -496,6 +506,7 @@ impl State {
             drv_info,
             *import_elapsed,
             *build_elapsed,
+            m.build_id.clone(),
         ))
         .await
         .map_err(JobFailure::PostProcessing)?;
@@ -532,8 +543,8 @@ impl State {
         let active = {
             let builds = self.active_builds.read();
             builds
-                .keys()
-                .map(|b| b.base_name().to_owned())
+                .values()
+                .map(|b| b.drv_path.base_name().to_owned())
                 .collect::<Vec<_>>()
         };
 
@@ -769,6 +780,7 @@ async fn new_success_build_result_info(
     drv_info: nix_utils::Derivation,
     import_elapsed: std::time::Duration,
     build_elapsed: std::time::Duration,
+    build_id: String,
 ) -> anyhow::Result<BuildResultInfo> {
     let outputs = &drv_info
         .outputs
@@ -801,8 +813,8 @@ async fn new_success_build_result_info(
     }
 
     Ok(BuildResultInfo {
+        build_id,
         machine_id: machine_id.to_string(),
-        drv: drv.base_name().to_owned(),
         import_time_ms: u64::try_from(import_elapsed.as_millis())?,
         build_time_ms: u64::try_from(build_elapsed.as_millis())?,
         result_state: BuildResultState::Success as i32,

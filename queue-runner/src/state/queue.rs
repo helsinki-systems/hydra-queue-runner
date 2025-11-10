@@ -346,8 +346,16 @@ impl Queues {
             {
                 log::info!("Cancelling step drv={drv_path}");
                 step_info.set_cancelled(true);
-                if let Err(e) = machine.abort_build(drv_path).await {
-                    log::error!("Failed to abort build drv_path={drv_path} e={e}");
+
+                if let Some(internal_build_id) = machine.get_internal_build_id_for_drv(drv_path) {
+                    if let Err(e) = machine.abort_build(internal_build_id).await {
+                        log::error!(
+                            "Failed to abort build drv_path={drv_path} build_id={internal_build_id} e={e}",
+                        );
+                        continue;
+                    }
+                } else {
+                    log::warn!("No active build_id found for drv_path={drv_path}",);
                     continue;
                 }
 

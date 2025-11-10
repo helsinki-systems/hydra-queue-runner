@@ -431,6 +431,7 @@ impl Machines {
 
 #[derive(Debug, Clone)]
 pub struct Job {
+    pub internal_build_id: uuid::Uuid,
     pub path: nix_utils::StorePath,
     pub resolved_drv: Option<nix_utils::StorePath>,
     pub build_id: BuildID,
@@ -445,6 +446,7 @@ impl Job {
         resolved_drv: Option<nix_utils::StorePath>,
     ) -> Self {
         Self {
+            internal_build_id: uuid::Uuid::new_v4(),
             path,
             resolved_drv,
             build_id,
@@ -456,6 +458,7 @@ impl Job {
 
 pub enum Message {
     BuildMessage {
+        build_id: uuid::Uuid,
         drv: nix_utils::StorePath,
         resolved_drv: Option<nix_utils::StorePath>,
         max_log_size: u64,
@@ -463,7 +466,7 @@ pub enum Message {
         build_timeout: i32,
     },
     AbortMessage {
-        drv: nix_utils::StorePath,
+        build_id: uuid::Uuid,
     },
 }
 
@@ -471,20 +474,22 @@ impl Message {
     pub fn into_request(self) -> crate::server::grpc::runner_v1::RunnerRequest {
         let msg = match self {
             Message::BuildMessage {
+                build_id,
                 drv,
                 resolved_drv,
                 max_log_size,
                 max_silent_time,
                 build_timeout,
             } => runner_request::Message::Build(BuildMessage {
+                build_id: build_id.to_string(),
                 drv: drv.into_base_name(),
                 resolved_drv: resolved_drv.map(nix_utils::StorePath::into_base_name),
                 max_log_size,
                 max_silent_time,
                 build_timeout,
             }),
-            Message::AbortMessage { drv } => runner_request::Message::Abort(AbortMessage {
-                drv: drv.into_base_name(),
+            Message::AbortMessage { build_id } => runner_request::Message::Abort(AbortMessage {
+                build_id: build_id.to_string(),
             }),
         };
 
@@ -569,6 +574,7 @@ impl Machine {
         let drv = job.path.clone();
         self.msg_queue
             .send(Message::BuildMessage {
+                build_id: job.internal_build_id,
                 drv,
                 resolved_drv: job.resolved_drv.clone(),
                 max_log_size: opts.get_max_log_size(),
@@ -591,12 +597,10 @@ impl Machine {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self), fields(%drv), err)]
-    pub async fn abort_build(&self, drv: &nix_utils::StorePath) -> anyhow::Result<()> {
+    #[tracing::instrument(skip(self), fields(build_id=%build_id), err)]
+    pub async fn abort_build(&self, build_id: uuid::Uuid) -> anyhow::Result<()> {
         self.msg_queue
-            .send(Message::AbortMessage {
-                drv: drv.to_owned(),
-            })
+            .send(Message::AbortMessage { build_id })
             .await?;
 
         // dont remove job from machine now, we will do that when the job is set to failed/cancelled
@@ -704,8 +708,33 @@ impl Machine {
     #[tracing::instrument(skip(self), fields(%drv))]
     pub fn get_build_id_and_step_nr(&self, drv: &nix_utils::StorePath) -> Option<(i32, i32)> {
         let jobs = self.jobs.read();
-        let job = jobs.iter().find(|j| &j.path == drv).cloned();
-        job.map(|j| (j.build_id, j.step_nr))
+        jobs.iter()
+            .find(|j| &j.path == drv)
+            .map(|j| (j.build_id, j.step_nr))
+    }
+
+    #[tracing::instrument(skip(self), fields(%build_id))]
+    pub fn get_build_id_and_step_nr_by_uuid(&self, build_id: uuid::Uuid) -> Option<(i32, i32)> {
+        let jobs = self.jobs.read();
+        jobs.iter()
+            .find(|j| j.internal_build_id == build_id)
+            .map(|j| (j.build_id, j.step_nr))
+    }
+
+    #[tracing::instrument(skip(self), fields(%build_id))]
+    pub fn get_job_drv_for_build_id(&self, build_id: uuid::Uuid) -> Option<nix_utils::StorePath> {
+        let jobs = self.jobs.read();
+        jobs.iter()
+            .find(|j| j.internal_build_id == build_id)
+            .map(|v| v.path.clone())
+    }
+
+    #[tracing::instrument(skip(self), fields(%drv))]
+    pub fn get_internal_build_id_for_drv(&self, drv: &nix_utils::StorePath) -> Option<uuid::Uuid> {
+        let jobs = self.jobs.read();
+        jobs.iter()
+            .find(|j| &j.path == drv)
+            .map(|v| v.internal_build_id)
     }
 
     #[tracing::instrument(skip(self, job))]

@@ -369,22 +369,28 @@ impl RunnerService for Server {
         let state = self.state.clone();
 
         let req = req.into_inner();
-        let drv = req.drv.clone();
-        let machine_id = uuid::Uuid::parse_str(&req.machine_id);
+        let build_id = uuid::Uuid::parse_str(&req.build_id).map_err(|e| {
+            log::error!("Failed to parse build_id into uuid: {e}");
+            tonic::Status::invalid_argument("build_id is not a valid uuid.")
+        })?;
+        let machine_id = uuid::Uuid::parse_str(&req.machine_id).map_err(|e| {
+            log::error!("Failed to parse machine_id into uuid: {e}");
+            tonic::Status::invalid_argument("machine_id is not a valid uuid.")
+        })?;
         let step_status = db::models::StepStatus::from(req.step_status());
 
         tokio::spawn({
             async move {
                 if let Err(e) = state
                     .update_build_step(
-                        machine_id.ok(),
-                        &nix_utils::StorePath::new(&drv),
+                        build_id,
+                        machine_id,
                         step_status,
                     )
                     .await
                 {
                     log::error!(
-                        "Failed to update build step with drv={drv} step_status={step_status:?}: {e}"
+                        "Failed to update build step with build_id={build_id:?} step_status={step_status:?}: {e}"
                     );
                 }
             }.in_current_span()
@@ -393,7 +399,7 @@ impl RunnerService for Server {
         Ok(tonic::Response::new(runner_v1::Empty {}))
     }
 
-    #[tracing::instrument(skip(self, req), fields(machine_id=req.get_ref().machine_id, drv=req.get_ref().drv), err)]
+    #[tracing::instrument(skip(self, req), fields(machine_id=req.get_ref().machine_id, build_id=req.get_ref().build_id), err)]
     async fn complete_build(
         &self,
         req: tonic::Request<BuildResultInfo>,
@@ -401,34 +407,36 @@ impl RunnerService for Server {
         let state = self.state.clone();
 
         let req = req.into_inner();
-        let drv = req.drv.clone();
-        let machine_id = uuid::Uuid::parse_str(&req.machine_id);
+        let build_id = uuid::Uuid::parse_str(&req.build_id).map_err(|e| {
+            log::error!("Failed to parse build_id into uuid: {e}");
+            tonic::Status::invalid_argument("build_id is not a valid uuid.")
+        })?;
+        let machine_id = uuid::Uuid::parse_str(&req.machine_id).map_err(|e| {
+            log::error!("Failed to parse machine_id into uuid: {e}");
+            tonic::Status::invalid_argument("machine_id is not a valid uuid.")
+        })?;
 
         tokio::spawn({
             async move {
                 if req.result_state() == BuildResultState::Success {
                     let build_output = crate::state::BuildOutput::from(req);
                     if let Err(e) = state
-                        .succeed_step(
-                            machine_id.ok(),
-                            &nix_utils::StorePath::new(&drv),
-                            build_output,
-                        )
+                        .succeed_step_by_uuid(build_id, machine_id, build_output)
                         .await
                     {
-                        log::error!("Failed to mark step with drv={drv} as done: {e}");
+                        log::error!("Failed to mark step with build_id={build_id} as done: {e}");
                     }
                 } else if let Err(e) = state
-                    .fail_step(
-                        machine_id.ok(),
-                        &nix_utils::StorePath::new(&drv),
+                    .fail_step_by_uuid(
+                        build_id,
+                        machine_id,
                         req.result_state().into(),
                         std::time::Duration::from_millis(req.import_time_ms),
                         std::time::Duration::from_millis(req.build_time_ms),
                     )
                     .await
                 {
-                    log::error!("Failed to fail step with drv={drv}: {e}");
+                    log::error!("Failed to fail step with build_id={build_id}: {e}");
                 }
             }
             .in_current_span()

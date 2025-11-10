@@ -196,7 +196,7 @@ impl State {
             for job in &jobs {
                 if let Err(e) = self
                     .fail_step(
-                        Some(machine_id),
+                        machine_id,
                         &job.path,
                         // we fail this with preparing because we kinda want to restart all jobs if
                         // a machine is removed
@@ -503,7 +503,7 @@ impl State {
         for (drv_path, machine_id) in cancelled_steps {
             if let Err(e) = self
                 .fail_step(
-                    Some(machine_id),
+                    machine_id,
                     &drv_path,
                     BuildResultState::Cancelled,
                     std::time::Duration::from_secs(0),
@@ -993,27 +993,26 @@ impl State {
         self.abort_unsupported().await;
     }
 
-    #[tracing::instrument(skip(self, machine_id, step_status), fields(%drv_path), err)]
+    #[tracing::instrument(skip(self, step_status), fields(%build_id, %machine_id), err)]
     pub async fn update_build_step(
         &self,
-        machine_id: Option<uuid::Uuid>,
-        drv_path: &nix_utils::StorePath,
+        build_id: uuid::Uuid,
+        machine_id: uuid::Uuid,
         step_status: db::models::StepStatus,
     ) -> anyhow::Result<()> {
-        let build_id_and_step_nr = if let Some(machine_id) = machine_id {
-            if let Some(m) = self.machines.get_machine_by_id(machine_id) {
-                log::debug!("get job from machine: drv_path={drv_path} m={}", m.id);
-                m.get_build_id_and_step_nr(drv_path)
-            } else {
-                None
-            }
+        let build_id_and_step_nr = if let Some(m) = self.machines.get_machine_by_id(machine_id) {
+            log::debug!(
+                "get job from machine by build_id: build_id={build_id} m={}",
+                m.id
+            );
+            m.get_build_id_and_step_nr_by_uuid(build_id)
         } else {
             None
         };
 
         let Some((build_id, step_nr)) = build_id_and_step_nr else {
             log::warn!(
-                "Failed to find job with build_id and step_nr for machine_id={machine_id:?} drv_path={drv_path}."
+                "Failed to find job with build_id and step_nr for build_id={build_id:?} machine_id={machine_id:?}."
             );
             return Ok(());
         };
@@ -1030,10 +1029,10 @@ impl State {
     }
 
     #[allow(clippy::too_many_lines)]
-    #[tracing::instrument(skip(self, output), fields(%drv_path), err)]
+    #[tracing::instrument(skip(self, output), fields(%machine_id, %drv_path), err)]
     pub async fn succeed_step(
         &self,
-        machine_id: Option<uuid::Uuid>,
+        machine_id: uuid::Uuid,
         drv_path: &nix_utils::StorePath,
         output: BuildOutput,
     ) -> anyhow::Result<()> {
@@ -1204,10 +1203,10 @@ impl State {
     }
 
     #[allow(clippy::too_many_lines)]
-    #[tracing::instrument(skip(self), fields(%drv_path), err)]
+    #[tracing::instrument(skip(self), fields(%machine_id, %drv_path), err)]
     pub async fn fail_step(
         &self,
-        machine_id: Option<uuid::Uuid>,
+        machine_id: uuid::Uuid,
         drv_path: &nix_utils::StorePath,
         state: BuildResultState,
         import_elapsed: std::time::Duration,
@@ -1305,6 +1304,45 @@ impl State {
             .add_to_total_step_import_time_ms(import_elapsed.as_millis());
 
         self.inner_fail_job(drv_path, Some(machine), job, step_info.step.clone())
+            .await
+    }
+
+    #[tracing::instrument(skip(self, output), fields(%machine_id, build_id=%build_id), err)]
+    pub async fn succeed_step_by_uuid(
+        &self,
+        build_id: uuid::Uuid,
+        machine_id: uuid::Uuid,
+        output: BuildOutput,
+    ) -> anyhow::Result<()> {
+        let machine = self
+            .machines
+            .get_machine_by_id(machine_id)
+            .ok_or(anyhow::anyhow!("Machine with machine_id not found"))?;
+        let drv_path = machine
+            .get_job_drv_for_build_id(build_id)
+            .ok_or(anyhow::anyhow!("Job with build_id not found"))?;
+
+        self.succeed_step(machine_id, &drv_path, output).await
+    }
+
+    #[tracing::instrument(skip(self), fields(%machine_id, build_id=%build_id), err)]
+    pub async fn fail_step_by_uuid(
+        &self,
+        build_id: uuid::Uuid,
+        machine_id: uuid::Uuid,
+        state: BuildResultState,
+        import_elapsed: std::time::Duration,
+        build_elapsed: std::time::Duration,
+    ) -> anyhow::Result<()> {
+        let machine = self
+            .machines
+            .get_machine_by_id(machine_id)
+            .ok_or(anyhow::anyhow!("Machine with machine_id not found"))?;
+        let drv_path = machine
+            .get_job_drv_for_build_id(build_id)
+            .ok_or(anyhow::anyhow!("Job with build_id not found"))?;
+
+        self.fail_step(machine_id, &drv_path, state, import_elapsed, build_elapsed)
             .await
     }
 
