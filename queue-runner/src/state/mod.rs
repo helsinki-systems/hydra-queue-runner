@@ -345,7 +345,7 @@ impl State {
             })
             .await?;
         machine.build_drv(job, &build_options).await?;
-        self.metrics.nr_steps_started.add(1);
+        self.metrics.nr_steps_started.inc();
         self.metrics.nr_steps_building.add(1);
         Ok(RealiseStepResult::Valid(machine))
     }
@@ -420,7 +420,7 @@ impl State {
             #[allow(clippy::cast_possible_truncation)]
             self.metrics
                 .build_read_time_ms
-                .add(now.elapsed().as_millis() as i64);
+                .inc_by(now.elapsed().as_millis() as u64);
 
             {
                 let new_runnable = new_runnable.read();
@@ -433,10 +433,9 @@ impl State {
                     r.make_runnable();
                 }
             }
-
-            self.metrics
-                .nr_builds_read
-                .add(nr_added.load(Ordering::Relaxed));
+            if let Ok(added_u64) = u64::try_from(nr_added.load(Ordering::Relaxed)) {
+                self.metrics.nr_builds_read.inc_by(added_u64);
+            }
             let stop_queue_run_after = self.config.get_stop_queue_run_after();
 
             if let Some(stop_queue_run_after) = stop_queue_run_after
@@ -632,7 +631,7 @@ impl State {
                     }
                 }
             };
-            self.metrics.nr_queue_wakeups.add(1);
+            self.metrics.nr_queue_wakeups.inc();
             log::trace!("New notification from PgListener. notification={notification:?}");
 
             match notification.as_ref() {
@@ -682,7 +681,7 @@ impl State {
                         .dispatcher_time_spent_waiting
                         .inc_by(before_sleep.elapsed().as_micros() as u64);
 
-                    self.metrics.nr_dispatcher_wakeups.add(1);
+                    self.metrics.nr_dispatcher_wakeups.inc();
                     let before_work = Instant::now();
                     self.clone().do_dispatch_once().await;
 
@@ -696,7 +695,7 @@ impl State {
                     #[allow(clippy::cast_possible_truncation)]
                     self.metrics
                         .dispatch_time_ms
-                        .add(elapsed.as_millis() as i64);
+                        .inc_by(elapsed.as_millis() as u64);
                 }
             }
         });
@@ -979,7 +978,7 @@ impl State {
             .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?;
 
         step_info.step.set_finished(true);
-        self.metrics.nr_steps_done.add(1);
+        self.metrics.nr_steps_done.inc();
         self.metrics.nr_steps_building.sub(1);
 
         log::debug!(
@@ -1086,7 +1085,7 @@ impl State {
                     )?, // TODO
                 )
                 .await?;
-                self.metrics.nr_builds_done.add(1);
+                self.metrics.nr_builds_done.inc();
             }
 
             tx.commit().await?;
@@ -1138,7 +1137,7 @@ impl State {
             .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?;
 
         step_info.step.set_finished(false);
-        self.metrics.nr_steps_done.add(1);
+        self.metrics.nr_steps_done.inc();
         self.metrics.nr_steps_building.sub(1);
 
         log::debug!(
@@ -1171,7 +1170,7 @@ impl State {
                 // - maschine.build_step_time_ms,
                 // - maschine.total_step_time_ms,
                 // - maschine.last_failure
-                self.metrics.nr_retries.add(1);
+                self.metrics.nr_retries.inc();
                 #[allow(clippy::cast_precision_loss)]
                 #[allow(clippy::cast_possible_truncation)]
                 let delta = (retry_interval * retry_backoff.powf((tries - 1) as f32)) as i64;
@@ -1378,7 +1377,7 @@ impl State {
                         job.result.step_status == BuildStatus::CachedFailure,
                     )
                     .await?;
-                    self.metrics.nr_builds_done.add(1);
+                    self.metrics.nr_builds_done.inc();
                 }
 
                 // Remember failed paths in the database so that they won't be built again.
@@ -1565,7 +1564,7 @@ impl State {
         tx.commit().await?;
 
         build.set_finished_in_db(true);
-        self.metrics.nr_builds_done.add(1);
+        self.metrics.nr_builds_done.inc();
         Ok(())
     }
 
@@ -1614,7 +1613,7 @@ impl State {
             }
 
             build.set_finished_in_db(true);
-            self.metrics.nr_builds_done.add(1);
+            self.metrics.nr_builds_done.inc();
             return;
         }
 
@@ -1992,7 +1991,7 @@ impl State {
                 i32::try_from(now)?, // TODO
             )
             .await?;
-            self.metrics.nr_builds_done.add(1);
+            self.metrics.nr_builds_done.inc();
 
             tx.notify_build_finished(build.id, &[]).await?;
             tx.commit().await?;
@@ -2138,6 +2137,6 @@ impl State {
         self.metrics.nr_unsupported_steps.set(count);
         self.metrics
             .nr_unsupported_steps_aborted
-            .add(i64::try_from(aborted.len()).unwrap_or_default());
+            .inc_by(aborted.len() as u64);
     }
 }

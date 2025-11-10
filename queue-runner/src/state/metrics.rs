@@ -18,34 +18,34 @@ pub struct PromMetrics {
     pub queue_monitor_time_spent_running: prometheus::IntCounter,
     pub queue_monitor_time_spent_waiting: prometheus::IntCounter,
 
-    pub nr_builds_read: prometheus::IntGauge, // hydra_queue_builds_read
-    pub build_read_time_ms: prometheus::IntGauge, // hydra_queue_builds_time
+    pub nr_builds_read: prometheus::IntCounter, // hydra_queue_builds_read
+    pub build_read_time_ms: prometheus::IntCounter, // hydra_queue_builds_time
     pub nr_builds_unfinished: prometheus::IntGauge, // hydra_queue_builds_unfinished
-    pub nr_builds_done: prometheus::IntGauge, // hydra_queue_builds_finished
-    pub nr_steps_started: prometheus::IntGauge, // hydra_queue_steps_started
-    pub nr_steps_done: prometheus::IntGauge,  // hydra_queue_steps_finished
+    pub nr_builds_done: prometheus::IntCounter, // hydra_queue_builds_finished
+    pub nr_steps_started: prometheus::IntCounter, // hydra_queue_steps_started
+    pub nr_steps_done: prometheus::IntCounter,  // hydra_queue_steps_finished
     pub nr_steps_building: prometheus::IntGauge, // hydra_queue_steps_building
     pub nr_steps_waiting: prometheus::IntGauge, // hydra_queue_steps_waiting
     pub nr_steps_runnable: prometheus::IntGauge, // hydra_queue_steps_runnable
     pub nr_steps_unfinished: prometheus::IntGauge, // hydra_queue_steps_unfinished
     pub nr_unsupported_steps: prometheus::IntGauge, // hydra_queue_steps_unsupported
-    pub nr_unsupported_steps_aborted: prometheus::IntGauge, // hydra_queue_steps_unsupported_aborted
-    pub nr_substitutes_started: prometheus::IntGauge, // hydra_queue_substitutes_started
-    pub nr_substitutes_failed: prometheus::IntGauge, // hydra_queue_substitutes_failed
-    pub nr_substitutes_succeeded: prometheus::IntGauge, // hydra_queue_substitutes_succeeded
-    pub nr_retries: prometheus::IntGauge,     // hydra_queue_steps_retries
-    pub max_nr_retries: prometheus::IntGauge, // hydra_queue_steps_max_retries
-    pub avg_step_time_ms: prometheus::IntGauge, // hydra_queue_steps_avg_total_time
-    pub avg_step_import_time_ms: prometheus::IntGauge, // hydra_queue_steps_avg_import_time
-    pub avg_step_build_time_ms: prometheus::IntGauge, // hydra_queue_steps_avg_build_time
-    pub total_step_time_ms: prometheus::IntGauge, // hydra_queue_steps_total_time
-    pub total_step_import_time_ms: prometheus::IntGauge, // hydra_queue_steps_total_import_time
-    pub total_step_build_time_ms: prometheus::IntGauge, // hydra_queue_steps_total_build_time
-    pub nr_queue_wakeups: prometheus::IntGauge, //hydra_queue_checks
-    pub nr_dispatcher_wakeups: prometheus::IntGauge, // hydra_queue_dispatch_wakeup
-    pub dispatch_time_ms: prometheus::IntGauge, // hydra_queue_dispatch_time
-    pub machines_total: prometheus::IntGauge, // hydra_queue_machines_total
-    pub machines_in_use: prometheus::IntGauge, // hydra_queue_machines_in_use
+    pub nr_unsupported_steps_aborted: prometheus::IntCounter, // hydra_queue_steps_unsupported_aborted
+    pub nr_substitutes_started: prometheus::IntCounter,       // hydra_queue_substitutes_started
+    pub nr_substitutes_failed: prometheus::IntCounter,        // hydra_queue_substitutes_failed
+    pub nr_substitutes_succeeded: prometheus::IntCounter,     // hydra_queue_substitutes_succeeded
+    pub nr_retries: prometheus::IntCounter,                   // hydra_queue_steps_retries
+    pub max_nr_retries: prometheus::IntGauge,                 // hydra_queue_steps_max_retries
+    pub avg_step_time_ms: prometheus::IntGauge,               // hydra_queue_steps_avg_total_time
+    pub avg_step_import_time_ms: prometheus::IntGauge,        // hydra_queue_steps_avg_import_time
+    pub avg_step_build_time_ms: prometheus::IntGauge,         // hydra_queue_steps_avg_build_time
+    pub total_step_time_ms: prometheus::IntCounter,           // hydra_queue_steps_total_time
+    pub total_step_import_time_ms: prometheus::IntCounter,    // hydra_queue_steps_total_import_time
+    pub total_step_build_time_ms: prometheus::IntCounter,     // hydra_queue_steps_total_build_time
+    pub nr_queue_wakeups: prometheus::IntCounter,             //hydra_queue_checks
+    pub nr_dispatcher_wakeups: prometheus::IntCounter,        // hydra_queue_dispatch_wakeup
+    pub dispatch_time_ms: prometheus::IntCounter,             // hydra_queue_dispatch_time
+    pub machines_total: prometheus::IntGauge,                 // hydra_queue_machines_total
+    pub machines_in_use: prometheus::IntGauge,                // hydra_queue_machines_in_use
 
     // Per-machine-type metrics
     pub runnable_per_machine_type: prometheus::IntGaugeVec, // hydra_queue_machines_runnable
@@ -148,27 +148,27 @@ impl PromMetrics {
                 "Time (in micros) spent waiting for the queue monitor to obtain work",
             ))?;
 
-        let nr_builds_read = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+        let nr_builds_read = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_builds_read",
-            "Number of builds read from the database",
+            "Number of builds read from database",
         ))?;
-        let build_read_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+        let build_read_time_ms = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_builds_read_time_ms",
-            "Time in milliseconds spent reading builds from the database",
+            "Time in milliseconds spent reading builds from database",
         ))?;
         let nr_builds_unfinished = prometheus::IntGauge::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_builds_unfinished",
             "Number of unfinished builds in the queue",
         ))?;
-        let nr_builds_done = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+        let nr_builds_done = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_builds_finished",
             "Number of finished builds in the queue",
         ))?;
-        let nr_steps_started = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+        let nr_steps_started = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_steps_started",
             "Number of build steps that have been started",
         ))?;
-        let nr_steps_done = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+        let nr_steps_done = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_steps_finished",
             "Number of build steps that have been completed",
         ))?;
@@ -192,23 +192,24 @@ impl PromMetrics {
             "hydraqueuerunner_steps_unsupported",
             "Number of unsupported build steps",
         ))?;
-        let nr_unsupported_steps_aborted = prometheus::IntGauge::with_opts(prometheus::Opts::new(
-            "hydraqueuerunner_steps_unsupported_aborted",
-            "Number of unsupported build steps that were aborted",
-        ))?;
-        let nr_substitutes_started = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+        let nr_unsupported_steps_aborted =
+            prometheus::IntCounter::with_opts(prometheus::Opts::new(
+                "hydraqueuerunner_steps_unsupported_aborted",
+                "Number of unsupported build steps that were aborted",
+            ))?;
+        let nr_substitutes_started = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_substitutes_started",
             "Number of substitute downloads that have been started",
         ))?;
-        let nr_substitutes_failed = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+        let nr_substitutes_failed = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_substitutes_failed",
             "Number of substitute downloads that have failed",
         ))?;
-        let nr_substitutes_succeeded = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+        let nr_substitutes_succeeded = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_substitutes_succeeded",
             "Number of substitute downloads that have succeeded",
         ))?;
-        let nr_retries = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+        let nr_retries = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_steps_retries",
             "Number of retries for build steps",
         ))?;
@@ -228,27 +229,27 @@ impl PromMetrics {
             "hydraqueuerunner_steps_avg_build_time_ms",
             "Average time in milliseconds for building build steps",
         ))?;
-        let total_step_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+        let total_step_time_ms = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_steps_total_time_ms",
             "Total time in milliseconds spent on all build steps",
         ))?;
-        let total_step_import_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+        let total_step_import_time_ms = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_steps_total_import_time_ms",
             "Total time in milliseconds spent importing all build steps",
         ))?;
-        let total_step_build_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+        let total_step_build_time_ms = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_steps_total_build_time_ms",
             "Total time in milliseconds spent building all build steps",
         ))?;
-        let nr_queue_wakeups = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+        let nr_queue_wakeups = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_monitor_checks",
             "Number of times the queue monitor has been woken up",
         ))?;
-        let nr_dispatcher_wakeups = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+        let nr_dispatcher_wakeups = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_dispatch_wakeup",
             "Number of times the dispatcher has been woken up",
         ))?;
-        let dispatch_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+        let dispatch_time_ms = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_dispatch_time_ms",
             "Time in milliseconds spent dispatching build steps",
         ))?;
@@ -743,12 +744,19 @@ impl PromMetrics {
     pub async fn refresh_dynamic_metrics(&self, state: &Arc<super::State>) {
         let nr_steps_done = self.nr_steps_done.get();
         if nr_steps_done > 0 {
-            self.avg_step_time_ms
-                .set(self.total_step_time_ms.get() / nr_steps_done);
-            self.avg_step_import_time_ms
-                .set(self.total_step_import_time_ms.get() / nr_steps_done);
-            self.avg_step_build_time_ms
-                .set(self.total_step_build_time_ms.get() / nr_steps_done);
+            let avg_time = self.total_step_time_ms.get() / nr_steps_done;
+            let avg_import_time = self.total_step_import_time_ms.get() / nr_steps_done;
+            let avg_build_time = self.total_step_build_time_ms.get() / nr_steps_done;
+
+            if let Ok(v) = i64::try_from(avg_time) {
+                self.avg_step_time_ms.set(v);
+            }
+            if let Ok(v) = i64::try_from(avg_import_time) {
+                self.avg_step_import_time_ms.set(v);
+            }
+            if let Ok(v) = i64::try_from(avg_build_time) {
+                self.avg_step_build_time_ms.set(v);
+            }
         }
 
         if let Ok(v) = i64::try_from(state.get_nr_builds_unfinished()) {
@@ -984,20 +992,20 @@ impl PromMetrics {
     }
 
     pub fn add_to_total_step_time_ms(&self, v: u128) {
-        if let Ok(v) = i64::try_from(v) {
-            self.total_step_time_ms.add(v);
+        if let Ok(v) = u64::try_from(v) {
+            self.total_step_time_ms.inc_by(v);
         }
     }
 
     pub fn add_to_total_step_import_time_ms(&self, v: u128) {
-        if let Ok(v) = i64::try_from(v) {
-            self.total_step_import_time_ms.add(v);
+        if let Ok(v) = u64::try_from(v) {
+            self.total_step_import_time_ms.inc_by(v);
         }
     }
 
     pub fn add_to_total_step_build_time_ms(&self, v: u128) {
-        if let Ok(v) = i64::try_from(v) {
-            self.total_step_build_time_ms.add(v);
+        if let Ok(v) = u64::try_from(v) {
+            self.total_step_build_time_ms.inc_by(v);
         }
     }
 
