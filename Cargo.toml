@@ -10,7 +10,7 @@ rust-version = "1.88.0"
 ahash = "0.8.11"
 anyhow = "1.0.98"
 arc-swap = "1.7"
-async-compression = { version = "0.4", default-features = false}
+async-compression = { version = "0.4", default-features = false }
 async-stream = "0.3"
 atomic_float = "1.1.0"
 aws-config = "1"
@@ -19,7 +19,10 @@ configparser = "3.1"
 backon = "1.5.2"
 byte-unit = "5.1.6"
 bytes = "1"
-jiff = { version = "0.2", default-features = false, features = ["std", "serde"] }
+jiff = { version = "0.2", default-features = false, features = [
+  "std",
+  "serde",
+] }
 clap = "4"
 cxx = "1"
 cxx-build = "1"

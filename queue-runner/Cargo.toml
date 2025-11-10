@@ -64,4 +64,4 @@ tikv-jemallocator.workspace = true
 tonic-prost-build.workspace = true
 
 [features]
-otel = [ "hydra-tracing/otel" ]
+otel = ["hydra-tracing/otel"]

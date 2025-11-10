@@ -17,7 +17,14 @@ tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true, features = ["io-util"] }
 tokio-util = { workspace = true, features = ["io", "io-util"] }
 futures.workspace = true
-async-compression = { workspace = true, features = ["tokio", "xz", "xz-parallel", "bzip2", "brotli", "zstd"] }
+async-compression = { workspace = true, features = [
+  "tokio",
+  "xz",
+  "xz-parallel",
+  "bzip2",
+  "brotli",
+  "zstd",
+] }
 pin-project.workspace = true
 digest.workspace = true
 sha2.workspace = true
