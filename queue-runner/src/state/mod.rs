@@ -5,13 +5,15 @@ mod jobset;
 mod machine;
 mod metrics;
 mod queue;
+mod step_info;
 mod uploader;
 
 pub use atomic::AtomicDateTime;
 pub use build::{Build, BuildOutput, BuildResultState, RemoteBuild, Step};
 pub use jobset::{Jobset, JobsetID};
 pub use machine::{Machine, Message as MachineMessage, Pressure, Stats as MachineStats};
-pub use queue::{BuildQueueStats, StepInfo};
+pub use queue::BuildQueueStats;
+pub use step_info::StepInfo;
 
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Instant;
