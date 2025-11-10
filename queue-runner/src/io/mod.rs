@@ -811,7 +811,7 @@ pub struct Step {
     highest_local_priority: i32,
 
     lowest_build_id: BuildID,
-    deps_count: usize,
+    deps_count: u64,
 }
 
 impl From<std::sync::Arc<crate::state::Step>> for Step {

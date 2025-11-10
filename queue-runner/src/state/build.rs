@@ -2,7 +2,7 @@
 
 use std::sync::{
     Arc, Weak,
-    atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering},
+    atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering},
 };
 
 use ahash::{AHashMap, AHashSet};
@@ -174,6 +174,9 @@ pub struct StepAtomicState {
     pub after: super::AtomicDateTime, // Point in time after which the step can be retried.
     pub runnable_since: super::AtomicDateTime, // The time at which this step became runnable.
     pub last_supported: super::AtomicDateTime, // The time that we last saw a machine that supports this step
+
+    pub deps_len: AtomicU64,
+    pub rdeps_len: AtomicU64,
 }
 
 impl StepAtomicState {
@@ -191,6 +194,8 @@ impl StepAtomicState {
             // dont have a machine that supports system/all features.
             // So we still follow max_unsupported_time
             last_supported: super::AtomicDateTime::new(runnable_since),
+            deps_len: 0.into(),
+            rdeps_len: 0.into(),
         }
     }
 
@@ -207,10 +212,10 @@ impl StepAtomicState {
 
 #[derive(Debug)]
 pub struct StepState {
-    pub deps: AHashSet<Arc<Step>>, // The build steps on which this step depends.
-    pub rdeps: Vec<Weak<Step>>,    // The build steps that depend on this step.
-    pub builds: Vec<Weak<Build>>,  // Builds that have this step as the top-level derivation.
-    pub jobsets: AHashSet<Arc<Jobset>>, // Jobsets to which this step belongs. Used for determining scheduling priority.
+    deps: AHashSet<Arc<Step>>, // The build steps on which this step depends.
+    rdeps: Vec<Weak<Step>>,    // The build steps that depend on this step.
+    builds: Vec<Weak<Build>>,  // Builds that have this step as the top-level derivation.
+    jobsets: AHashSet<Arc<Jobset>>, // Jobsets to which this step belongs. Used for determining scheduling priority.
 }
 
 impl Default for StepState {
@@ -388,9 +393,8 @@ impl Step {
         }
     }
 
-    pub fn get_deps_size(&self) -> usize {
-        let state = self.state.read();
-        state.deps.len()
+    pub fn get_deps_size(&self) -> u64 {
+        self.atomic_state.deps_len.load(Ordering::Relaxed)
     }
 
     pub fn make_rdeps_runnable(&self) {
@@ -398,10 +402,10 @@ impl Step {
             return;
         }
 
-        let state = self.state.read();
-        for rdep in &state.rdeps {
+        let mut state = self.state.write();
+        state.rdeps.retain(|rdep| {
             let Some(rdep) = rdep.upgrade() else {
-                continue;
+                return false;
             };
 
             let mut runnable = false;
@@ -410,6 +414,9 @@ impl Step {
                 rdep_state
                     .deps
                     .retain(|s| s.get_drv_path() != self.get_drv_path());
+                rdep.atomic_state
+                    .deps_len
+                    .store(rdep_state.deps.len() as u64, Ordering::Relaxed);
                 if rdep_state.deps.is_empty() && rdep.atomic_state.get_created() {
                     runnable = true;
                 }
@@ -418,7 +425,11 @@ impl Step {
             if runnable {
                 rdep.make_runnable();
             }
-        }
+            true
+        });
+        self.atomic_state
+            .rdeps_len
+            .store(state.rdeps.len() as u64, Ordering::Relaxed);
     }
 
     #[tracing::instrument(skip(self))]
@@ -454,6 +465,50 @@ impl Step {
             .map(|v| v.share_used())
             .min_by(f64::total_cmp)
             .unwrap_or(1e9)
+    }
+
+    pub fn add_dep(&self, dep: Arc<Step>) {
+        let mut state = self.state.write();
+        state.deps.insert(dep);
+        self.atomic_state
+            .deps_len
+            .store(state.deps.len() as u64, Ordering::Relaxed);
+    }
+
+    pub fn add_referring_data(
+        &self,
+        referring_build: Option<&Arc<crate::state::Build>>,
+        referring_step: Option<&Arc<Step>>,
+    ) {
+        if referring_build.is_none() && referring_step.is_none() {
+            return;
+        }
+
+        let mut state = self.state.write();
+        if let Some(referring_build) = referring_build {
+            state.builds.push(Arc::downgrade(referring_build));
+        }
+        if let Some(referring_step) = referring_step {
+            state.rdeps.push(Arc::downgrade(referring_step));
+            self.atomic_state
+                .rdeps_len
+                .store(state.rdeps.len() as u64, Ordering::Relaxed);
+        }
+    }
+
+    pub fn get_direct_builds(&self) -> Vec<Arc<crate::state::Build>> {
+        let mut direct = Vec::new();
+        let state = self.state.read();
+        for b in &state.builds {
+            let Some(b) = b.upgrade() else {
+                continue;
+            };
+            if !b.get_finished_in_db() {
+                direct.push(b);
+            }
+        }
+
+        direct
     }
 }
 

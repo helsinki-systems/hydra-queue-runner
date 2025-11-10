@@ -1044,22 +1044,10 @@ impl State {
             }
         }
 
-        let mut direct = Vec::new();
-        {
-            let state = step_info.step.state.read();
-            for b in &state.builds {
-                let Some(b) = b.upgrade() else {
-                    continue;
-                };
-                if !b.get_finished_in_db() {
-                    direct.push(b);
-                }
-            }
-
-            if direct.is_empty() {
-                let mut steps = self.steps.write();
-                steps.remove(step_info.step.get_drv_path());
-            }
+        let direct = step_info.step.get_direct_builds();
+        if direct.is_empty() {
+            let mut steps = self.steps.write();
+            steps.remove(step_info.step.get_drv_path());
         }
 
         {
@@ -1752,16 +1740,7 @@ impl State {
                 Step::new(drv_path.clone())
             };
 
-            {
-                let mut state = step.state.write();
-                if let Some(referring_build) = referring_build {
-                    state.builds.push(Arc::downgrade(&referring_build));
-                }
-                if let Some(referring_step) = referring_step {
-                    state.rdeps.push(Arc::downgrade(&referring_step));
-                }
-            }
-
+            step.add_referring_data(referring_build.as_ref(), referring_step.as_ref());
             steps.insert(drv_path.clone(), Arc::downgrade(&step));
             step
         };
@@ -1913,8 +1892,7 @@ impl State {
                     if !dep.get_finished() && !dep.get_previous_failure() {
                         // finished can be true if a step was returned, that already exists in
                         // self.steps and is currently being processed for completion
-                        let mut state = step.state.write();
-                        state.deps.insert(dep);
+                        step.add_dep(dep);
                     }
                 }
                 CreateStepResult::PreviousFailure(step) => {
