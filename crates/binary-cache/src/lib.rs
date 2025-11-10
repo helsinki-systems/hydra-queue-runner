@@ -12,11 +12,11 @@ use nix_utils::BaseStore as _;
 use nix_utils::RealisationOperations as _;
 use object_store::ObjectStore as _;
 use secrecy::ExposeSecret;
-use sha2::{Digest as _, Sha256};
 
 mod cfg;
 mod compression;
 mod narinfo;
+mod streaming_hash;
 
 pub use crate::cfg::{S3CacheConfig, S3ClientConfig, S3CredentialsConfig, S3Scheme};
 pub use crate::compression::Compression;
@@ -59,6 +59,8 @@ pub enum CacheError {
     NixStoreError(#[from] nix_utils::Error),
     #[error("cannot add '{0}' to the binary cache because the reference '{1}' is not valid")]
     ReferenceVerifyError(nix_utils::StorePath, nix_utils::StorePath),
+    #[error("Hash error: {0}")]
+    HashingError(#[from] crate::streaming_hash::Error),
 }
 
 #[derive(Clone)]
@@ -68,31 +70,6 @@ pub struct S3BinaryCacheClient {
     s3_stats: Arc<AtomicS3Stats>,
     signing_keys: Vec<secrecy::SecretString>,
     narinfo_cache: Cache<nix_utils::StorePath, NarInfo>,
-}
-
-#[tracing::instrument(skip(stream), err)]
-async fn hash_and_buffer_stream<S: tokio::io::AsyncRead + Unpin + Send>(
-    mut stream: S,
-) -> Result<(sha2::digest::Output<Sha256>, usize, Bytes), CacheError> {
-    use tokio::io::AsyncReadExt as _;
-
-    let mut hasher = Sha256::new();
-    let mut buffer = Vec::new();
-    let mut temp_buf = [0u8; 16 * 1024];
-
-    loop {
-        let n = stream.read(&mut temp_buf).await?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&temp_buf[..n]);
-        buffer.extend_from_slice(&temp_buf[..n]);
-    }
-
-    let hash = hasher.finalize();
-    let size = buffer.len();
-    let bytes = Bytes::from(buffer);
-    Ok((hash, size, bytes))
 }
 
 #[tracing::instrument(skip(stream, chunk), err)]
@@ -511,8 +488,16 @@ impl S3BinaryCacheClient {
             self.cfg.parallel_compression,
         );
         let compressed_stream = compressor(stream);
-        let (file_hash, file_size, data) =
-            Box::pin(hash_and_buffer_stream(compressed_stream)).await?;
+        let mut hashing_reader = crate::streaming_hash::HashingReader::new(compressed_stream);
+        self.upload_file(
+            &narinfo.url,
+            &mut hashing_reader,
+            narinfo.compression.content_type(),
+            narinfo.compression.content_encoding(),
+        )
+        .await?;
+
+        let (file_hash, file_size) = hashing_reader.finalize()?;
 
         if let Ok(file_hash) = nix_utils::convert_hash(
             &format!("{file_hash:x}"),
@@ -521,17 +506,7 @@ impl S3BinaryCacheClient {
         ) {
             narinfo.file_hash = Some(format!("sha256:{file_hash}"));
             narinfo.file_size = Some(file_size as u64);
-            narinfo.url = format!("nar/{}.{}", file_hash, narinfo.compression.ext());
         }
-
-        let mut data_stream = std::io::Cursor::new(data);
-        self.upload_file(
-            &narinfo.url,
-            &mut data_stream,
-            narinfo.compression.content_type(),
-            narinfo.compression.content_encoding(),
-        )
-        .await?;
 
         self.upload_narinfo(narinfo).await?;
 
