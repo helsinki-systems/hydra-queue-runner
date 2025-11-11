@@ -294,6 +294,7 @@ checksum = "55248b47b0caf0546f7988906588779981c43bb1bc9d0c44087278f80cdb44ba"
 name = "binary-cache"
 version = "0.1.0"
 dependencies = [
+ "ahash 0.8.12",
  "async-compression",
  "bytes",
  "configparser",

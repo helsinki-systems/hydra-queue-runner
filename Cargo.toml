@@ -13,8 +13,6 @@ arc-swap = "1.7"
 async-compression = { version = "0.4", default-features = false }
 async-stream = "0.3"
 atomic_float = "1.1.0"
-aws-config = "1"
-aws-sdk-s3 = "1"
 configparser = "3.1"
 backon = "1.5.2"
 byte-unit = "5.1.6"
@@ -38,8 +36,10 @@ hyper-util = "0.1.10"
 listenfd = "1"
 lockfile = "0.4.0"
 log = "0.4"
+moka = { version = "0.12", features = ["future"] }
 nix = { version = "0.30", default-features = false }
 nix-diff = { git = "https://github.com/mic92/nix-diff-rs.git", rev = "7b79a68963fd7fcb48a57071b52bc90bd8d60609" }
+object_store = "0.12.4"
 opentelemetry = "0.31.0"
 opentelemetry-http = "0.31.0"
 opentelemetry-otlp = "0.31.0"

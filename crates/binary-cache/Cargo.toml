@@ -12,7 +12,7 @@ bytes.workspace = true
 thiserror.workspace = true
 url.workspace = true
 
-object_store = { version = "0.12.4", features = ["aws"] }
+object_store = { workspace = true, features = ["aws"] }
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true, features = ["io-util"] }
 tokio-util = { workspace = true, features = ["io", "io-util"] }
@@ -30,9 +30,10 @@ digest.workspace = true
 sha2.workspace = true
 secrecy.workspace = true
 configparser.workspace = true
+ahash.workspace = true
+moka.workspace = true
 
 nix-utils = { path = "../nix-utils" }
-moka = { version = "0.12", features = ["future"] }
 
 [dev-dependencies]
 hydra-tracing = { path = "../tracing" }

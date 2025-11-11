@@ -4,14 +4,15 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use bytes::Bytes;
 use moka::future::Cache;
-use nix_utils::BaseStore as _;
-use nix_utils::RealisationOperations as _;
 use object_store::ObjectStore as _;
 use secrecy::ExposeSecret;
+
+use nix_utils::BaseStore as _;
+use nix_utils::RealisationOperations as _;
 
 mod cfg;
 mod compression;
@@ -99,7 +100,7 @@ pub struct S3BinaryCacheClient {
     pub cfg: cfg::S3CacheConfig,
     s3_stats: Arc<AtomicS3Stats>,
     signing_keys: Vec<secrecy::SecretString>,
-    narinfo_cache: Cache<nix_utils::StorePath, NarInfo>,
+    narinfo_cache: Cache<nix_utils::StorePath, NarInfo, ahash::RandomState>,
 }
 
 #[tracing::instrument(skip(stream, chunk), err)]
@@ -214,8 +215,9 @@ impl S3BinaryCacheClient {
             s3_stats: Arc::new(AtomicS3Stats::default()),
             signing_keys,
             narinfo_cache: Cache::builder()
-                .time_to_live(Duration::from_secs(3600)) // 1 hour TTL
-                .build(),
+                .initial_capacity(1000)
+                .max_capacity(65536)
+                .build_with_hasher(ahash::RandomState::default()),
         })
     }
 
