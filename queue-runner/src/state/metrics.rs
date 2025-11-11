@@ -882,7 +882,6 @@ impl PromMetrics {
 
     fn refresh_store_metrics(&self, state: &Arc<super::State>) {
         if let Ok(store_stats) = state.store.get_store_stats() {
-            let store_stats = crate::io::StoreStats::new(&store_stats);
             if let Ok(v) = i64::try_from(store_stats.nar_info_read) {
                 self.store_nar_info_read.set(v);
             }
@@ -923,9 +922,9 @@ impl PromMetrics {
                 self.store_nar_write_compression_time_ms.set(v);
             }
             self.store_nar_compression_savings
-                .set(store_stats.nar_compression_savings);
+                .set(store_stats.nar_compression_savings());
             self.store_nar_compression_speed
-                .set(store_stats.nar_compression_speed);
+                .set(store_stats.nar_compression_speed());
         }
     }
 
@@ -944,7 +943,7 @@ impl PromMetrics {
         let s3_backends = state.remote_stores.read();
         for remote_store in s3_backends.iter() {
             let backend_name = &remote_store.cfg.client_config.bucket;
-            let s3_stats = crate::io::S3Stats::new(&remote_store.s3_stats());
+            let s3_stats = remote_store.s3_stats();
             let labels = &[backend_name.as_str()];
 
             if let Ok(v) = i64::try_from(s3_stats.put) {
@@ -958,7 +957,7 @@ impl PromMetrics {
             }
             self.s3_put_speed
                 .with_label_values(labels)
-                .set(s3_stats.put_speed);
+                .set(s3_stats.put_speed());
             if let Ok(v) = i64::try_from(s3_stats.get) {
                 self.s3_get.with_label_values(labels).set(v);
             }
@@ -970,13 +969,13 @@ impl PromMetrics {
             }
             self.s3_get_speed
                 .with_label_values(labels)
-                .set(s3_stats.get_speed);
+                .set(s3_stats.get_speed());
             if let Ok(v) = i64::try_from(s3_stats.head) {
                 self.s3_head.with_label_values(labels).set(v);
             }
             self.s3_cost_dollar_approx
                 .with_label_values(labels)
-                .set(s3_stats.cost_dollar_approx);
+                .set(s3_stats.cost_dollar_approx());
         }
     }
 

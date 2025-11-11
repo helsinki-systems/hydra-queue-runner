@@ -419,27 +419,27 @@ impl Process {
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct StoreStats {
-    pub nar_info_read: u64,
-    pub nar_info_read_averted: u64,
-    pub nar_info_missing: u64,
-    pub nar_info_write: u64,
-    pub path_info_cache_size: u64,
-    pub nar_read: u64,
-    pub nar_read_bytes: u64,
-    pub nar_read_compressed_bytes: u64,
-    pub nar_write: u64,
-    pub nar_write_averted: u64,
-    pub nar_write_bytes: u64,
-    pub nar_write_compressed_bytes: u64,
-    pub nar_write_compression_time_ms: u64,
-    pub nar_compression_savings: f64,
-    pub nar_compression_speed: f64,
+struct StoreStats {
+    nar_info_read: u64,
+    nar_info_read_averted: u64,
+    nar_info_missing: u64,
+    nar_info_write: u64,
+    path_info_cache_size: u64,
+    nar_read: u64,
+    nar_read_bytes: u64,
+    nar_read_compressed_bytes: u64,
+    nar_write: u64,
+    nar_write_averted: u64,
+    nar_write_bytes: u64,
+    nar_write_compressed_bytes: u64,
+    nar_write_compression_time_ms: u64,
+    nar_compression_savings: f64,
+    nar_compression_speed: f64,
 }
 
 impl StoreStats {
     #[must_use]
-    pub fn new(v: &nix_utils::StoreStats) -> Self {
+    fn new(v: &nix_utils::StoreStats) -> Self {
         #[allow(clippy::cast_precision_loss)]
         Self {
             nar_info_read: v.nar_info_read,
@@ -455,61 +455,42 @@ impl StoreStats {
             nar_write_bytes: v.nar_write_bytes,
             nar_write_compressed_bytes: v.nar_write_compressed_bytes,
             nar_write_compression_time_ms: v.nar_write_compression_time_ms,
-            nar_compression_savings: if v.nar_write_bytes > 0 {
-                1.0 - (v.nar_write_compressed_bytes as f64 / v.nar_write_bytes as f64)
-            } else {
-                0.0
-            },
-            nar_compression_speed: if v.nar_write_compression_time_ms > 0 {
-                v.nar_write_bytes as f64 / v.nar_write_compression_time_ms as f64 * 1000.0
-                    / (1024.0 * 1024.0)
-            } else {
-                0.0
-            },
+            nar_compression_savings: v.nar_compression_savings(),
+            nar_compression_speed: v.nar_compression_speed(),
         }
     }
 }
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct S3Stats {
-    pub put: u64,
-    pub put_bytes: u64,
-    pub put_time_ms: u64,
-    pub put_speed: f64,
-    pub get: u64,
-    pub get_bytes: u64,
-    pub get_time_ms: u64,
-    pub get_speed: f64,
-    pub head: u64,
-    pub cost_dollar_approx: f64,
+struct S3Stats {
+    put: u64,
+    put_bytes: u64,
+    put_time_ms: u64,
+    put_speed: f64,
+    get: u64,
+    get_bytes: u64,
+    get_time_ms: u64,
+    get_speed: f64,
+    head: u64,
+    cost_dollar_approx: f64,
 }
 
 impl S3Stats {
     #[must_use]
-    pub fn new(v: &binary_cache::S3Stats) -> Self {
+    fn new(v: &binary_cache::S3Stats) -> Self {
         #[allow(clippy::cast_precision_loss)]
         Self {
             put: v.put,
             put_bytes: v.put_bytes,
             put_time_ms: v.put_time_ms,
-            put_speed: if v.put_time_ms > 0 {
-                v.put_bytes as f64 / v.put_time_ms as f64 * 1000.0 / (1024.0 * 1024.0)
-            } else {
-                0.0
-            },
+            put_speed: v.put_speed(),
             get: v.get,
             get_bytes: v.get_bytes,
             get_time_ms: v.get_time_ms,
-            get_speed: if v.get_time_ms > 0 {
-                v.get_bytes as f64 / v.get_time_ms as f64 * 1000.0 / (1024.0 * 1024.0)
-            } else {
-                0.0
-            },
+            get_speed: v.get_speed(),
             head: v.head,
-            cost_dollar_approx: (v.get as f64 + v.head as f64) / 10000.0 * 0.004
-                + v.put as f64 / 1000.0 * 0.005
-                + v.get_bytes as f64 / (1024.0 * 1024.0 * 1024.0) * 0.09,
+            cost_dollar_approx: v.cost_dollar_approx(),
         }
     }
 }

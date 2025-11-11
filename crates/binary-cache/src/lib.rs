@@ -45,6 +45,36 @@ pub struct S3Stats {
     pub head: u64,
 }
 
+impl S3Stats {
+    #[must_use]
+    pub fn put_speed(&self) -> f64 {
+        #[allow(clippy::cast_precision_loss)]
+        if self.put_time_ms > 0 {
+            self.put_bytes as f64 / self.put_time_ms as f64 * 1000.0 / (1024.0 * 1024.0)
+        } else {
+            0.0
+        }
+    }
+
+    #[must_use]
+    pub fn get_speed(&self) -> f64 {
+        #[allow(clippy::cast_precision_loss)]
+        if self.get_time_ms > 0 {
+            self.get_bytes as f64 / self.get_time_ms as f64 * 1000.0 / (1024.0 * 1024.0)
+        } else {
+            0.0
+        }
+    }
+
+    #[must_use]
+    pub fn cost_dollar_approx(&self) -> f64 {
+        #[allow(clippy::cast_precision_loss)]
+        ((self.get as f64 + self.head as f64) / 10000.0 * 0.004
+            + self.put as f64 / 1000.0 * 0.005
+            + self.get_bytes as f64 / (1024.0 * 1024.0 * 1024.0) * 0.09)
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CacheError {
     #[error("Object store error: {0}")]

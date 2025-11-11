@@ -259,6 +259,28 @@ mod ffi {
 
 pub use ffi::{S3Stats, StoreStats};
 
+impl StoreStats {
+    #[must_use]
+    pub fn nar_compression_savings(&self) -> f64 {
+        #[allow(clippy::cast_precision_loss)]
+        if self.nar_write_bytes > 0 {
+            1.0 - (self.nar_write_compressed_bytes as f64 / self.nar_write_bytes as f64)
+        } else {
+            0.0
+        }
+    }
+    #[must_use]
+    pub fn nar_compression_speed(&self) -> f64 {
+        #[allow(clippy::cast_precision_loss)]
+        if self.nar_write_compression_time_ms > 0 {
+            self.nar_write_bytes as f64 / self.nar_write_compression_time_ms as f64 * 1000.0
+                / (1024.0 * 1024.0)
+        } else {
+            0.0
+        }
+    }
+}
+
 #[inline]
 #[must_use]
 pub fn is_subpath(base: &std::path::Path, path: &std::path::Path) -> bool {
