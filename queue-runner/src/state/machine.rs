@@ -495,6 +495,18 @@ impl Job {
     }
 }
 
+pub struct PresignedUrlOpts {
+    pub upload_debug_info: bool,
+}
+
+impl From<PresignedUrlOpts> for crate::server::grpc::runner_v1::PresignedUploadOpts {
+    fn from(value: PresignedUrlOpts) -> Self {
+        Self {
+            upload_debug_info: value.upload_debug_info,
+        }
+    }
+}
+
 pub enum Message {
     BuildMessage {
         build_id: uuid::Uuid,
@@ -503,6 +515,7 @@ pub enum Message {
         max_log_size: u64,
         max_silent_time: i32,
         build_timeout: i32,
+        presigned_url_opts: Option<PresignedUrlOpts>,
     },
     AbortMessage {
         build_id: uuid::Uuid,
@@ -519,6 +532,7 @@ impl Message {
                 max_log_size,
                 max_silent_time,
                 build_timeout,
+                presigned_url_opts,
             } => runner_request::Message::Build(BuildMessage {
                 build_id: build_id.to_string(),
                 drv: drv.into_base_name(),
@@ -526,6 +540,7 @@ impl Message {
                 max_log_size,
                 max_silent_time,
                 build_timeout,
+                presigned_url_opts: presigned_url_opts.map(Into::into),
             }),
             Message::AbortMessage { build_id } => runner_request::Message::Abort(AbortMessage {
                 build_id: build_id.to_string(),
@@ -615,8 +630,17 @@ impl Machine {
         })
     }
 
-    #[tracing::instrument(skip(self, job, opts), err)]
-    pub async fn build_drv(&self, job: Job, opts: &nix_utils::BuildOptions) -> anyhow::Result<()> {
+    #[tracing::instrument(
+        skip(self, job, opts, presigned_url_opts),
+        fields(build_id=job.build_id, step_nr=job.step_nr),
+        err,
+    )]
+    pub async fn build_drv(
+        &self,
+        job: Job,
+        opts: &nix_utils::BuildOptions,
+        presigned_url_opts: Option<PresignedUrlOpts>,
+    ) -> anyhow::Result<()> {
         let drv = job.path.clone();
         self.msg_queue
             .send(Message::BuildMessage {
@@ -626,6 +650,7 @@ impl Machine {
                 max_log_size: opts.get_max_log_size(),
                 max_silent_time: opts.get_max_silent_time(),
                 build_timeout: opts.get_build_timeout(),
+                presigned_url_opts,
             })
             .await?;
 

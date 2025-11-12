@@ -93,31 +93,35 @@ impl Uploader {
             if let Err(e) = log_upload_result {
                 tracing::error!("Failed to upload log file after retries: {e}");
             }
-            let paths_to_copy = remote_store
-                .query_missing_paths(paths_to_copy.clone())
+            if msg.store_paths.is_empty() {
+                tracing::debug!("No NAR files to upload (presigned uploads enabled)");
+            } else {
+                let paths_to_copy = remote_store
+                    .query_missing_paths(paths_to_copy.clone())
+                    .await;
+
+                let copy_result = (|| async {
+                    remote_store
+                        .copy_paths(&local_store, paths_to_copy.clone(), false)
+                        .await?;
+
+                    Ok::<(), anyhow::Error>(())
+                })
+                .retry(
+                    ExponentialBuilder::default()
+                        .with_max_delay(std::time::Duration::from_secs(60))
+                        .with_max_times(5),
+                )
                 .await;
 
-            let copy_result = (|| async {
-                remote_store
-                    .copy_paths(&local_store, paths_to_copy.clone(), false)
-                    .await?;
-
-                Ok::<(), anyhow::Error>(())
-            })
-            .retry(
-                ExponentialBuilder::default()
-                    .with_max_delay(std::time::Duration::from_secs(60))
-                    .with_max_times(5),
-            )
-            .await;
-
-            if let Err(e) = copy_result {
-                tracing::error!("Failed to copy paths after retries: {e}");
-            } else {
-                tracing::debug!(
-                    "Successfully uploaded {} paths to bucket {bucket}",
-                    msg.store_paths.len()
-                );
+                if let Err(e) = copy_result {
+                    tracing::error!("Failed to copy paths after retries: {e}");
+                } else {
+                    tracing::debug!(
+                        "Successfully uploaded {} paths to bucket {bucket}",
+                        msg.store_paths.len()
+                    );
+                }
             }
         }
 

@@ -3,19 +3,20 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Instant;
 
 use ahash::AHashMap;
-use anyhow::Context;
+use anyhow::Context as _;
 use backon::RetryableWithContext as _;
 use futures::TryFutureExt as _;
 use tonic::Request;
-use tracing::Instrument;
+use tracing::Instrument as _;
 
-use crate::grpc::BuilderClient;
-use crate::grpc::runner_v1::{
+use crate::grpc::{BuilderClient, runner_v1};
+use binary_cache::{Compression, PresignedUpload, PresignedUploadClient};
+use nix_utils::BaseStore as _;
+use runner_v1::{
     AbortMessage, BuildMessage, BuildMetric, BuildProduct, BuildResultInfo, BuildResultState,
     FetchRequisitesRequest, JoinMessage, LogChunk, NarData, NixSupport, Output, OutputNameOnly,
     OutputWithPath, PingMessage, PressureState, StepStatus, StepUpdate, StorePaths, output,
 };
-use nix_utils::BaseStore as _;
 
 include!(concat!(env!("OUT_DIR"), "/proto_version.rs"));
 
@@ -100,6 +101,7 @@ pub struct State {
     pub client: BuilderClient,
     pub halt: AtomicBool,
     pub metrics: Arc<crate::metrics::Metrics>,
+    upload_client: PresignedUploadClient,
 }
 
 #[derive(Debug)]
@@ -178,6 +180,7 @@ impl State {
             client: crate::grpc::init_client(cli).await?,
             halt: false.into(),
             metrics: Arc::new(crate::metrics::Metrics::default()),
+            upload_client: PresignedUploadClient::new(),
         });
         tracing::info!("Builder systems={:?}", state.config.systems);
         tracing::info!(
@@ -497,11 +500,12 @@ impl State {
                 step_status: StepStatus::ReceivingOutputs as i32,
             })
             .await;
-        upload_nars(
-            client.clone(),
+        self.upload_nars(
             store.clone(),
-            self.metrics.clone(),
             output_paths,
+            &m.build_id,
+            &machine_id.to_string(),
+            m.presigned_url_opts,
         )
         .await
         .map_err(JobFailure::Upload)?;
@@ -583,6 +587,31 @@ impl State {
 
     pub fn enable_halt(&self) {
         self.halt.store(true, Ordering::SeqCst);
+    }
+
+    #[tracing::instrument(skip(self, store, nars), err)]
+    async fn upload_nars(
+        &self,
+        store: nix_utils::LocalStore,
+        nars: Vec<nix_utils::StorePath>,
+        build_id: &str,
+        machine_id: &str,
+        presigned_url_opts: Option<crate::grpc::runner_v1::PresignedUploadOpts>,
+    ) -> anyhow::Result<()> {
+        if let Some(opts) = presigned_url_opts {
+            upload_nars_presigned(
+                self.client.clone(),
+                self.upload_client.clone(),
+                store,
+                &nars,
+                opts,
+                build_id,
+                machine_id,
+            )
+            .await
+        } else {
+            upload_nars_regular(self.client.clone(), store, self.metrics.clone(), nars).await
+        }
     }
 }
 
@@ -771,13 +800,13 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
 }
 
 #[tracing::instrument(skip(client, store, metrics), err)]
-async fn upload_nars(
+async fn upload_nars_regular(
     mut client: BuilderClient,
     store: nix_utils::LocalStore,
     metrics: Arc<crate::metrics::Metrics>,
     nars: Vec<nix_utils::StorePath>,
 ) -> anyhow::Result<()> {
-    tracing::debug!("Start uploading paths");
+    tracing::debug!("Start uploading paths (regular)");
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<NarData>();
 
     let nars_len = nars.len() as u64;
@@ -804,6 +833,176 @@ async fn upload_nars(
     tracing::debug!("Finished uploading paths");
 
     metrics.sub_uploading_path(nars_len);
+    Ok(())
+}
+
+#[tracing::instrument(skip(client, store), err)]
+async fn upload_nars_presigned(
+    mut client: BuilderClient,
+    upload_client: PresignedUploadClient,
+    store: nix_utils::LocalStore,
+    output_paths: &[nix_utils::StorePath],
+    opts: crate::grpc::runner_v1::PresignedUploadOpts,
+    build_id: &str,
+    machine_id: &str,
+) -> anyhow::Result<()> {
+    use futures::stream::StreamExt as _;
+
+    tracing::debug!("Start uploading paths (presigned)");
+
+    let paths_to_upload = store
+        .query_requisites(&output_paths.iter().collect::<Vec<_>>(), true)
+        .await
+        .unwrap_or_default();
+    let paths_to_upload_ref = paths_to_upload.iter().collect::<Vec<_>>();
+    let path_infos = Arc::new(store.query_path_infos(&paths_to_upload_ref).await);
+
+    let mut nars = Vec::with_capacity(paths_to_upload.len());
+    let mut stream = tokio_stream::iter(paths_to_upload.clone())
+        .map(|path| {
+            let store = store.clone();
+            let path_infos = path_infos.clone();
+            async move {
+                let debug_info_ids = if opts.upload_debug_info {
+                    binary_cache::get_debug_info_build_ids(&store, &path).await?
+                } else {
+                    Vec::new()
+                };
+                let Some(narhash) = path_infos.get(&path).map(|i| i.nar_hash.to_string()) else {
+                    return Ok(None);
+                };
+                Ok::<_, anyhow::Error>(Some((path, narhash, debug_info_ids)))
+            }
+        })
+        .buffered(10);
+
+    while let Some(v) = tokio_stream::StreamExt::next(&mut stream).await {
+        if let Some(v) = v? {
+            nars.push(v);
+        }
+    }
+
+    if nars.len() != paths_to_upload.len() {
+        return Err(anyhow::anyhow!(
+            "Mismatch between paths_to_upload ({}) and paths_with_narhash ({})",
+            paths_to_upload.len(),
+            nars.len(),
+        ));
+    }
+
+    let presigned_responses = client
+        .request_presigned_urls(build_id, machine_id, nars)
+        .await?;
+
+    if presigned_responses.len() != paths_to_upload.len() {
+        return Err(anyhow::anyhow!(
+            "Mismatch between requested NARs ({}) and presigned URLs ({})",
+            paths_to_upload.len(),
+            presigned_responses.len()
+        ));
+    }
+
+    for presigned_response in presigned_responses {
+        upload_single_nar_presigned(
+            &store,
+            &nix_utils::StorePath::new(&presigned_response.store_path),
+            build_id,
+            machine_id,
+            &presigned_response,
+            &mut client,
+            &upload_client,
+        )
+        .await?;
+    }
+
+    tracing::debug!("Finished uploading paths (presigned)");
+    Ok(())
+}
+
+#[tracing::instrument(skip(store, nar_path, presigned_response), err)]
+async fn upload_single_nar_presigned(
+    store: &nix_utils::LocalStore,
+    nar_path: &nix_utils::StorePath,
+    build_id: &str,
+    machine_id: &str,
+    presigned_response: &runner_v1::PresignedNarResponse,
+    client: &mut BuilderClient,
+    upload_client: &PresignedUploadClient,
+) -> anyhow::Result<()> {
+    let narinfo = binary_cache::path_to_narinfo(store, nar_path).await?;
+    let nar_upload = presigned_response
+        .nar_upload
+        .as_ref()
+        .ok_or(anyhow::anyhow!("nar_upload information is missing"))?;
+
+    let presigned_request = binary_cache::PresignedUploadResponse {
+        nar_url: presigned_response.nar_url.clone(),
+        nar_upload: binary_cache::PresignedUpload::new(
+            nar_upload.path.clone(),
+            nar_upload.url.clone(),
+            nar_upload.compression.parse().unwrap_or(Compression::None),
+            nar_upload.compression_level,
+        ),
+        ls_upload: presigned_response.ls_upload.as_ref().map(|ls| {
+            PresignedUpload::new(
+                ls.path.clone(),
+                ls.url.clone(),
+                ls.compression.parse().unwrap_or(Compression::None),
+                ls.compression_level,
+            )
+        }),
+        debug_info_upload: presigned_response
+            .debug_info_upload
+            .iter()
+            .map(|p| {
+                PresignedUpload::new(
+                    p.path.clone(),
+                    p.url.clone(),
+                    p.compression.parse().unwrap_or(Compression::None),
+                    p.compression_level,
+                )
+            })
+            .collect(),
+    };
+
+    let updated_narinfo = upload_client
+        .process_presigned_request(store, narinfo, presigned_request)
+        .await?;
+
+    tracing::debug!(
+        "Successfully uploaded presigned NAR for {} to {}",
+        nar_path,
+        updated_narinfo.url
+    );
+
+    if let (Some(file_hash), Some(file_size)) = (
+        updated_narinfo.file_hash.as_ref(),
+        updated_narinfo.file_size,
+    ) {
+        let completion_msg = runner_v1::PresignedUploadComplete {
+            build_id: build_id.to_owned(),
+            machine_id: machine_id.to_owned(),
+            store_path: nar_path.base_name().to_owned(),
+            url: updated_narinfo.url.clone(),
+            compression: updated_narinfo.compression.as_str().to_owned(),
+            file_hash: file_hash.to_string(),
+            file_size,
+            nar_hash: updated_narinfo.nar_hash,
+            nar_size: updated_narinfo.nar_size,
+            references: updated_narinfo
+                .references
+                .iter()
+                .map(|p| p.base_name().to_owned())
+                .collect(),
+            deriver: updated_narinfo.deriver.map(|p| p.base_name().to_owned()),
+            ca: updated_narinfo.ca,
+        };
+
+        client
+            .notify_presigned_upload_complete(completion_msg)
+            .await?;
+    }
+
     Ok(())
 }
 

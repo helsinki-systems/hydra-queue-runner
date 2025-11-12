@@ -39,6 +39,37 @@ impl tonic::service::Interceptor for BuilderInterceptor {
 
 pub type BuilderClient = RunnerServiceClient<InterceptedService<Channel, BuilderInterceptor>>;
 
+impl BuilderClient {
+    pub async fn request_presigned_urls(
+        &mut self,
+        build_id: &str,
+        machine_id: &str,
+        store_paths: Vec<(nix_utils::StorePath, String, Vec<String>)>,
+    ) -> anyhow::Result<Vec<runner_v1::PresignedNarResponse>> {
+        use runner_v1::{PresignedNarRequest, PresignedUrlRequest};
+
+        let request = store_paths
+            .into_iter()
+            .map(|(path, nar_hash, build_ids)| PresignedNarRequest {
+                store_path: path.base_name().to_owned(),
+                nar_hash,
+                debug_info_build_ids: build_ids,
+            })
+            .collect::<Vec<_>>();
+
+        let response = self
+            .request_presigned_url(PresignedUrlRequest {
+                build_id: build_id.to_owned(),
+                machine_id: machine_id.to_owned(),
+                request,
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to request presigned URLs: {e}"))?;
+
+        Ok(response.into_inner().inner)
+    }
+}
+
 pub async fn init_client(cli: &crate::config::Cli) -> anyhow::Result<BuilderClient> {
     if !cli.mtls_configured_correctly() {
         tracing::error!(

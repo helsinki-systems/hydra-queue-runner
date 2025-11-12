@@ -14,11 +14,12 @@ use crate::{
 use nix_utils::BaseStore as _;
 
 include!(concat!(env!("OUT_DIR"), "/proto_version.rs"));
+use runner_v1::runner_service_server::{RunnerService, RunnerServiceServer};
 use runner_v1::{
     BuildResultInfo, BuilderRequest, FetchRequisitesRequest, JoinResponse, LogChunk, NarData,
-    RunnerRequest, SimplePingMessage, StorePath, StorePaths, VersionCheckRequest,
-    VersionCheckResponse, builder_request,
-    runner_service_server::{RunnerService, RunnerServiceServer},
+    PresignedUploadComplete, PresignedUrlRequest, PresignedUrlResponse, RunnerRequest,
+    SimplePingMessage, StorePath, StorePaths, VersionCheckRequest, VersionCheckResponse,
+    builder_request,
 };
 
 type BuilderResult<T> = Result<tonic::Response<T>, tonic::Status>;
@@ -567,5 +568,172 @@ impl RunnerService for Server {
             Box::pin(tokio_stream::wrappers::UnboundedReceiverStream::new(rx))
                 as Self::StreamFilesStream,
         ))
+    }
+
+    #[tracing::instrument(
+        skip(self, req),
+        fields(
+            build_id=req.get_ref().build_id,
+            machine_id=req.get_ref().machine_id
+        ),
+        err
+    )]
+    async fn request_presigned_url(
+        &self,
+        req: tonic::Request<PresignedUrlRequest>,
+    ) -> BuilderResult<PresignedUrlResponse> {
+        let _state = self.state.clone();
+        let req = req.into_inner();
+
+        let _build_id = uuid::Uuid::parse_str(&req.build_id).map_err(|e| {
+            tracing::error!("Failed to parse build_id into uuid: {e}");
+            tonic::Status::invalid_argument("build_id is not a valid uuid.")
+        })?;
+        let _machine_id = uuid::Uuid::parse_str(&req.machine_id).map_err(|e| {
+            tracing::error!("Failed to parse machine_id into uuid: {e}");
+            tonic::Status::invalid_argument("machine_id is not a valid uuid.")
+        })?;
+
+        let remote_store = {
+            let remote_stores = _state.remote_stores.read();
+            remote_stores
+                .first()
+                .cloned()
+                .ok_or_else(|| tonic::Status::failed_precondition("No remote store configured"))?
+        };
+
+        let mut responses = Vec::new();
+        for presigned_request in req.request {
+            let store_path = nix_utils::StorePath::new(&presigned_request.store_path);
+
+            let presigned_response = remote_store
+                .generate_nar_upload_presigned_url(
+                    &store_path,
+                    &presigned_request.nar_hash,
+                    presigned_request.debug_info_build_ids,
+                )
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to generate presigned URL for {}: {e}", store_path);
+                    tonic::Status::internal("Failed to generate presigned URL")
+                })?;
+
+            responses.push(runner_v1::PresignedNarResponse {
+                store_path: store_path.base_name().to_owned(),
+                nar_url: presigned_response.nar_url,
+                nar_upload: Some(runner_v1::PresignedUpload {
+                    compression_level: presigned_response.nar_upload.get_compression_level_as_i32(),
+                    url: presigned_response.nar_upload.url,
+                    path: presigned_response.nar_upload.path,
+                    compression: presigned_response
+                        .nar_upload
+                        .compression
+                        .as_str()
+                        .to_owned(),
+                }),
+                ls_upload: presigned_response
+                    .ls_upload
+                    .map(|ls| runner_v1::PresignedUpload {
+                        compression_level: ls.get_compression_level_as_i32(),
+                        url: ls.url,
+                        path: ls.path,
+                        compression: ls.compression.as_str().to_owned(),
+                    }),
+                debug_info_upload: presigned_response
+                    .debug_info_upload
+                    .into_iter()
+                    .map(|p| runner_v1::PresignedUpload {
+                        compression_level: p.get_compression_level_as_i32(),
+                        url: p.url,
+                        path: p.path,
+                        compression: p.compression.as_str().to_owned(),
+                    })
+                    .collect(),
+            });
+        }
+
+        tracing::debug!("Generated {} presigned URLs", responses.len());
+        Ok(tonic::Response::new(PresignedUrlResponse {
+            inner: responses,
+        }))
+    }
+
+    #[tracing::instrument(
+        skip(self, req),
+        fields(
+            build_id=req.get_ref().build_id,
+            machine_id=req.get_ref().machine_id,
+            store_path=req.get_ref().store_path
+        ),
+        err,
+    )]
+    async fn notify_presigned_upload_complete(
+        &self,
+        req: tonic::Request<PresignedUploadComplete>,
+    ) -> BuilderResult<runner_v1::Empty> {
+        let state = self.state.clone();
+        let req = req.into_inner();
+
+        let build_id = uuid::Uuid::parse_str(&req.build_id).map_err(|e| {
+            tracing::error!("Failed to parse build_id into uuid: {e}");
+            tonic::Status::invalid_argument("build_id is not a valid uuid.")
+        })?;
+        let machine_id = uuid::Uuid::parse_str(&req.machine_id).map_err(|e| {
+            tracing::error!("Failed to parse machine_id into uuid: {e}");
+            tonic::Status::invalid_argument("machine_id is not a valid uuid.")
+        })?;
+
+        let machine = state
+            .machines
+            .get_machine_by_id(machine_id)
+            .ok_or_else(|| tonic::Status::not_found("Machine not found"))?;
+        let _job = machine
+            .get_job_drv_for_build_id(build_id)
+            .ok_or_else(|| tonic::Status::not_found("Job not found for this build_id"))?;
+
+        let remote_store = {
+            let remote_stores = state.remote_stores.read();
+            remote_stores
+                .first()
+                .cloned()
+                .ok_or_else(|| tonic::Status::failed_precondition("No remote store configured"))?
+        };
+
+        let narinfo = binary_cache::NarInfo {
+            store_path: nix_utils::StorePath::new(&req.store_path),
+            url: req.url.clone(),
+            compression: remote_store.cfg.compression,
+            file_hash: Some(req.file_hash),
+            file_size: Some(req.file_size),
+            nar_hash: req.nar_hash,
+            nar_size: req.nar_size,
+            references: req
+                .references
+                .into_iter()
+                .map(|p| nix_utils::StorePath::new(&p))
+                .collect(),
+            deriver: req.deriver.map(|p| nix_utils::StorePath::new(&p)),
+            ca: req.ca,
+            sigs: vec![],
+        };
+        let store_path = narinfo.store_path.clone();
+
+        let narinfo_url = remote_store
+            .upload_narinfo_after_presigned_upload(&self.state.store, narinfo)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to upload narinfo for {}: {e}", store_path);
+                tonic::Status::internal("Failed to upload narinfo")
+            })?;
+
+        tracing::debug!(
+            "Presigned upload completed and narinfo uploaded for path: {}, url: {}, size: {} bytes, narinfo: {}",
+            store_path,
+            req.url,
+            req.file_size,
+            narinfo_url
+        );
+
+        Ok(tonic::Response::new(runner_v1::Empty {}))
     }
 }

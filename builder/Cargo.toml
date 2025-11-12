@@ -37,6 +37,7 @@ nix = { workspace = true, features = ["fs"] }
 nix-utils = { path = "../crates/nix-utils" }
 shared = { path = "../crates/shared" }
 hydra-tracing = { path = "../crates/tracing", features = ["tonic"] }
+binary-cache = { path = "../crates/binary-cache" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 sysinfo.workspace = true

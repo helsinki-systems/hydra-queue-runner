@@ -411,6 +411,7 @@ dependencies = [
  "anyhow",
  "async-stream",
  "backon",
+ "binary-cache",
  "clap",
  "fs-err",
  "futures",

@@ -249,6 +249,9 @@ struct AppConfig {
 
     #[serde(default = "default_enable_fod_checker")]
     enable_fod_checker: bool,
+
+    #[serde(default)]
+    use_presigned_uploads: bool,
 }
 
 /// Prepared configuration of the application
@@ -277,6 +280,7 @@ pub struct PreparedApp {
     concurrent_upload_limit: usize,
     token_list: Option<Vec<String>>,
     pub enable_fod_checker: bool,
+    pub use_presigned_uploads: bool,
 }
 
 impl TryFrom<AppConfig> for PreparedApp {
@@ -362,6 +366,7 @@ impl TryFrom<AppConfig> for PreparedApp {
             concurrent_upload_limit: val.concurrent_upload_limit,
             token_list,
             enable_fod_checker: val.enable_fod_checker,
+            use_presigned_uploads: val.use_presigned_uploads,
         })
     }
 }
@@ -437,6 +442,12 @@ impl App {
     pub fn get_step_sort_fn(&self) -> StepSortFn {
         let inner = self.inner.load();
         inner.step_sort_fn
+    }
+
+    #[must_use]
+    pub fn use_presigned_uploads(&self) -> bool {
+        let inner = self.inner.load();
+        inner.use_presigned_uploads
     }
 
     #[must_use]

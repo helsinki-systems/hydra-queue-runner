@@ -16,6 +16,8 @@ service RunnerService {
   rpc FetchDrvRequisites(FetchRequisitesRequest) returns (DrvRequisitesMessage) {}
   rpc StreamFile(StorePath) returns (stream NarData) {}
   rpc StreamFiles(StorePaths) returns (stream NarData) {}
+  rpc RequestPresignedUrl(PresignedUrlRequest) returns (PresignedUrlResponse) {}
+  rpc NotifyPresignedUploadComplete(PresignedUploadComplete) returns (Empty) {}
 }
 
 message Empty {}
@@ -109,6 +111,10 @@ message JoinResponse {
   uint32 max_concurrent_downloads = 2;
 }
 
+message PresignedUploadOpts {
+  bool upload_debug_info = 1;
+}
+
 message BuildMessage {
   string build_id = 1; // UUIDv4
   string drv = 2;
@@ -116,6 +122,7 @@ message BuildMessage {
   uint64 max_log_size = 4;
   int32 max_silent_time = 5;
   int32 build_timeout = 6;
+  optional PresignedUploadOpts presigned_url_opts = 7; // None if presigned url upload is disabled
   // bool is_deterministic = 5;
   // bool enforce_determinism = 6;
 }
@@ -231,4 +238,50 @@ message BuildResultInfo {
   BuildResultState result_state = 5;
   NixSupport nix_support = 6;
   repeated Output outputs = 7;
+}
+
+message PresignedNarRequest {
+  string store_path = 1;
+  string nar_hash = 2;
+  repeated string debug_info_build_ids = 3;
+}
+
+message PresignedUrlRequest {
+  string build_id = 1; // UUIDv4
+  string machine_id = 2; // UUIDv4
+  repeated PresignedNarRequest request = 3;
+}
+
+message PresignedUpload {
+  string path = 1;
+  string url = 2;
+  string compression = 3;
+  int32 compression_level = 4;
+}
+
+message PresignedNarResponse {
+  string store_path = 1;
+  string nar_url = 2;
+  PresignedUpload nar_upload = 3;
+  optional PresignedUpload ls_upload = 4;
+  repeated PresignedUpload debug_info_upload = 5;
+}
+
+message PresignedUrlResponse {
+  repeated PresignedNarResponse inner = 1;
+}
+
+message PresignedUploadComplete {
+  string build_id = 1; // UUIDv4
+  string machine_id = 2; // UUIDv4
+  string store_path = 3;
+  string url = 4;
+  string compression = 5;
+  string file_hash = 6;
+  uint64 file_size = 7;
+  string nar_hash = 8;
+  uint64 nar_size = 9;
+  repeated string references = 10;
+  optional string deriver = 11;
+  optional string ca = 12;
 }

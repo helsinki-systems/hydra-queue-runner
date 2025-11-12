@@ -244,6 +244,7 @@ impl State {
     }
 
     #[tracing::instrument(skip(self, constraint), err)]
+    #[allow(clippy::too_many_lines)]
     async fn realise_drv_on_valid_machine(
         self: Arc<Self>,
         constraint: queue::JobConstraint,
@@ -352,7 +353,23 @@ impl State {
                 status: db::models::StepStatus::Connecting,
             })
             .await?;
-        machine.build_drv(job, &build_options).await?;
+        machine
+            .build_drv(
+                job,
+                &build_options,
+                // TODO: cleanup
+                if self.config.use_presigned_uploads() {
+                    let remote_stores = self.remote_stores.read();
+                    remote_stores
+                        .first()
+                        .map(|s| crate::state::machine::PresignedUrlOpts {
+                            upload_debug_info: s.cfg.write_debug_info,
+                        })
+                } else {
+                    None
+                },
+            )
+            .await?;
         self.metrics.nr_steps_started.inc();
         self.metrics.nr_steps_building.add(1);
         Ok(RealiseStepResult::Valid(machine))
@@ -1056,16 +1073,21 @@ impl State {
             !r.is_empty()
         };
         if has_stores {
-            let outputs = output
-                .outputs
-                .values()
-                .map(Clone::clone)
-                .collect::<Vec<_>>();
+            // Only upload outputs if presigned uploads are NOT enabled
+            // When presigned uploads are enabled, builder handles NAR uploads directly
+            let outputs_to_upload = if self.config.use_presigned_uploads() {
+                vec![]
+            } else {
+                output
+                    .outputs
+                    .values()
+                    .map(Clone::clone)
+                    .collect::<Vec<_>>()
+            };
 
             if let Err(e) = self.uploader.schedule_upload(
-                outputs,
+                outputs_to_upload,
                 format!("log/{}", job.path.base_name()),
-                // TODO: handle compression
                 job.result.log_file,
             ) {
                 tracing::error!(
