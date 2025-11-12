@@ -91,12 +91,11 @@ pub struct Config {
 
 pub struct State {
     id: uuid::Uuid,
+    pub config: Config,
+    pub max_concurrent_downloads: atomic::AtomicU32,
 
     active_builds: parking_lot::RwLock<AHashMap<uuid::Uuid, Arc<BuildInfo>>>,
-
-    pub config: Config,
-
-    pub max_concurrent_downloads: atomic::AtomicU32,
+    pub client: BuilderClient,
 }
 
 #[derive(Debug)]
@@ -126,7 +125,7 @@ impl Drop for Gcroot {
 }
 
 impl State {
-    pub fn new(cli: &super::config::Cli) -> anyhow::Result<Arc<Self>> {
+    pub async fn new(cli: &super::config::Cli) -> anyhow::Result<Arc<Self>> {
         nix_utils::set_verbosity(1);
 
         let logname = std::env::var("LOGNAME").context("LOGNAME not set")?;
@@ -169,6 +168,7 @@ impl State {
                 use_substitutes: cli.use_substitutes,
             },
             max_concurrent_downloads: 5.into(),
+            client: crate::grpc::init_client(cli).await?,
         });
         tracing::info!("Builder systems={:?}", state.config.systems);
         tracing::info!(
@@ -234,12 +234,8 @@ impl State {
         })
     }
 
-    #[tracing::instrument(skip(self, client, m), fields(drv=%m.drv))]
-    pub fn schedule_build(
-        self: Arc<Self>,
-        client: BuilderClient,
-        m: BuildMessage,
-    ) -> anyhow::Result<()> {
+    #[tracing::instrument(skip(self, m), fields(drv=%m.drv))]
+    pub fn schedule_build(self: Arc<Self>, m: BuildMessage) -> anyhow::Result<()> {
         let drv = nix_utils::StorePath::new(&m.drv);
         if self.contains_build(&drv) {
             return Ok(());
@@ -255,13 +251,8 @@ impl State {
             async move {
                 let mut import_elapsed = std::time::Duration::from_millis(0);
                 let mut build_elapsed = std::time::Duration::from_millis(0);
-                match Box::pin(self_.process_build(
-                    client.clone(),
-                    m,
-                    &mut import_elapsed,
-                    &mut build_elapsed,
-                ))
-                .await
+                match Box::pin(self_.process_build(m, &mut import_elapsed, &mut build_elapsed))
+                    .await
                 {
                     Ok(()) => {
                         tracing::info!("Successfully completed build process for {drv}");
@@ -296,7 +287,7 @@ impl State {
                         })
                         .retry(retry_strategy())
                         .sleep(tokio::time::sleep)
-                        .context((client.clone(), failed_build))
+                        .context((self_.client.clone(), failed_build))
                         .notify(|err: &tonic::Status, dur: core::time::Duration| {
                             tracing::error!("Failed to submit build failure info: err={err}, retrying in={dur:?}");
                         })
@@ -360,11 +351,10 @@ impl State {
         active.clear();
     }
 
-    #[tracing::instrument(skip(self, client, m), fields(drv=%m.drv), err)]
+    #[tracing::instrument(skip(self, m), fields(drv=%m.drv), err)]
     #[allow(clippy::too_many_lines)]
     async fn process_build(
         &self,
-        mut client: BuilderClient,
         m: BuildMessage,
         import_elapsed: &mut std::time::Duration,
         build_elapsed: &mut std::time::Duration,
@@ -388,6 +378,7 @@ impl State {
             .get_gcroot(&gcroot_prefix)
             .map_err(|e| JobFailure::Preparing(e.into()))?;
 
+        let mut client = self.client.clone();
         let _ = client // we ignore the error here, as this step status has no prio
             .build_step_update(StepUpdate {
                 build_id: m.build_id.clone(),

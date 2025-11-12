@@ -18,11 +18,10 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = config::Cli::new();
 
-    let state = state::State::new(&cli)?;
-    let mut client = grpc::init_client(&cli).await?;
+    let state = state::State::new(&cli).await?;
     let task = tokio::spawn({
         let state = state.clone();
-        async move { crate::grpc::start_bidirectional_stream(&mut client, state.clone()).await }
+        async move { crate::grpc::start_bidirectional_stream(state.clone()).await }
     });
 
     let _notify = sd_notify::notify(

@@ -99,16 +99,14 @@ pub async fn init_client(cli: &crate::config::Cli) -> anyhow::Result<BuilderClie
         .max_encoding_message_size(50 * 1024 * 1024))
 }
 
-#[tracing::instrument(skip(state, client), err)]
+#[tracing::instrument(skip(state), err)]
 async fn handle_request(
     state: Arc<crate::state::State>,
-    client: &mut BuilderClient,
     request: runner_request::Message,
 ) -> anyhow::Result<()> {
     match request {
         runner_request::Message::Build(m) => {
-            let client = client.clone();
-            state.schedule_build(client, m)?;
+            state.schedule_build(m)?;
         }
         runner_request::Message::Abort(m) => {
             state.abort_build(&m)?;
@@ -124,11 +122,8 @@ async fn handle_request(
     Ok(())
 }
 
-#[tracing::instrument(skip(client, state), err)]
-pub async fn start_bidirectional_stream(
-    client: &mut BuilderClient,
-    state: Arc<crate::state::State>,
-) -> anyhow::Result<()> {
+#[tracing::instrument(skip(state), err)]
+pub async fn start_bidirectional_stream(state: Arc<crate::state::State>) -> anyhow::Result<()> {
     use tokio_stream::StreamExt as _;
 
     let state2 = state.clone();
@@ -157,7 +152,10 @@ pub async fn start_bidirectional_stream(
             };
         }
     };
-    let mut stream = client
+
+    let mut stream = state2
+        .client
+        .clone()
         .open_tunnel(Request::new(ping_stream))
         .await?
         .into_inner();
@@ -167,7 +165,7 @@ pub async fn start_bidirectional_stream(
         match item.map(|v| v.message) {
             Ok(Some(v)) => {
                 consecutive_failure_count = 0;
-                if let Err(err) = handle_request(state2.clone(), client, v).await {
+                if let Err(err) = handle_request(state2.clone(), v).await {
                     tracing::error!("Failed to correctly handle request: {err}");
                 }
             }
