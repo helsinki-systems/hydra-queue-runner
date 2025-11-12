@@ -39,16 +39,16 @@ pub type BuilderClient = RunnerServiceClient<InterceptedService<Channel, Builder
 
 pub async fn init_client(cli: &crate::config::Cli) -> anyhow::Result<BuilderClient> {
     if !cli.mtls_configured_correctly() {
-        log::error!(
+        tracing::error!(
             "mtls configured inproperly, please pass all options: \
             server_root_ca_cert_path, client_cert_path, client_key_path and domain_name!"
         );
         return Err(anyhow::anyhow!("Configuration issue"));
     }
 
-    log::info!("connecting to {}", cli.gateway_endpoint);
+    tracing::info!("connecting to {}", cli.gateway_endpoint);
     let channel = if cli.mtls_enabled() {
-        log::info!("mtls is enabled");
+        tracing::info!("mtls is enabled");
         let (server_root_ca_cert, client_identity, domain_name) = cli
             .get_mtls()
             .await
@@ -146,11 +146,11 @@ pub async fn start_bidirectional_stream(
             let ping = match state.get_ping_message() {
                 Ok(v) => builder_request::Message::Ping(v),
                 Err(e) => {
-                    log::error!("Failed to construct ping message: {e}");
+                    tracing::error!("Failed to construct ping message: {e}");
                     continue
                 },
             };
-            log::debug!("sending ping: {ping:?}");
+            tracing::debug!("sending ping: {ping:?}");
 
             yield BuilderRequest {
                 message: Some(ping)
@@ -168,7 +168,7 @@ pub async fn start_bidirectional_stream(
             Ok(Some(v)) => {
                 consecutive_failure_count = 0;
                 if let Err(err) = handle_request(state2.clone(), client, v).await {
-                    log::error!("Failed to correctly handle request: {err}");
+                    tracing::error!("Failed to correctly handle request: {err}");
                 }
             }
             Ok(None) => {
@@ -176,7 +176,7 @@ pub async fn start_bidirectional_stream(
             }
             Err(e) => {
                 consecutive_failure_count += 1;
-                log::error!("stream message delivery failed: {e}");
+                tracing::error!("stream message delivery failed: {e}");
                 if consecutive_failure_count == 10 {
                     return Err(anyhow::anyhow!(
                         "Failed to communicate {consecutive_failure_count} times over the channel. \

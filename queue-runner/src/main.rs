@@ -16,7 +16,7 @@ use state::State;
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn start_task_loops(state: &std::sync::Arc<State>) -> Vec<tokio::task::AbortHandle> {
-    log::info!("QueueRunner starting task loops");
+    tracing::info!("QueueRunner starting task loops");
 
     let mut service_list = vec![
         spawn_config_reloader(state.clone(), state.config.clone(), &state.cli.config_path),
@@ -45,7 +45,7 @@ fn spawn_config_reloader(
                 .recv()
                 .await
                 .unwrap();
-            log::info!("Reloading...");
+            tracing::info!("Reloading...");
             config::reload(&current_config, &filepath, &state).await;
         }
     });
@@ -64,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if !state.cli.mtls_configured_correctly() {
-        log::error!(
+        tracing::error!(
             "mtls configured inproperly, please pass all options: server_cert_path, server_key_path and client_ca_cert_path!"
         );
         return Err(anyhow::anyhow!("Configuration issue"));
@@ -79,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
     })?;
 
     let task_abort_handles = start_task_loops(&state);
-    log::info!(
+    tracing::info!(
         "QueueRunner listening on grpc: {:?} and rest: {}",
         state.cli.grpc_bind,
         state.cli.rest_bind
@@ -112,7 +112,7 @@ async fn main() -> anyhow::Result<()> {
     let abort_handle = task.abort_handle();
     tokio::select! {
         _ = sigint.recv() => {
-            log::info!("Received sigint - shutting down gracefully");
+            tracing::info!("Received sigint - shutting down gracefully");
             let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
             abort_handle.abort();
             for h in task_abort_handles {
@@ -124,7 +124,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         _ = sigterm.recv() => {
-            log::info!("Received sigterm - shutting down gracefully");
+            tracing::info!("Received sigterm - shutting down gracefully");
             let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
             abort_handle.abort();
             for h in task_abort_handles {

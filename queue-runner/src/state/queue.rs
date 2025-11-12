@@ -240,14 +240,14 @@ impl InnerQueues {
 
     fn remove_job_by_path(&mut self, drv: &nix_utils::StorePath) {
         if self.jobs.remove(drv).is_none() {
-            log::error!("Failed to remove stepinfo drv={drv} from jobs!");
+            tracing::error!("Failed to remove stepinfo drv={drv} from jobs!");
         }
     }
 
     #[tracing::instrument(skip(self, stepinfo, queue))]
     fn remove_job(&mut self, stepinfo: &Arc<StepInfo>, queue: &Arc<BuildQueue>) {
         if self.jobs.remove(stepinfo.step.get_drv_path()).is_none() {
-            log::error!(
+            tracing::error!(
                 "Failed to remove stepinfo drv={} from jobs!",
                 stepinfo.step.get_drv_path(),
             );
@@ -258,7 +258,7 @@ impl InnerQueues {
 
     #[tracing::instrument(skip(self))]
     async fn kill_active_steps(&self) -> Vec<(nix_utils::StorePath, uuid::Uuid)> {
-        log::info!("Kill all active steps");
+        tracing::info!("Kill all active steps");
         let active = {
             let scheduled = self.scheduled.read();
             scheduled.clone()
@@ -278,18 +278,18 @@ impl InnerQueues {
             }
 
             {
-                log::info!("Cancelling step drv={drv_path}");
+                tracing::info!("Cancelling step drv={drv_path}");
                 step_info.set_cancelled(true);
 
                 if let Some(internal_build_id) = machine.get_internal_build_id_for_drv(drv_path) {
                     if let Err(e) = machine.abort_build(internal_build_id).await {
-                        log::error!(
+                        tracing::error!(
                             "Failed to abort build drv_path={drv_path} build_id={internal_build_id} e={e}",
                         );
                         continue;
                     }
                 } else {
-                    log::warn!("No active build_id found for drv_path={drv_path}",);
+                    tracing::warn!("No active build_id found for drv_path={drv_path}",);
                     continue;
                 }
 
@@ -355,7 +355,7 @@ impl JobConstraint {
             Some((machine, self.job))
         } else {
             let drv = self.job.step.get_drv_path();
-            log::debug!("No free machine found for system={} drv={drv}", self.system);
+            tracing::debug!("No free machine found for system={} drv={drv}", self.system);
             None
         }
     }
@@ -417,14 +417,14 @@ impl Queues {
                     continue;
                 };
                 if job.get_already_scheduled() {
-                    log::debug!(
+                    tracing::debug!(
                         "Can't schedule job because job is already scheduled system={system} drv={}",
                         job.step.get_drv_path()
                     );
                     continue;
                 }
                 if job.step.get_finished() {
-                    log::debug!(
+                    tracing::debug!(
                         "Can't schedule job because job is already finished system={system} drv={}",
                         job.step.get_drv_path()
                     );
@@ -433,7 +433,7 @@ impl Queues {
                 let after = job.step.get_after();
                 if after > now {
                     nr_disabled += 1;
-                    log::debug!(
+                    tracing::debug!(
                         "Can't schedule job because job is not yet ready system={system} drv={} after={after}",
                         job.step.get_drv_path(),
                     );
@@ -448,7 +448,7 @@ impl Queues {
                         self.add_job_to_scheduled(&job, &queue, m).await;
                     }
                     Ok(crate::state::RealiseStepResult::None) => {
-                        log::debug!(
+                        tracing::debug!(
                             "Waiting for job to schedule because no builder is ready system={system} drv={}",
                             job.step.get_drv_path(),
                         );
@@ -469,7 +469,7 @@ impl Queues {
                         metrics.queue_aborted_jobs_total.inc();
                     }
                     Err(e) => {
-                        log::warn!(
+                        tracing::warn!(
                             "Failed to realise drv on valid machine, will be skipped: drv={} e={e}",
                             job.step.get_drv_path(),
                         );

@@ -35,7 +35,7 @@ hyper = { version = "1", features = ["full"] }
 hyper-util = "0.1.10"
 listenfd = "1"
 lockfile = "0.4.0"
-log = "0.4"
+
 moka = { version = "0.12", features = ["future"] }
 nix = { version = "0.30", default-features = false }
 nix-diff = { git = "https://github.com/mic92/nix-diff-rs.git", rev = "7b79a68963fd7fcb48a57071b52bc90bd8d60609" }

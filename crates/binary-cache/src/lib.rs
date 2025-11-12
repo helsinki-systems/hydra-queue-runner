@@ -145,12 +145,12 @@ async fn run_multipart_upload(
             break;
         }
 
-        log::debug!("Uploading part {} with size {}", part_number, chunk.len());
+        tracing::debug!("Uploading part {} with size {}", part_number, chunk.len());
         upload_item.put_part(chunk.into()).await?;
         part_number += 1;
     }
 
-    log::debug!(
+    tracing::debug!(
         "Completing multipart upload with {} parts, total size: {}",
         part_number,
         file_size
@@ -177,12 +177,14 @@ impl S3BinaryCacheClient {
         {
             let profile = cfg.profile.as_deref().unwrap_or("default");
             if let Ok((access_key, secret_key)) = crate::cfg::read_aws_credentials_file(profile) {
-                log::info!("Using AWS credentials from credentials file for profile: {profile}",);
+                tracing::info!(
+                    "Using AWS credentials from credentials file for profile: {profile}",
+                );
                 builder = builder
                     .with_access_key_id(&access_key)
                     .with_secret_access_key(&secret_key);
             } else {
-                log::warn!(
+                tracing::warn!(
                     "AWS credentials not found in environment variables or credentials file for profile: {profile}",
                 );
             }
@@ -374,7 +376,7 @@ impl S3BinaryCacheClient {
                 )
                 .await?;
 
-            log::debug!("put_object for small file -> done, size: {first_chunk_len}",);
+            tracing::debug!("put_object for small file -> done, size: {first_chunk_len}",);
 
             let elapsed = u64::try_from(start.elapsed().as_millis()).unwrap_or_default();
             self.s3_stats
@@ -388,7 +390,7 @@ impl S3BinaryCacheClient {
             return Ok(());
         }
 
-        log::debug!(
+        tracing::debug!(
             "Starting multipart upload for large file, first chunk size: {}",
             first_chunk_len
         );
@@ -434,10 +436,10 @@ impl S3BinaryCacheClient {
                     .fetch_add(file_size as u64, Ordering::Relaxed);
             }
             Err(e) => {
-                log::warn!("Upload was interrupted - Aborting multipart upload: {e}");
+                tracing::warn!("Upload was interrupted - Aborting multipart upload: {e}");
 
                 if let Err(e) = multipart_upload.abort().await {
-                    log::warn!("Failed to abort multipart upload: {e}");
+                    tracing::warn!("Failed to abort multipart upload: {e}");
                 }
             }
         }
@@ -556,7 +558,7 @@ impl S3BinaryCacheClient {
 
         let mut stream = tokio_stream::iter(paths)
             .map(|p| async move {
-                log::debug!("copying path {p} to s3 binary cache.");
+                tracing::debug!("copying path {p} to s3 binary cache.");
                 self.copy_path(store, &p, repair).await
             })
             .buffered(10);

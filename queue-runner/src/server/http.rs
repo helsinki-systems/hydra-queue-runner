@@ -104,7 +104,7 @@ impl Server {
                             .instrument(server_span.clone())
                             .await
                         {
-                            log::error!("Error serving connection: {err:?}");
+                            tracing::error!("Error serving connection: {err:?}");
                         }
                     }
                 });

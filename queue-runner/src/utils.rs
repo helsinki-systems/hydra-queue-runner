@@ -91,7 +91,7 @@ pub async fn substitute_output(
 
     let starttime = i32::try_from(jiff::Timestamp::now().as_second())?; // TODO
     if let Err(e) = store.ensure_path(path).await {
-        log::debug!("Path not found, can't import={e}");
+        tracing::debug!("Path not found, can't import={e}");
         return Ok(false);
     }
     if let Some(remote_store) = remote_store {
@@ -101,7 +101,7 @@ pub async fn substitute_output(
             .unwrap_or_default();
         let paths_to_copy = remote_store.query_missing_paths(paths_to_copy).await;
         if let Err(e) = remote_store.copy_paths(&store, paths_to_copy, false).await {
-            log::error!(
+            tracing::error!(
                 "Failed to copy paths to remote store({}): {e}",
                 remote_store.cfg.client_config.bucket
             );

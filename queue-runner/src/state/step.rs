@@ -278,7 +278,7 @@ impl Step {
 
     #[tracing::instrument(skip(self))]
     pub fn make_runnable(&self) {
-        log::info!("step '{}' is now runnable", self.get_drv_path());
+        tracing::info!("step '{}' is now runnable", self.get_drv_path());
         debug_assert!(self.atomic_state.created.load(Ordering::SeqCst));
         debug_assert!(!self.get_finished());
 

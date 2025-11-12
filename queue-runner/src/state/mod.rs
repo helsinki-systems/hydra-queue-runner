@@ -159,7 +159,9 @@ impl State {
         }
 
         if curr_enable_fod_checker != new_config.enable_fod_checker {
-            log::warn!("Changing the value of enable_fod_checker currently requires a restart!");
+            tracing::warn!(
+                "Changing the value of enable_fod_checker currently requires a restart!"
+            );
         }
 
         Ok(())
@@ -214,7 +216,7 @@ impl State {
                     )
                     .await
                 {
-                    log::error!(
+                    tracing::error!(
                         "Failed to fail step machine_id={machine_id} drv={} e={e}",
                         job.path
                     );
@@ -260,7 +262,7 @@ impl State {
                 // created a reference to this step. So to handle that possibility, we retry this step
                 // (putting it back in the runnable queue). If there are really no strong pointers to
                 // the step, it will be deleted.
-                log::info!("maybe cancelling build step {drv}");
+                tracing::info!("maybe cancelling build step {drv}");
                 return Ok(RealiseStepResult::MaybeCancelled);
             }
 
@@ -330,7 +332,7 @@ impl State {
         };
         job.step_nr = step_nr;
 
-        log::info!(
+        tracing::info!(
             "Submitting build drv={drv} on machine={} hostname={} build_id={build_id} step_nr={step_nr}",
             machine.id,
             machine.hostname
@@ -369,7 +371,7 @@ impl State {
         drv: &nix_utils::StorePath,
     ) -> anyhow::Result<tokio::fs::File> {
         let log_file = self.construct_log_file_path(drv).await?;
-        log::debug!("opening {log_file:?}");
+        tracing::debug!("opening {log_file:?}");
 
         Ok(tokio::fs::File::options()
             .create(true)
@@ -424,7 +426,7 @@ impl State {
 
             {
                 let new_runnable = new_runnable.read();
-                log::info!(
+                tracing::info!(
                     "got {} new runnable steps from {} new builds",
                     new_runnable.len(),
                     nr_added.load(Ordering::Relaxed)
@@ -490,7 +492,7 @@ impl State {
                 };
 
                 if build.global_priority.load(Ordering::Relaxed) < *new_priority {
-                    log::info!("priority of build {id} increased");
+                    tracing::info!("priority of build {id} increased");
                     build
                         .global_priority
                         .store(*new_priority, Ordering::Relaxed);
@@ -511,7 +513,9 @@ impl State {
                 )
                 .await
             {
-                log::error!("Failed to abort step machine_id={machine_id} drv={drv_path} e={e}",);
+                tracing::error!(
+                    "Failed to abort step machine_id={machine_id} drv={drv_path} e={e}",
+                );
             }
         }
         Ok(())
@@ -559,9 +563,9 @@ impl State {
                     .insert(build.id);
             }
         }
-        log::debug!("new_ids: {new_ids:?}");
-        log::debug!("new_builds_by_id: {new_builds_by_id:?}");
-        log::debug!("new_builds_by_path: {new_builds_by_path:?}");
+        tracing::debug!("new_ids: {new_ids:?}");
+        tracing::debug!("new_builds_by_id: {new_builds_by_id:?}");
+        tracing::debug!("new_builds_by_path: {new_builds_by_path:?}");
 
         let new_builds_by_id = Arc::new(parking_lot::RwLock::new(new_builds_by_id));
         Box::pin(self.process_new_builds(new_ids, new_builds_by_id, new_builds_by_path)).await;
@@ -573,7 +577,7 @@ impl State {
         let task = tokio::task::spawn({
             async move {
                 if let Err(e) = Box::pin(self.queue_monitor_loop()).await {
-                    log::error!("Failed to spawn queue monitor loop. e={e}");
+                    tracing::error!("Failed to spawn queue monitor loop. e={e}");
                 }
             }
         });
@@ -598,7 +602,7 @@ impl State {
             let before_work = Instant::now();
             self.store.clear_path_info_cache();
             if let Err(e) = self.get_queued_builds().await {
-                log::error!("get_queue_builds failed inside queue monitor loop: {e}");
+                tracing::error!("get_queue_builds failed inside queue monitor loop: {e}");
                 continue;
             }
 
@@ -616,7 +620,7 @@ impl State {
                         Ok(Some(v)) => v.channel().to_owned(),
                         Ok(None) => continue,
                         Err(e) => {
-                            log::warn!("PgListener failed with e={e}");
+                            tracing::warn!("PgListener failed with e={e}");
                             continue;
                         }
                     },
@@ -626,27 +630,29 @@ impl State {
                     Ok(Some(v)) => v.channel().to_owned(),
                     Ok(None) => continue,
                     Err(e) => {
-                        log::warn!("PgListener failed with e={e}");
+                        tracing::warn!("PgListener failed with e={e}");
                         continue;
                     }
                 }
             };
             self.metrics.nr_queue_wakeups.inc();
-            log::trace!("New notification from PgListener. notification={notification:?}");
+            tracing::trace!("New notification from PgListener. notification={notification:?}");
 
             match notification.as_ref() {
-                "builds_added" => log::debug!("got notification: new builds added to the queue"),
-                "builds_restarted" => log::debug!("got notification: builds restarted"),
+                "builds_added" => {
+                    tracing::debug!("got notification: new builds added to the queue");
+                }
+                "builds_restarted" => tracing::debug!("got notification: builds restarted"),
                 "builds_cancelled" | "builds_deleted" | "builds_bumped" => {
-                    log::info!("got notification: builds cancelled or bumped");
+                    tracing::info!("got notification: builds cancelled or bumped");
                     if let Err(e) = self.process_queue_change().await {
-                        log::error!("Failed to process queue change. e={e}");
+                        tracing::error!("Failed to process queue change. e={e}");
                     }
                 }
                 "jobset_shares_changed" => {
-                    log::info!("got notification: jobset shares changed");
+                    tracing::info!("got notification: jobset shares changed");
                     if let Err(e) = self.handle_jobset_change().await {
-                        log::error!("Failed to handle jobset change. e={e}");
+                        tracing::error!("Failed to handle jobset change. e={e}");
                     }
                 }
                 _ => (),
@@ -674,7 +680,7 @@ impl State {
                     } else {
                         self.notify_dispatch.notified().await;
                     }
-                    log::info!("starting dispatch");
+                    tracing::info!("starting dispatch");
 
                     #[allow(clippy::cast_possible_truncation)]
                     self.metrics
@@ -712,7 +718,7 @@ impl State {
                 Ok(Some(v)) => v,
                 Ok(None) => continue,
                 Err(e) => {
-                    log::warn!("PgListener failed with e={e}");
+                    tracing::warn!("PgListener failed with e={e}");
                     continue;
                 }
             };
@@ -760,20 +766,20 @@ impl State {
                 let dump_status = match serde_json::to_value(dump_status) {
                     Ok(v) => v,
                     Err(e) => {
-                        log::error!("Failed to update status in database: {e}");
+                        tracing::error!("Failed to update status in database: {e}");
                         continue;
                     }
                 };
                 if let Err(e) = tx.upsert_status(&dump_status).await {
-                    log::error!("Failed to update status in database: {e}");
+                    tracing::error!("Failed to update status in database: {e}");
                     continue;
                 }
                 if let Err(e) = tx.notify_status_dumped().await {
-                    log::error!("Failed to update status in database: {e}");
+                    tracing::error!("Failed to update status in database: {e}");
                     continue;
                 }
                 if let Err(e) = tx.commit().await {
-                    log::error!("Failed to update status in database: {e}");
+                    tracing::error!("Failed to update status in database: {e}");
                 }
             }
         }
@@ -784,7 +790,7 @@ impl State {
         let task = tokio::task::spawn({
             async move {
                 if let Err(e) = self.dump_status_loop().await {
-                    log::error!("Failed to spawn queue monitor loop. e={e}");
+                    tracing::error!("Failed to spawn queue monitor loop. e={e}");
                 }
             }
         });
@@ -830,7 +836,7 @@ impl State {
             Ok(Some(v)) => v,
             Ok(None) => return Ok(()),
             Err(e) => {
-                log::warn!("PgListener failed with e={e}");
+                tracing::warn!("PgListener failed with e={e}");
                 return Ok(());
             }
         };
@@ -857,7 +863,7 @@ impl State {
                 jobset.prune_steps();
                 let s2 = jobset.share_used();
                 if (s1 - s2).abs() > f64::EPSILON {
-                    log::debug!(
+                    tracing::debug!(
                         "pruned scheduling window of '{project_name}:{jobset_name}' from {s1} to {s2}"
                     );
                 }
@@ -935,7 +941,7 @@ impl State {
         step_status: db::models::StepStatus,
     ) -> anyhow::Result<()> {
         let build_id_and_step_nr = if let Some(m) = self.machines.get_machine_by_id(machine_id) {
-            log::debug!(
+            tracing::debug!(
                 "get job from machine by build_id: build_id={build_id} m={}",
                 m.id
             );
@@ -945,7 +951,7 @@ impl State {
         };
 
         let Some((build_id, step_nr)) = build_id_and_step_nr else {
-            log::warn!(
+            tracing::warn!(
                 "Failed to find job with build_id and step_nr for build_id={build_id:?} machine_id={machine_id:?}."
             );
             return Ok(());
@@ -970,7 +976,7 @@ impl State {
         drv_path: &nix_utils::StorePath,
         output: BuildOutput,
     ) -> anyhow::Result<()> {
-        log::info!("marking job as done: drv_path={drv_path}");
+        tracing::info!("marking job as done: drv_path={drv_path}");
         let (step_info, queue, machine) = self
             .queues
             .remove_job_from_scheduled(drv_path)
@@ -981,7 +987,7 @@ impl State {
         self.metrics.nr_steps_done.inc();
         self.metrics.nr_steps_building.sub(1);
 
-        log::debug!(
+        tracing::debug!(
             "removing job from machine: drv_path={drv_path} m={}",
             machine.id
         );
@@ -1049,7 +1055,7 @@ impl State {
                 // TODO: handle compression
                 job.result.log_file,
             ) {
-                log::error!(
+                tracing::error!(
                     "Failed to schedule upload for build {} outputs: {}",
                     job.build_id,
                     e
@@ -1129,7 +1135,7 @@ impl State {
         import_elapsed: std::time::Duration,
         build_elapsed: std::time::Duration,
     ) -> anyhow::Result<()> {
-        log::info!("removing job from running in system queue: drv_path={drv_path}");
+        tracing::info!("removing job from running in system queue: drv_path={drv_path}");
         let (step_info, queue, machine) = self
             .queues
             .remove_job_from_scheduled(drv_path)
@@ -1140,7 +1146,7 @@ impl State {
         self.metrics.nr_steps_done.inc();
         self.metrics.nr_steps_building.sub(1);
 
-        log::debug!(
+        tracing::debug!(
             "removing job from machine: drv_path={drv_path} m={}",
             machine.id
         );
@@ -1174,7 +1180,7 @@ impl State {
                 #[allow(clippy::cast_precision_loss)]
                 #[allow(clippy::cast_possible_truncation)]
                 let delta = (retry_interval * retry_backoff.powf((tries - 1) as f32)) as i64;
-                log::info!("will retry '{drv_path}' after {delta}s");
+                tracing::info!("will retry '{drv_path}' after {delta}s");
                 step_info
                     .step
                     .set_after(jiff::Timestamp::now() + jiff::SignedDuration::from_secs(delta));
@@ -1352,7 +1358,7 @@ impl State {
                         continue;
                     }
 
-                    log::info!("marking build {} as failed", b.id);
+                    tracing::info!("marking build {} as failed", b.id);
                     tx.update_build_after_failure(
                         b.id,
                         if &b.drv_path != step.get_drv_path()
@@ -1429,7 +1435,7 @@ impl State {
             let mut current_steps_map = self.steps.write();
             for s in steps {
                 let drv = s.get_drv_path();
-                log::debug!("finishing build step '{drv}'");
+                tracing::debug!("finishing build step '{drv}'");
                 current_steps_map.remove(drv);
             }
         }
@@ -1491,7 +1497,7 @@ impl State {
         step: Arc<Step>,
     ) -> anyhow::Result<()> {
         // Some step previously failed, so mark the build as failed right away.
-        log::warn!(
+        tracing::warn!(
             "marking build {} as cached failure due to '{}'",
             build.id,
             step.get_drv_path()
@@ -1588,7 +1594,7 @@ impl State {
         new_runnable: Arc<parking_lot::RwLock<AHashSet<Arc<Step>>>>,
     ) {
         self.metrics.queue_build_loads.inc();
-        log::info!("loading build {} ({})", build.id, build.full_job_name());
+        tracing::info!("loading build {} ({})", build.id, build.full_job_name());
         nr_added.fetch_add(1, Ordering::Relaxed);
         {
             let mut new_builds_by_id = new_builds_by_id.write();
@@ -1596,15 +1602,15 @@ impl State {
         }
 
         if !self.store.is_valid_path(&build.drv_path).await {
-            log::error!("aborting GC'ed build {}", build.id);
+            tracing::error!("aborting GC'ed build {}", build.id);
             if !build.get_finished_in_db() {
                 match self.db.get().await {
                     Ok(mut conn) => {
                         if let Err(e) = conn.abort_build(build.id).await {
-                            log::error!("Failed to abort the build={} e={}", build.id, e);
+                            tracing::error!("Failed to abort the build={} e={}", build.id, e);
                         }
                     }
-                    Err(e) => log::error!(
+                    Err(e) => tracing::error!(
                         "Failed to get database connection so we can abort the build={} e={}",
                         build.id,
                         e
@@ -1636,7 +1642,7 @@ impl State {
             CreateStepResult::Valid(dep) => Some(dep),
             CreateStepResult::PreviousFailure(step) => {
                 if let Err(e) = self.handle_previous_failure(build, step).await {
-                    log::error!("Failed to handle previous failure: {e}");
+                    tracing::error!("Failed to handle previous failure: {e}");
                 }
                 return;
             }
@@ -1692,7 +1698,7 @@ impl State {
             build.propagate_priorities();
 
             let new_steps = new_steps.read();
-            log::info!(
+            tracing::info!(
                 "added build {} (top-level step {}, {} new steps)",
                 build.id,
                 step.get_drv_path(),
@@ -1702,7 +1708,7 @@ impl State {
             // If we didn't get a step, it means the step's outputs are
             // all valid. So we mark this as a finished, cached build.
             if let Err(e) = self.handle_cached_build(build).await {
-                log::error!("failed to handle cached build: {e}");
+                tracing::error!("failed to handle cached build: {e}");
             }
         }
     }
@@ -1762,7 +1768,7 @@ impl State {
             return CreateStepResult::Valid(step);
         }
         self.metrics.queue_steps_created.inc();
-        log::debug!("considering derivation '{drv_path}'");
+        tracing::debug!("considering derivation '{drv_path}'");
 
         let Some(drv) = nix_utils::query_drv(&drv_path).await.ok().flatten() else {
             return CreateStepResult::None;
@@ -1802,7 +1808,7 @@ impl State {
                         format!("log/{}", drv_path.base_name()),
                         log_file.to_string_lossy().to_string(),
                     ) {
-                        log::error!("Failed to schedule upload for derivation {drv_path}: {e}");
+                        tracing::error!("Failed to schedule upload for derivation {drv_path}: {e}");
                     } else {
                         missing.clear();
                     }
@@ -1820,7 +1826,7 @@ impl State {
             return CreateStepResult::PreviousFailure(step);
         }
 
-        log::debug!("missing outputs: {missing_outputs:?}");
+        tracing::debug!("missing outputs: {missing_outputs:?}");
         let mut finished = missing_outputs.is_empty();
         if !missing_outputs.is_empty() && use_substitutes {
             use futures::stream::StreamExt as _;
@@ -1851,7 +1857,7 @@ impl State {
                     }
                     Err(e) => {
                         self.metrics.nr_substitutes_failed.inc();
-                        log::warn!("Failed to substitute path: {e}");
+                        tracing::warn!("Failed to substitute path: {e}");
                     }
                 }
             }
@@ -1869,7 +1875,7 @@ impl State {
             return CreateStepResult::None;
         }
 
-        log::debug!("creating build step '{drv_path}");
+        tracing::debug!("creating build step '{drv_path}");
         let Some(input_drvs) = step.get_input_drvs() else {
             // this should never happen because we always a a drv set at this point in time
             return CreateStepResult::None;
@@ -1958,7 +1964,7 @@ impl State {
             if let Some(i) = jobsets.get(&(row.project.clone(), row.name.clone()))
                 && let Err(e) = i.set_shares(row.schedulingshares)
             {
-                log::error!(
+                tracing::error!(
                     "Failed to update jobset scheduling shares. project_name={} jobset_name={} e={}",
                     row.project,
                     row.name,
@@ -1982,7 +1988,7 @@ impl State {
             let mut db = self.db.get().await?;
             let mut tx = db.begin_transaction().await?;
 
-            log::info!("marking build {} as succeeded (cached)", build.id);
+            tracing::info!("marking build {} as succeeded (cached)", build.id);
             let now = jiff::Timestamp::now().as_second();
             tx.mark_succeeded_build(
                 get_mark_build_sccuess_data(&build, &res),
@@ -2093,7 +2099,7 @@ impl State {
 
             let drv = step.get_drv_path();
             let system = step.get_system();
-            log::error!("aborting unsupported build step '{drv}' (type '{system:?}')",);
+            tracing::error!("aborting unsupported build step '{drv}' (type '{system:?}')",);
 
             aborted.insert(step.clone());
 
@@ -2124,7 +2130,7 @@ impl State {
                 system.unwrap_or(String::new())
             ));
             if let Err(e) = self.inner_fail_job(drv, None, job, step.clone()).await {
-                log::error!("Failed to fail step drv={drv} e={e}");
+                tracing::error!("Failed to fail step drv={drv} e={e}");
             }
         }
 

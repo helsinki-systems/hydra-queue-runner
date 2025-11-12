@@ -368,14 +368,14 @@ impl TryFrom<AppConfig> for PreparedApp {
 
 /// Loads the config from specified path
 fn load_config(filepath: &str) -> anyhow::Result<PreparedApp> {
-    log::info!("Trying to loading file: {filepath}");
+    tracing::info!("Trying to loading file: {filepath}");
     let toml: AppConfig = if let Ok(content) = std::fs::read_to_string(filepath) {
         toml::from_str(&content).map_err(|e| anyhow::anyhow!("Failed to load '{filepath}': {e}"))?
     } else {
-        log::warn!("no config file found! Using default config");
+        tracing::warn!("no config file found! Using default config");
         toml::from_str("").map_err(|e| anyhow::anyhow!("Failed to parse \"\": {e}"))?
     };
-    log::info!("Loaded config: {toml:?}");
+    tracing::info!("Loaded config: {toml:?}");
 
     toml.try_into()
         .map_err(|e| anyhow::anyhow!("Failed to prepare configuration: {e}"))
@@ -525,7 +525,7 @@ pub async fn reload(current_config: &App, filepath: &str, state: &Arc<crate::sta
     let new_config = match load_config(filepath) {
         Ok(c) => c,
         Err(e) => {
-            log::warn!("Failed to load new config: {e}");
+            tracing::warn!("Failed to load new config: {e}");
             let _notify = sd_notify::notify(
                 false,
                 &[
@@ -539,7 +539,7 @@ pub async fn reload(current_config: &App, filepath: &str, state: &Arc<crate::sta
     };
 
     if let Err(e) = state.reload_config_callback(&new_config).await {
-        log::error!("Config reload failed with {e}");
+        tracing::error!("Config reload failed with {e}");
         let _notify = sd_notify::notify(
             false,
             &[

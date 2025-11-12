@@ -40,14 +40,14 @@ async fn main() -> anyhow::Result<()> {
 
     tokio::select! {
         _ = sigint.recv() => {
-            log::info!("Received sigint - shutting down gracefully");
+            tracing::info!("Received sigint - shutting down gracefully");
             let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
             abort_handle.abort();
             state.abort_all_active_builds();
             let _ = state.clear_gcroots();
         }
         _ = sigterm.recv() => {
-            log::info!("Received sigterm - shutting down gracefully");
+            tracing::info!("Received sigterm - shutting down gracefully");
             let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
             abort_handle.abort();
             state.abort_all_active_builds();

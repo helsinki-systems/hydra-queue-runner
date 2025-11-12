@@ -170,16 +170,16 @@ impl State {
             },
             max_concurrent_downloads: 5.into(),
         });
-        log::info!("Builder systems={:?}", state.config.systems);
-        log::info!(
+        tracing::info!("Builder systems={:?}", state.config.systems);
+        tracing::info!(
             "Builder supported_features={:?}",
             state.config.supported_features
         );
-        log::info!(
+        tracing::info!(
             "Builder mandatory_features={:?}",
             state.config.mandatory_features
         );
-        log::info!("Builder use_cgroups={:?}", state.config.cgroups);
+        tracing::info!("Builder use_cgroups={:?}", state.config.cgroups);
 
         Ok(state)
     }
@@ -244,7 +244,7 @@ impl State {
         if self.contains_build(&drv) {
             return Ok(());
         }
-        log::info!("Building {drv}");
+        tracing::info!("Building {drv}");
         let build_id = uuid::Uuid::parse_str(&m.build_id)?;
 
         let was_cancelled = Arc::new(AtomicBool::new(false));
@@ -264,16 +264,18 @@ impl State {
                 .await
                 {
                     Ok(()) => {
-                        log::info!("Successfully completed build process for {drv}");
+                        tracing::info!("Successfully completed build process for {drv}");
                         self_.remove_build(build_id);
                     }
                     Err(e) => {
                         if was_cancelled.load(atomic::Ordering::SeqCst) {
-                            log::error!("Build of {drv} was cancelled {e}, not reporting Error");
+                            tracing::error!(
+                                "Build of {drv} was cancelled {e}, not reporting Error"
+                            );
                             return;
                         }
 
-                        log::error!("Build of {drv} failed with {e}");
+                        tracing::error!("Build of {drv} failed with {e}");
                         self_.remove_build(build_id);
                         let failed_build = BuildResultInfo {
                             build_id: build_id.to_string(),
@@ -296,11 +298,11 @@ impl State {
                         .sleep(tokio::time::sleep)
                         .context((client.clone(), failed_build))
                         .notify(|err: &tonic::Status, dur: core::time::Duration| {
-                            log::error!("Failed to submit build failure info: err={err}, retrying in={dur:?}");
+                            tracing::error!("Failed to submit build failure info: err={err}, retrying in={dur:?}");
                         })
                         .await
                         {
-                            log::error!("Failed to submit build failure info: {e}");
+                            tracing::error!("Failed to submit build failure info: {e}");
                         }
                     }
                 }
@@ -342,7 +344,7 @@ impl State {
 
     #[tracing::instrument(skip(self, m), fields(build_id=%m.build_id))]
     pub fn abort_build(&self, m: &AbortMessage) -> anyhow::Result<()> {
-        log::info!("Try cancelling build");
+        tracing::info!("Try cancelling build");
         let build_id = uuid::Uuid::parse_str(&m.build_id)?;
         if let Some(b) = self.remove_build(build_id) {
             b.abort();
@@ -452,7 +454,7 @@ impl State {
                         data: format!("{chunk}\n").into(),
                     },
                     Err(e) => {
-                        log::error!("Failed to write log chunk to queue-runner: {e}");
+                        tracing::error!("Failed to write log chunk to queue-runner: {e}");
                         break
                     }
                 }
@@ -479,7 +481,7 @@ impl State {
         }
 
         *build_elapsed = before_build.elapsed();
-        log::info!("Finished building {drv}");
+        tracing::info!("Finished building {drv}");
 
         let _ = client // we ignore the error here, as this step status has no prio
             .build_step_update(StepUpdate {
@@ -522,12 +524,12 @@ impl State {
         .sleep(tokio::time::sleep)
         .context((client.clone(), build_results))
         .notify(|err: &tonic::Status, dur: core::time::Duration| {
-            log::error!("Failed to submit build success info: err={err}, retrying in={dur:?}");
+            tracing::error!("Failed to submit build success info: err={err}, retrying in={dur:?}");
         })
         .await
         .1
         .map_err(|e| {
-            log::error!("Failed to submit build success info. Will fail build: err={e}");
+            tracing::error!("Failed to submit build success info. Will fail build: err={e}");
             JobFailure::PostProcessing(e.into())
         })?;
         Ok(())
@@ -632,7 +634,7 @@ async fn import_paths(
         paths
     };
 
-    log::debug!("Start importing paths");
+    tracing::debug!("Start importing paths");
     let stream = client
         .stream_files(StorePaths {
             paths: paths.iter().map(|p| p.base_name().to_owned()).collect(),
@@ -649,7 +651,7 @@ async fn import_paths(
             false,
         )
         .await?;
-    log::debug!("Finished importing paths");
+    tracing::debug!("Finished importing paths");
 
     for p in paths {
         nix_utils::add_root(&gcroot.root, &p);
@@ -747,7 +749,7 @@ async fn upload_nars(
     store: nix_utils::LocalStore,
     nars: Vec<nix_utils::StorePath>,
 ) -> anyhow::Result<()> {
-    log::debug!("Start uploading paths");
+    tracing::debug!("Start uploading paths");
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<NarData>();
     let closure = move |data: &[u8]| {
         let data = Vec::from(data);
@@ -760,7 +762,7 @@ async fn upload_nars(
     let b = tokio::task::spawn_blocking(move || {
         async move {
             store.export_paths(&nars, closure)?;
-            log::debug!("Finished exporting paths");
+            tracing::debug!("Finished exporting paths");
             Ok::<(), anyhow::Error>(())
         }
         .in_current_span()
@@ -768,7 +770,7 @@ async fn upload_nars(
     .await?
     .map_err(Into::<anyhow::Error>::into);
     futures::future::try_join(a, b).await?;
-    log::debug!("Finished uploading paths");
+    tracing::debug!("Finished uploading paths");
     Ok(())
 }
 

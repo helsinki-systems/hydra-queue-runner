@@ -409,7 +409,7 @@ impl Process {
             cgroup: match CgroupStats::new(&me) {
                 Ok(v) => Some(v),
                 Err(e) => {
-                    log::error!("failed to cgroups stats: {e}");
+                    tracing::error!("failed to cgroups stats: {e}");
                     None
                 }
             },

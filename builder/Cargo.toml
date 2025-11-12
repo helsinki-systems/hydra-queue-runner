@@ -6,7 +6,7 @@ license = "GPL-3.0"
 rust-version.workspace = true
 
 [dependencies]
-log.workspace = true
+
 tracing.workspace = true
 
 sd-notify.workspace = true

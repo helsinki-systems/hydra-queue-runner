@@ -78,7 +78,7 @@ fn handle_message(state: &Arc<State>, msg: builder_request::Message) {
         // at this point in time, builder already joined, so this message can be ignored
         builder_request::Message::Join(_) => (),
         builder_request::Message::Ping(msg) => {
-            log::debug!("new ping: {msg:?}");
+            tracing::debug!("new ping: {msg:?}");
             let Ok(machine_id) = uuid::Uuid::parse_str(&msg.machine_id) else {
                 return;
             };
@@ -87,7 +87,7 @@ fn handle_message(state: &Arc<State>, msg: builder_request::Message) {
             }
         }
         #[allow(unreachable_patterns)]
-        _ => log::warn!("unhandled message: {msg:?}"),
+        _ => tracing::warn!("unhandled message: {msg:?}"),
     }
 }
 
@@ -151,7 +151,7 @@ impl Server {
         );
 
         if state.cli.mtls_enabled() {
-            log::info!("Using mtls");
+            tracing::info!("Using mtls");
             let (client_ca_cert, server_identity) = state
                 .cli
                 .get_mtls()
@@ -227,7 +227,7 @@ impl RunnerService for Server {
 
         let state = self.state.clone();
         let machine_id = state.insert_machine(machine.clone()).await;
-        log::info!("Registered new machine: machine_id={machine_id} machine={machine}",);
+        tracing::info!("Registered new machine: machine_id={machine_id} machine={machine}",);
 
         let (output_tx, output_rx) = mpsc::channel(128);
         if let Err(e) = output_tx
@@ -239,7 +239,7 @@ impl RunnerService for Server {
             }))
             .await
         {
-            log::error!("Failed to send join response machine_id={machine_id} e={e}");
+            tracing::error!("Failed to send join response machine_id={machine_id} e={e}");
             return Err(tonic::Status::internal("Failed to send join Response."));
         }
 
@@ -255,7 +255,7 @@ impl RunnerService for Server {
                             }))
                         };
                         if let Err(e) = output_tx.send(Ok(msg)).await {
-                            log::error!("Failed to send message to machine={machine_id} e={e}");
+                            tracing::error!("Failed to send message to machine={machine_id} e={e}");
                             state.remove_machine(machine_id).await;
                             break
                         }
@@ -263,7 +263,7 @@ impl RunnerService for Server {
                     msg = input_rx.recv() => {
                         if let Some(msg) = msg {
                             if let Err(e) = output_tx.send(Ok(msg.into_request())).await {
-                                log::error!("Failed to send message to machine={machine_id} e={e}");
+                                tracing::error!("Failed to send message to machine={machine_id} e={e}");
                                 state.remove_machine(machine_id).await;
                                 break
                             }
@@ -278,7 +278,7 @@ impl RunnerService for Server {
                         Some(Err(err)) => {
                             if let Some(io_err) = match_for_io_error(&err)
                                 && io_err.kind() == std::io::ErrorKind::BrokenPipe {
-                                    log::error!("client disconnected: broken pipe: machine={machine_id}");
+                                    tracing::error!("client disconnected: broken pipe: machine={machine_id}");
                                     state.remove_machine(machine_id).await;
                                     break;
                                 }
@@ -370,11 +370,11 @@ impl RunnerService for Server {
 
         let req = req.into_inner();
         let build_id = uuid::Uuid::parse_str(&req.build_id).map_err(|e| {
-            log::error!("Failed to parse build_id into uuid: {e}");
+            tracing::error!("Failed to parse build_id into uuid: {e}");
             tonic::Status::invalid_argument("build_id is not a valid uuid.")
         })?;
         let machine_id = uuid::Uuid::parse_str(&req.machine_id).map_err(|e| {
-            log::error!("Failed to parse machine_id into uuid: {e}");
+            tracing::error!("Failed to parse machine_id into uuid: {e}");
             tonic::Status::invalid_argument("machine_id is not a valid uuid.")
         })?;
         let step_status = db::models::StepStatus::from(req.step_status());
@@ -389,7 +389,7 @@ impl RunnerService for Server {
                     )
                     .await
                 {
-                    log::error!(
+                    tracing::error!(
                         "Failed to update build step with build_id={build_id:?} step_status={step_status:?}: {e}"
                     );
                 }
@@ -408,11 +408,11 @@ impl RunnerService for Server {
 
         let req = req.into_inner();
         let build_id = uuid::Uuid::parse_str(&req.build_id).map_err(|e| {
-            log::error!("Failed to parse build_id into uuid: {e}");
+            tracing::error!("Failed to parse build_id into uuid: {e}");
             tonic::Status::invalid_argument("build_id is not a valid uuid.")
         })?;
         let machine_id = uuid::Uuid::parse_str(&req.machine_id).map_err(|e| {
-            log::error!("Failed to parse machine_id into uuid: {e}");
+            tracing::error!("Failed to parse machine_id into uuid: {e}");
             tonic::Status::invalid_argument("machine_id is not a valid uuid.")
         })?;
 
@@ -424,7 +424,9 @@ impl RunnerService for Server {
                         .succeed_step_by_uuid(build_id, machine_id, build_output)
                         .await
                     {
-                        log::error!("Failed to mark step with build_id={build_id} as done: {e}");
+                        tracing::error!(
+                            "Failed to mark step with build_id={build_id} as done: {e}"
+                        );
                     }
                 } else if let Err(e) = state
                     .fail_step_by_uuid(
@@ -436,7 +438,7 @@ impl RunnerService for Server {
                     )
                     .await
                 {
-                    log::error!("Failed to fail step with build_id={build_id}: {e}");
+                    tracing::error!("Failed to fail step with build_id={build_id}: {e}");
                 }
             }
             .in_current_span()
@@ -459,7 +461,7 @@ impl RunnerService for Server {
             .query_requisites(&[&drv], req.include_outputs)
             .await
             .map_err(|e| {
-                log::error!("failed to toposort drv e={e}");
+                tracing::error!("failed to toposort drv e={e}");
                 tonic::Status::internal("failed to toposort drv.")
             })?
             .into_iter()

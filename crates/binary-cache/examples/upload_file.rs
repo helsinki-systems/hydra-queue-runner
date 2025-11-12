@@ -12,7 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ).parse()?,
     )
     .await?;
-    log::info!("{:#?}", client.cfg);
+    tracing::info!("{:#?}", client.cfg);
 
     let paths_to_copy = local
         .query_requisites(
@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     client.copy_paths(&local, paths_to_copy, true).await?;
 
     let stats = client.s3_stats();
-    log::info!(
+    tracing::info!(
         "stats: put={}, put_bytes={}, put_time_ms={}, get={}, get_bytes={}, get_time_ms={}, head={}",
         stats.put,
         stats.put_bytes,

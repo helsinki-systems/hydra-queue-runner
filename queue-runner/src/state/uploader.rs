@@ -40,7 +40,7 @@ impl Uploader {
         log_remote_path: String,
         log_local_path: String,
     ) -> anyhow::Result<()> {
-        log::info!("Scheduling new path upload: {:?}", store_paths);
+        tracing::info!("Scheduling new path upload: {:?}", store_paths);
         self.upload_queue_sender.send(Message {
             store_paths,
             log_remote_path,
@@ -56,7 +56,7 @@ impl Uploader {
         remote_stores: Vec<binary_cache::S3BinaryCacheClient>,
         msg: Message,
     ) {
-        log::info!("Uploading {} paths", msg.store_paths.len());
+        tracing::info!("Uploading {} paths", msg.store_paths.len());
 
         let paths_to_copy = match local_store
             .query_requisites(&msg.store_paths.iter().collect::<Vec<_>>(), false)
@@ -64,7 +64,7 @@ impl Uploader {
         {
             Ok(paths) => paths,
             Err(e) => {
-                log::error!("Failed to query requisites: {e}");
+                tracing::error!("Failed to query requisites: {e}");
                 return;
             }
         };
@@ -91,7 +91,7 @@ impl Uploader {
             .await;
 
             if let Err(e) = log_upload_result {
-                log::error!("Failed to upload log file after retries: {e}");
+                tracing::error!("Failed to upload log file after retries: {e}");
             }
             let paths_to_copy = remote_store
                 .query_missing_paths(paths_to_copy.clone())
@@ -112,16 +112,16 @@ impl Uploader {
             .await;
 
             if let Err(e) = copy_result {
-                log::error!("Failed to copy paths after retries: {e}");
+                tracing::error!("Failed to copy paths after retries: {e}");
             } else {
-                log::debug!(
+                tracing::debug!(
                     "Successfully uploaded {} paths to bucket {bucket}",
                     msg.store_paths.len()
                 );
             }
         }
 
-        log::info!("Finished uploading {} paths", msg.store_paths.len());
+        tracing::info!("Finished uploading {} paths", msg.store_paths.len());
     }
 
     pub async fn upload_once(

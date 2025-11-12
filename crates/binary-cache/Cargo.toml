@@ -6,7 +6,7 @@ license = "LGPL-2.1-only"
 rust-version.workspace = true
 
 [dependencies]
-log.workspace = true
+
 tracing.workspace = true
 bytes.workspace = true
 thiserror.workspace = true
