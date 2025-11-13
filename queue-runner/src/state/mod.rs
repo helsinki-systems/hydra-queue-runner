@@ -984,9 +984,6 @@ impl State {
             .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?;
 
         step_info.step.set_finished(true);
-        self.metrics.nr_steps_done.inc();
-        self.metrics.nr_steps_building.sub(1);
-
         tracing::debug!(
             "removing job from machine: drv_path={drv_path} m={}",
             machine.id
@@ -998,25 +995,29 @@ impl State {
 
         job.result.step_status = BuildStatus::Success;
         job.result.stop_time = Some(jiff::Timestamp::now());
-        {
-            let total_step_time = job.result.get_total_step_time_ms();
-            machine
-                .stats
-                .add_to_total_step_time_ms(u128::from(total_step_time));
-            machine
-                .stats
-                .add_to_total_step_import_time_ms(output.import_elapsed.as_millis());
-            machine
-                .stats
-                .add_to_total_step_build_time_ms(output.build_elapsed.as_millis());
-            machine.stats.reset_consecutive_failures();
-            self.metrics
-                .add_to_total_step_time_ms(u128::from(total_step_time));
-            self.metrics
-                .add_to_total_step_import_time_ms(output.import_elapsed.as_millis());
-            self.metrics
-                .add_to_total_step_build_time_ms(output.build_elapsed.as_millis());
-        }
+
+        let total_step_time = job.result.get_total_step_time_ms();
+        machine.stats.increment_succeeded_builds();
+        machine
+            .stats
+            .add_to_total_step_time_ms(u128::from(total_step_time));
+        machine
+            .stats
+            .add_to_total_step_import_time_ms(output.import_elapsed.as_millis());
+        machine
+            .stats
+            .add_to_total_step_build_time_ms(output.build_elapsed.as_millis());
+        machine.stats.reset_consecutive_failures();
+
+        self.metrics.nr_builds_succeeded.inc();
+        self.metrics.nr_steps_done.inc();
+        self.metrics.nr_steps_building.sub(1);
+        self.metrics
+            .add_to_total_step_time_ms(u128::from(total_step_time));
+        self.metrics
+            .add_to_total_step_import_time_ms(output.import_elapsed.as_millis());
+        self.metrics
+            .add_to_total_step_build_time_ms(output.build_elapsed.as_millis());
 
         {
             let mut db = self.db.get().await?;
@@ -1143,8 +1144,6 @@ impl State {
             .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?;
 
         step_info.step.set_finished(false);
-        self.metrics.nr_steps_done.inc();
-        self.metrics.nr_steps_building.sub(1);
 
         tracing::debug!(
             "removing job from machine: drv_path={drv_path} m={}",
@@ -1157,6 +1156,22 @@ impl State {
         job.result.step_status = BuildStatus::Failed;
         // this can override step_status to something more specific
         job.result.update_with_result_state(&state);
+
+        machine.stats.increment_failed_builds();
+        machine
+            .stats
+            .add_to_total_step_build_time_ms(build_elapsed.as_millis());
+        machine
+            .stats
+            .add_to_total_step_import_time_ms(import_elapsed.as_millis());
+
+        self.metrics.nr_steps_done.inc();
+        self.metrics.nr_steps_building.sub(1);
+        self.metrics.nr_builds_failed.inc();
+        self.metrics
+            .add_to_total_step_build_time_ms(build_elapsed.as_millis());
+        self.metrics
+            .add_to_total_step_import_time_ms(import_elapsed.as_millis());
 
         // TODO: max failure count
         let (max_retries, retry_interval, retry_backoff) = self.config.get_retry();
@@ -1210,17 +1225,6 @@ impl State {
 
         // remove job from queues, aka actually fail the job
         self.queues.remove_job(&step_info, &queue).await;
-
-        machine
-            .stats
-            .add_to_total_step_build_time_ms(build_elapsed.as_millis());
-        machine
-            .stats
-            .add_to_total_step_import_time_ms(import_elapsed.as_millis());
-        self.metrics
-            .add_to_total_step_build_time_ms(build_elapsed.as_millis());
-        self.metrics
-            .add_to_total_step_import_time_ms(import_elapsed.as_millis());
 
         self.inner_fail_job(drv_path, Some(machine), job, step_info.step.clone())
             .await

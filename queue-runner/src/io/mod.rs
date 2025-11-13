@@ -84,6 +84,8 @@ pub struct MachineStats {
 
     jobs_in_last_30s_start: i64,
     jobs_in_last_30s_count: u64,
+    pub failed_builds: u64,
+    pub succeeded_builds: u64,
 }
 
 impl MachineStats {
@@ -136,6 +138,8 @@ impl MachineStats {
             store_free_percent: item.get_store_free_percent(),
             jobs_in_last_30s_start: item.jobs_in_last_30s_start.load(Ordering::Relaxed),
             jobs_in_last_30s_count: item.jobs_in_last_30s_count.load(Ordering::Relaxed),
+            failed_builds: item.get_failed_builds(),
+            succeeded_builds: item.get_succeeded_builds(),
         }
     }
 }
@@ -533,6 +537,8 @@ pub struct QueueRunnerStats {
     build_read_time_ms: u64,
     nr_builds_unfinished: i64,
     nr_builds_done: u64,
+    nr_builds_succeeded: u64,
+    nr_builds_failed: u64,
     nr_steps_started: u64,
     nr_steps_done: u64,
     nr_steps_building: i64,
@@ -607,6 +613,8 @@ impl QueueRunnerStats {
             build_read_time_ms: state.metrics.build_read_time_ms.get(),
             nr_builds_unfinished: state.metrics.nr_builds_unfinished.get(),
             nr_builds_done: state.metrics.nr_builds_done.get(),
+            nr_builds_succeeded: state.metrics.nr_builds_succeeded.get(),
+            nr_builds_failed: state.metrics.nr_builds_failed.get(),
             nr_steps_started: state.metrics.nr_steps_started.get(),
             nr_steps_done: state.metrics.nr_steps_done.get(),
             nr_steps_building: state.metrics.nr_steps_building.get(),

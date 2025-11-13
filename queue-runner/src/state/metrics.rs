@@ -22,6 +22,8 @@ pub struct PromMetrics {
     pub build_read_time_ms: prometheus::IntCounter, // hydra_queue_builds_time
     pub nr_builds_unfinished: prometheus::IntGauge, // hydra_queue_builds_unfinished
     pub nr_builds_done: prometheus::IntCounter, // hydra_queue_builds_finished
+    pub nr_builds_succeeded: prometheus::IntCounter, // hydra_queue_builds_succeeded
+    pub nr_builds_failed: prometheus::IntCounter, // hydra_queue_builds_failed
     pub nr_steps_started: prometheus::IntCounter, // hydra_queue_steps_started
     pub nr_steps_done: prometheus::IntCounter,  // hydra_queue_steps_finished
     pub nr_steps_building: prometheus::IntGauge, // hydra_queue_steps_building
@@ -163,6 +165,14 @@ impl PromMetrics {
         let nr_builds_done = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_builds_finished",
             "Number of finished builds in the queue",
+        ))?;
+        let nr_builds_succeeded = prometheus::IntCounter::with_opts(prometheus::Opts::new(
+            "hydraqueuerunner_builds_succeeded",
+            "Number of successful builds in the queue",
+        ))?;
+        let nr_builds_failed = prometheus::IntCounter::with_opts(prometheus::Opts::new(
+            "hydraqueuerunner_builds_failed",
+            "Number of failed builds in the queue",
         ))?;
         let nr_steps_started = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_steps_started",
@@ -571,6 +581,8 @@ impl PromMetrics {
         r.register(Box::new(build_read_time_ms.clone()))?;
         r.register(Box::new(nr_builds_unfinished.clone()))?;
         r.register(Box::new(nr_builds_done.clone()))?;
+        r.register(Box::new(nr_builds_succeeded.clone()))?;
+        r.register(Box::new(nr_builds_failed.clone()))?;
         r.register(Box::new(nr_steps_started.clone()))?;
         r.register(Box::new(nr_steps_done.clone()))?;
         r.register(Box::new(nr_steps_building.clone()))?;
@@ -662,6 +674,8 @@ impl PromMetrics {
             build_read_time_ms,
             nr_builds_unfinished,
             nr_builds_done,
+            nr_builds_succeeded,
+            nr_builds_failed,
             nr_steps_started,
             nr_steps_done,
             nr_steps_building,

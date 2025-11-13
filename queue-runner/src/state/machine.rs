@@ -46,6 +46,9 @@ pub struct PressureState {
 pub struct Stats {
     current_jobs: std::sync::atomic::AtomicU64,
     nr_steps_done: std::sync::atomic::AtomicU64,
+    failed_builds: std::sync::atomic::AtomicU64,
+    succeeded_builds: std::sync::atomic::AtomicU64,
+
     total_step_time_ms: std::sync::atomic::AtomicU64,
     total_step_import_time_ms: std::sync::atomic::AtomicU64,
     total_step_build_time_ms: std::sync::atomic::AtomicU64,
@@ -80,6 +83,9 @@ impl Stats {
         Self {
             current_jobs: 0.into(),
             nr_steps_done: 0.into(),
+            failed_builds: 0.into(),
+            succeeded_builds: 0.into(),
+
             total_step_time_ms: 0.into(),
             total_step_import_time_ms: 0.into(),
             total_step_build_time_ms: 0.into(),
@@ -182,6 +188,22 @@ impl Stats {
 
     pub fn reset_consecutive_failures(&self) {
         self.consecutive_failures.store(0, Ordering::Relaxed);
+    }
+
+    pub fn get_failed_builds(&self) -> u64 {
+        self.failed_builds.load(Ordering::Relaxed)
+    }
+
+    pub fn increment_failed_builds(&self) {
+        self.failed_builds.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn get_succeeded_builds(&self) -> u64 {
+        self.succeeded_builds.load(Ordering::Relaxed)
+    }
+
+    pub fn increment_succeeded_builds(&self) {
+        self.succeeded_builds.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn get_last_ping(&self) -> i64 {
