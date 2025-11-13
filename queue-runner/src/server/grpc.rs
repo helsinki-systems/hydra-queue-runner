@@ -12,9 +12,12 @@ use crate::{
     state::{Machine, MachineMessage, State},
 };
 use nix_utils::BaseStore as _;
+
+include!(concat!(env!("OUT_DIR"), "/proto_version.rs"));
 use runner_v1::{
     BuildResultInfo, BuilderRequest, FetchRequisitesRequest, JoinResponse, LogChunk, NarData,
-    RunnerRequest, SimplePingMessage, StorePath, StorePaths, builder_request,
+    RunnerRequest, SimplePingMessage, StorePath, StorePaths, VersionCheckRequest,
+    VersionCheckResponse, builder_request,
     runner_service_server::{RunnerService, RunnerServiceServer},
 };
 
@@ -204,6 +207,41 @@ impl RunnerService for Server {
     type StreamFilesStream = StreamFileResponseStream;
 
     #[tracing::instrument(skip(self, req), err)]
+    async fn check_version(
+        &self,
+        req: tonic::Request<VersionCheckRequest>,
+    ) -> BuilderResult<VersionCheckResponse> {
+        let req = req.into_inner();
+        let server_version = PROTO_API_VERSION;
+
+        if req.version == server_version {
+            tracing::info!(
+                "Version check passed: machine_id={}, hostname={}, client={}, server={}",
+                req.machine_id,
+                req.hostname,
+                req.version,
+                server_version
+            );
+            Ok(tonic::Response::new(VersionCheckResponse {
+                compatible: true,
+                server_version: server_version.to_string(),
+            }))
+        } else {
+            tracing::warn!(
+                "Version check failed: machine_id={}, hostname={}, client={}, server={}",
+                req.machine_id,
+                req.hostname,
+                req.version,
+                server_version
+            );
+            Ok(tonic::Response::new(VersionCheckResponse {
+                compatible: false,
+                server_version: server_version.to_string(),
+            }))
+        }
+    }
+
+    #[tracing::instrument(skip(self, req), err)]
     async fn open_tunnel(
         &self,
         req: tonic::Request<tonic::Streaming<BuilderRequest>>,
@@ -219,6 +257,10 @@ impl RunnerService for Server {
                 }
                 _ => None,
             },
+            Some(Err(e)) => {
+                tracing::error!("Bad message in stream: {e}");
+                None
+            }
             _ => None,
         };
         let Some(machine) = machine else {

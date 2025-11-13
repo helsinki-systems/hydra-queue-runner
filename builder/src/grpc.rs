@@ -2,8 +2,10 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use runner_v1::{
-    BuilderRequest, builder_request, runner_request, runner_service_client::RunnerServiceClient,
+    BuilderRequest, VersionCheckRequest, builder_request, runner_request,
+    runner_service_client::RunnerServiceClient,
 };
+
 use tonic::{Request, service::interceptor::InterceptedService, transport::Channel};
 
 pub mod runner_v1 {
@@ -123,12 +125,42 @@ async fn handle_request(
 }
 
 #[tracing::instrument(skip(state), err)]
+async fn check_version_compatibility(state: Arc<crate::state::State>) -> anyhow::Result<()> {
+    let mut client = state.client.clone();
+
+    let response = client
+        .check_version(Request::new(VersionCheckRequest {
+            version: crate::state::PROTO_API_VERSION.to_string(),
+            machine_id: state.id.to_string(),
+            hostname: state.hostname.clone(),
+        }))
+        .await?;
+    let response = response.into_inner();
+
+    if !response.compatible {
+        return Err(anyhow::anyhow!(
+            "API version mismatch: client has {}, server has {}",
+            crate::state::PROTO_API_VERSION,
+            response.server_version,
+        ));
+    }
+
+    tracing::info!(
+        "Version check passed: client={}, server={}",
+        crate::state::PROTO_API_VERSION,
+        response.server_version
+    );
+    Ok(())
+}
+
+#[tracing::instrument(skip(state), err)]
 pub async fn start_bidirectional_stream(state: Arc<crate::state::State>) -> anyhow::Result<()> {
     use tokio_stream::StreamExt as _;
 
-    let state2 = state.clone();
-    let join_msg = state.get_join_message().await?;
+    check_version_compatibility(state.clone()).await?;
 
+    let join_msg = state.get_join_message().await?;
+    let state2 = state.clone();
     let ping_stream = async_stream::stream! {
         yield BuilderRequest {
             message: Some(builder_request::Message::Join(join_msg))
@@ -153,12 +185,22 @@ pub async fn start_bidirectional_stream(state: Arc<crate::state::State>) -> anyh
         }
     };
 
-    let mut stream = state2
+    let response = state2
         .client
         .clone()
         .open_tunnel(Request::new(ping_stream))
-        .await?
-        .into_inner();
+        .await;
+
+    let mut stream = match response {
+        Ok(response) => response.into_inner(),
+        Err(e) => {
+            let error_str = e.to_string();
+            if error_str.contains("API version mismatch") {
+                return Err(anyhow::anyhow!("API version mismatch: {error_str}"));
+            }
+            return Err(e.into());
+        }
+    };
 
     let mut consecutive_failure_count = 0;
     while let Some(item) = stream.next().await {

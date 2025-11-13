@@ -1,6 +1,6 @@
 [package]
 name = "builder"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 license = "GPL-3.0"
 rust-version.workspace = true
@@ -45,6 +45,7 @@ tikv-jemallocator.workspace = true
 
 [build-dependencies]
 tonic-prost-build.workspace = true
+sha2.workspace = true
 
 [features]
 otel = ["hydra-tracing/otel"]

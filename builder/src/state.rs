@@ -21,6 +21,8 @@ use crate::grpc::runner_v1::{
 };
 use nix_utils::BaseStore as _;
 
+include!(concat!(env!("OUT_DIR"), "/proto_version.rs"));
+
 const RETRY_MIN_DELAY: tokio::time::Duration = tokio::time::Duration::from_secs(3);
 const RETRY_MAX_DELAY: tokio::time::Duration = tokio::time::Duration::from_secs(90);
 
@@ -90,7 +92,8 @@ pub struct Config {
 }
 
 pub struct State {
-    id: uuid::Uuid,
+    pub id: uuid::Uuid,
+    pub hostname: String,
     pub config: Config,
     pub max_concurrent_downloads: atomic::AtomicU32,
 
@@ -138,6 +141,9 @@ impl State {
 
         let state = Arc::new(Self {
             id: uuid::Uuid::new_v4(),
+            hostname: gethostname::gethostname()
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("Couldn't convert hostname to string"))?,
             active_builds: parking_lot::RwLock::new(AHashMap::new()),
             config: Config {
                 ping_interval: cli.ping_interval,
@@ -191,9 +197,7 @@ impl State {
         Ok(JoinMessage {
             machine_id: self.id.to_string(),
             systems: self.config.systems.clone(),
-            hostname: gethostname::gethostname()
-                .into_string()
-                .map_err(|_| anyhow::anyhow!("Couldn't convert hostname to string"))?,
+            hostname: self.hostname.clone(),
             cpu_count: u32::try_from(sys.cpu_count)?,
             bogomips: sys.bogomips,
             speed_factor: self.config.speed_factor,

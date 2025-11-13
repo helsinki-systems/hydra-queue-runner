@@ -7,6 +7,7 @@ option java_outer_classname = "RunnerProto";
 option java_package = "io.grpc.hydra.runner";
 
 service RunnerService {
+  rpc CheckVersion(VersionCheckRequest) returns (VersionCheckResponse) {}
   rpc OpenTunnel(stream BuilderRequest) returns (stream RunnerRequest) {}
   rpc BuildLog(stream LogChunk) returns (Empty) {}
   rpc BuildResult(stream NarData) returns (Empty) {}
@@ -18,6 +19,17 @@ service RunnerService {
 }
 
 message Empty {}
+
+message VersionCheckRequest {
+  string version = 1;
+  string machine_id = 2;
+  string hostname = 3;
+}
+
+message VersionCheckResponse {
+  bool compatible = 1;
+  string server_version = 2;
+}
 
 message BuilderRequest {
   oneof message {

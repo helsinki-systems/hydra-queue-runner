@@ -54,7 +54,19 @@ async fn main() -> anyhow::Result<()> {
         }
         r = task => {
             let _ = state.clear_gcroots();
-            r??;
+            match r {
+                Ok(Ok(())) => (),
+                Ok(Err(e)) => {
+                    let error_str = e.to_string();
+                    if error_str.contains("API version mismatch") {
+                        tracing::error!("ERROR: {error_str}");
+                        std::process::exit(65); // EX_DATAERR
+                    } else {
+                        return Err(e);
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            }
         }
     };
     Ok(())
