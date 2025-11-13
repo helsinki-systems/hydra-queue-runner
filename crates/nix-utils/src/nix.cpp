@@ -64,6 +64,16 @@ rust::Vec<rust::String> get_system_features() {
   }
   return data;
 }
+rust::Vec<rust::String> get_substituters() {
+  auto strs = nix::settings.substituters.get();
+  rust::Vec<rust::String> data;
+  data.reserve(strs.size());
+  for (const auto &val : strs) {
+    data.emplace_back(val);
+  }
+  return data;
+}
+
 bool get_use_cgroups() {
 #ifdef __linux__
   return nix::settings.useCgroups;

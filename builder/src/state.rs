@@ -212,6 +212,7 @@ impl State {
             supported_features: self.config.supported_features.clone(),
             mandatory_features: self.config.mandatory_features.clone(),
             cgroups: self.config.cgroups,
+            substituters: nix_utils::get_substituters(),
         })
     }
 

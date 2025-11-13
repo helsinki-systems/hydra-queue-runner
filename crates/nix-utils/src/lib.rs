@@ -185,6 +185,8 @@ mod ffi {
         fn get_this_system() -> String;
         fn get_extra_platforms() -> Vec<String>;
         fn get_system_features() -> Vec<String>;
+        fn get_substituters() -> Vec<String>;
+
         fn get_use_cgroups() -> bool;
         fn set_verbosity(level: i32);
         fn sign_string(secret_key: &str, msg: &str) -> String;
@@ -332,6 +334,12 @@ pub fn get_extra_platforms() -> Vec<String> {
 #[must_use]
 pub fn get_system_features() -> Vec<String> {
     ffi::get_system_features()
+}
+
+#[inline]
+#[must_use]
+pub fn get_substituters() -> Vec<String> {
+    ffi::get_substituters()
 }
 
 #[inline]

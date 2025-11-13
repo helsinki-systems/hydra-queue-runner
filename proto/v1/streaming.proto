@@ -56,6 +56,7 @@ message JoinMessage {
   repeated string supported_features = 15;
   repeated string mandatory_features = 16;
   bool cgroups = 17;
+  repeated string substituters = 18;
 }
 
 message Pressure {

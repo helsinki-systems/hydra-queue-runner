@@ -162,6 +162,7 @@ pub struct Machine {
     supported_features: Vec<String>,
     mandatory_features: Vec<String>,
     cgroups: bool,
+    substituters: Vec<String>,
     stats: MachineStats,
     jobs: Vec<nix_utils::StorePath>,
 
@@ -200,6 +201,7 @@ impl Machine {
             supported_features: item.supported_features.clone(),
             mandatory_features: item.mandatory_features.clone(),
             cgroups: item.cgroups,
+            substituters: item.substituters.clone(),
             stats: MachineStats::from(&item.stats, time.as_second()),
             jobs,
             has_capacity: item.has_capacity(free_fn),

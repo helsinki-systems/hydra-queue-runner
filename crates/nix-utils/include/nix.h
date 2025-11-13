@@ -27,6 +27,8 @@ rust::String get_state_dir();
 rust::String get_this_system();
 rust::Vec<rust::String> get_extra_platforms();
 rust::Vec<rust::String> get_system_features();
+rust::Vec<rust::String> get_substituters();
+
 bool get_use_cgroups();
 void set_verbosity(int32_t level);
 rust::String sign_string(rust::Str secret_key, rust::Str msg);
