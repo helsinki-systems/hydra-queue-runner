@@ -214,6 +214,7 @@ impl State {
             cgroups: self.config.cgroups,
             substituters: nix_utils::get_substituters(),
             use_substitutes: self.config.use_substitutes,
+            nix_version: nix_utils::get_nix_version(),
         })
     }
 

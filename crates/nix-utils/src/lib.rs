@@ -182,6 +182,7 @@ mod ffi {
         fn get_store_dir() -> String;
         fn get_log_dir() -> String;
         fn get_state_dir() -> String;
+        fn get_nix_version() -> String;
         fn get_this_system() -> String;
         fn get_extra_platforms() -> Vec<String>;
         fn get_system_features() -> Vec<String>;
@@ -316,6 +317,12 @@ pub fn get_log_dir() -> String {
 #[must_use]
 pub fn get_state_dir() -> String {
     ffi::get_state_dir()
+}
+
+#[inline]
+#[must_use]
+pub fn get_nix_version() -> String {
+    ffi::get_nix_version()
 }
 
 #[inline]

@@ -164,6 +164,7 @@ pub struct Machine {
     cgroups: bool,
     substituters: Vec<String>,
     use_substitutes: bool,
+    nix_version: String,
     stats: MachineStats,
     jobs: Vec<nix_utils::StorePath>,
 
@@ -204,6 +205,8 @@ impl Machine {
             cgroups: item.cgroups,
             substituters: item.substituters.clone(),
             use_substitutes: item.use_substitutes,
+            nix_version: item.nix_version.clone(),
+
             stats: MachineStats::from(&item.stats, time.as_second()),
             jobs,
             has_capacity: item.has_capacity(free_fn),

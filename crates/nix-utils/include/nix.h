@@ -24,6 +24,7 @@ rust::String get_nix_prefix();
 rust::String get_store_dir();
 rust::String get_log_dir();
 rust::String get_state_dir();
+rust::String get_nix_version();
 rust::String get_this_system();
 rust::Vec<rust::String> get_extra_platforms();
 rust::Vec<rust::String> get_system_features();

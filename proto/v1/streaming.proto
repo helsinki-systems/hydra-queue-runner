@@ -58,6 +58,7 @@ message JoinMessage {
   bool cgroups = 17;
   repeated string substituters = 18;
   bool use_substitutes = 19;
+  string nix_version = 20;
 }
 
 message Pressure {

@@ -45,6 +45,9 @@ rust::String get_nix_prefix() { return nix::settings.nixPrefix; }
 rust::String get_store_dir() { return nix::settings.nixStore; }
 rust::String get_log_dir() { return nix::settings.nixLogDir; }
 rust::String get_state_dir() { return nix::settings.nixStateDir; }
+rust::String get_nix_version() {
+  return nix::nixVersion;
+}
 rust::String get_this_system() { return nix::settings.thisSystem.get(); }
 rust::Vec<rust::String> get_extra_platforms() {
   auto set = nix::settings.extraPlatforms.get();
