@@ -517,6 +517,7 @@ pub struct Machine {
     pub mandatory_features: Vec<String>,
     pub cgroups: bool,
     pub substituters: Vec<String>,
+    pub use_substitutes: bool,
     pub joined_at: jiff::Timestamp,
 
     msg_queue: mpsc::Sender<Message>,
@@ -564,6 +565,7 @@ impl Machine {
             mandatory_features: msg.mandatory_features,
             cgroups: msg.cgroups,
             substituters: msg.substituters,
+            use_substitutes: msg.use_substitutes,
             msg_queue: tx,
             joined_at: jiff::Timestamp::now(),
             stats: Arc::new(Stats::new()),

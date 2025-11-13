@@ -163,6 +163,7 @@ pub struct Machine {
     mandatory_features: Vec<String>,
     cgroups: bool,
     substituters: Vec<String>,
+    use_substitutes: bool,
     stats: MachineStats,
     jobs: Vec<nix_utils::StorePath>,
 
@@ -202,6 +203,7 @@ impl Machine {
             mandatory_features: item.mandatory_features.clone(),
             cgroups: item.cgroups,
             substituters: item.substituters.clone(),
+            use_substitutes: item.use_substitutes,
             stats: MachineStats::from(&item.stats, time.as_second()),
             jobs,
             has_capacity: item.has_capacity(free_fn),
