@@ -322,56 +322,56 @@ impl PromMetrics {
                 "hydraqueuerunner_machine_current_jobs",
                 "Number of currently running jobs on each machine",
             ),
-            &["machine_id", "hostname", "system_type"],
+            &["machine_id", "hostname", "machine_type"],
         )?;
         let machine_steps_done = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydraqueuerunner_machine_steps_done",
                 "Total number of steps completed by each machine",
             ),
-            &["machine_id", "hostname", "system_type"],
+            &["machine_id", "hostname", "machine_type"],
         )?;
         let machine_total_step_time_ms = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydraqueuerunner_machine_total_step_time_ms",
                 "Total time in milliseconds spent on all steps by each machine",
             ),
-            &["machine_id", "hostname", "system_type"],
+            &["machine_id", "hostname", "machine_type"],
         )?;
         let machine_total_step_import_time_ms = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydraqueuerunner_machine_total_step_import_time_ms",
                 "Total time in milliseconds spent importing steps by each machine",
             ),
-            &["machine_id", "hostname", "system_type"],
+            &["machine_id", "hostname", "machine_type"],
         )?;
         let machine_total_step_build_time_ms = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydraqueuerunner_machine_total_step_build_time_ms",
                 "Total time in milliseconds spent building steps by each machine",
             ),
-            &["machine_id", "hostname", "system_type"],
+            &["machine_id", "hostname", "machine_type"],
         )?;
         let machine_consecutive_failures = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydraqueuerunner_machine_consecutive_failures",
                 "Number of consecutive failures for each machine",
             ),
-            &["machine_id", "hostname", "system_type"],
+            &["machine_id", "hostname", "machine_type"],
         )?;
         let machine_last_ping_timestamp = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydraqueuerunner_machine_last_ping_timestamp",
                 "Unix timestamp of the last ping received from each machine",
             ),
-            &["machine_id", "hostname", "system_type"],
+            &["machine_id", "hostname", "machine_type"],
         )?;
         let machine_idle_since_timestamp = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydraqueuerunner_machine_idle_since_timestamp",
                 "Unix timestamp since when each machine has been idle (0 if currently busy)",
             ),
-            &["machine_id", "hostname", "system_type"],
+            &["machine_id", "hostname", "machine_type"],
         )?;
 
         // Store metrics (single store)
@@ -517,7 +517,7 @@ impl PromMetrics {
                 500.0,
                 f64::INFINITY,
             ]),
-            &["system_type"],
+            &["machine_type"],
         )?;
         let build_closure_size_bytes_histogram = prometheus::HistogramVec::new(
             prometheus::HistogramOpts::new(
@@ -534,7 +534,7 @@ impl PromMetrics {
                 1_000_000_000.0,
                 f64::INFINITY,
             ]),
-            &["system_type"],
+            &["machine_type"],
         )?;
 
         // Queue performance metrics
@@ -559,7 +559,7 @@ impl PromMetrics {
                 86400.0,
                 f64::INFINITY,
             ]),
-            &["system_type"],
+            &["machine_type"],
         )?;
 
         let queue_aborted_jobs_total = prometheus::IntCounter::with_opts(prometheus::Opts::new(
@@ -849,13 +849,13 @@ impl PromMetrics {
         for machine in state.machines.get_all_machines() {
             let machine_id = machine.id.to_string();
             let hostname = &machine.hostname;
-            let system_type = machine
+            let machine_type = machine
                 .systems
                 .first()
                 .unwrap_or(&"unknown".to_string())
                 .clone();
 
-            let labels = &[machine_id.as_str(), hostname, &system_type];
+            let labels = &[machine_id.as_str(), hostname, &machine_type];
 
             if let Ok(v) = i64::try_from(machine.stats.get_current_jobs()) {
                 self.machine_current_jobs.with_label_values(labels).set(v);
@@ -1022,21 +1022,21 @@ impl PromMetrics {
         }
     }
 
-    pub fn observe_build_input_drvs(&self, count: f64, system_type: &str) {
+    pub fn observe_build_input_drvs(&self, count: f64, machine_type: &str) {
         self.build_input_drvs_histogram
-            .with_label_values(&[system_type])
+            .with_label_values(&[machine_type])
             .observe(count);
     }
 
-    pub fn observe_build_closure_size(&self, size_bytes: f64, system_type: &str) {
+    pub fn observe_build_closure_size(&self, size_bytes: f64, machine_type: &str) {
         self.build_closure_size_bytes_histogram
-            .with_label_values(&[system_type])
+            .with_label_values(&[machine_type])
             .observe(size_bytes);
     }
 
-    pub fn observe_job_wait_time(&self, wait_seconds: f64, system_type: &str) {
+    pub fn observe_job_wait_time(&self, wait_seconds: f64, machine_type: &str) {
         self.queue_job_wait_time_histogram
-            .with_label_values(&[system_type])
+            .with_label_values(&[machine_type])
             .observe(wait_seconds);
     }
 }
