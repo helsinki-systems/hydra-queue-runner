@@ -66,6 +66,8 @@ pub struct Stats {
     pub pressure: arc_swap::ArcSwapOption<PressureState>,
     tmp_free_percent: atomic_float::AtomicF64,
     store_free_percent: atomic_float::AtomicF64,
+    current_uploading_path_count: std::sync::atomic::AtomicU64,
+    current_downloading_count: std::sync::atomic::AtomicU64,
 
     pub jobs_in_last_30s_start: std::sync::atomic::AtomicI64,
     pub jobs_in_last_30s_count: std::sync::atomic::AtomicU64,
@@ -103,6 +105,8 @@ impl Stats {
             pressure: arc_swap::ArcSwapOption::from(None),
             tmp_free_percent: 0.0.into(),
             store_free_percent: 0.0.into(),
+            current_uploading_path_count: 0.into(),
+            current_downloading_count: 0.into(),
 
             jobs_in_last_30s_start: 0.into(),
             jobs_in_last_30s_count: 0.into(),
@@ -234,6 +238,11 @@ impl Stats {
             .store(msg.tmp_free_percent, Ordering::Relaxed);
         self.store_free_percent
             .store(msg.store_free_percent, Ordering::Relaxed);
+
+        self.current_uploading_path_count
+            .store(msg.current_uploading_path_count, Ordering::Relaxed);
+        self.current_downloading_count
+            .store(msg.current_downloading_path_count, Ordering::Relaxed);
     }
 
     pub fn get_load1(&self) -> f32 {
@@ -258,6 +267,14 @@ impl Stats {
 
     pub fn get_store_free_percent(&self) -> f64 {
         self.store_free_percent.load(Ordering::Relaxed)
+    }
+
+    pub fn get_current_uploading_path_count(&self) -> u64 {
+        self.current_uploading_path_count.load(Ordering::Relaxed)
+    }
+
+    pub fn get_current_downloading_count(&self) -> u64 {
+        self.current_downloading_count.load(Ordering::Relaxed)
     }
 }
 

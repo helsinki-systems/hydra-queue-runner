@@ -4,6 +4,7 @@
 
 mod config;
 mod grpc;
+mod metrics;
 mod state;
 mod system;
 

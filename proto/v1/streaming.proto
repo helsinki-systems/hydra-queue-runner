@@ -86,6 +86,9 @@ message PingMessage {
   optional PressureState pressure = 6;
   double tmp_free_percent = 7;
   double store_free_percent = 8;
+  uint64 current_substituting_path_count = 9;
+  uint64 current_uploading_path_count = 10;
+  uint64 current_downloading_path_count = 11;
 }
 
 message SimplePingMessage {

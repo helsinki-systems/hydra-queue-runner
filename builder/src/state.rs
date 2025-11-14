@@ -1,10 +1,6 @@
-use std::{
-    sync::{
-        Arc,
-        atomic::{self, AtomicBool},
-    },
-    time::Instant,
-};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::time::Instant;
 
 use ahash::AHashMap;
 use anyhow::Context;
@@ -60,6 +56,7 @@ impl From<JobFailure> for BuildResultState {
     }
 }
 
+#[derive(Debug)]
 pub struct BuildInfo {
     drv_path: nix_utils::StorePath,
     handle: tokio::task::JoinHandle<()>,
@@ -68,11 +65,12 @@ pub struct BuildInfo {
 
 impl BuildInfo {
     fn abort(&self) {
-        self.was_cancelled.store(true, atomic::Ordering::SeqCst);
+        self.was_cancelled.store(true, Ordering::SeqCst);
         self.handle.abort();
     }
 }
 
+#[derive(Debug)]
 pub struct Config {
     pub ping_interval: u64,
     pub speed_factor: f32,
@@ -91,14 +89,16 @@ pub struct Config {
     pub use_substitutes: bool,
 }
 
+#[derive(Debug)]
 pub struct State {
     pub id: uuid::Uuid,
     pub hostname: String,
     pub config: Config,
-    pub max_concurrent_downloads: atomic::AtomicU32,
+    pub max_concurrent_downloads: AtomicU32,
 
     active_builds: parking_lot::RwLock<AHashMap<uuid::Uuid, Arc<BuildInfo>>>,
     pub client: BuilderClient,
+    pub metrics: Arc<crate::metrics::Metrics>,
 }
 
 #[derive(Debug)]
@@ -175,6 +175,7 @@ impl State {
             },
             max_concurrent_downloads: 5.into(),
             client: crate::grpc::init_client(cli).await?,
+            metrics: Arc::new(crate::metrics::Metrics::default()),
         });
         tracing::info!("Builder systems={:?}", state.config.systems);
         tracing::info!(
@@ -238,6 +239,9 @@ impl State {
             }),
             tmp_free_percent: sysinfo.tmp_free_percent,
             store_free_percent: sysinfo.store_free_percent,
+            current_substituting_path_count: self.metrics.get_substituting_path_count(),
+            current_uploading_path_count: self.metrics.get_uploading_path_count(),
+            current_downloading_path_count: self.metrics.get_downloading_path_count(),
         })
     }
 
@@ -266,7 +270,7 @@ impl State {
                         self_.remove_build(build_id);
                     }
                     Err(e) => {
-                        if was_cancelled.load(atomic::Ordering::SeqCst) {
+                        if was_cancelled.load(Ordering::SeqCst) {
                             tracing::error!(
                                 "Build of {drv} was cancelled {e}, not reporting Error"
                             );
@@ -406,16 +410,13 @@ impl State {
         import_requisites(
             &mut client,
             store.clone(),
+            self.metrics.clone(),
             &gcroot,
             resolved_drv.as_ref().unwrap_or(&drv),
             requisites
                 .into_iter()
                 .map(|s| nix_utils::StorePath::new(&s)),
-            usize::try_from(
-                self.max_concurrent_downloads
-                    .load(atomic::Ordering::Relaxed),
-            )
-            .unwrap_or(5),
+            usize::try_from(self.max_concurrent_downloads.load(Ordering::Relaxed)).unwrap_or(5),
             self.config.use_substitutes,
         )
         .await
@@ -488,9 +489,14 @@ impl State {
                 step_status: StepStatus::ReceivingOutputs as i32,
             })
             .await;
-        upload_nars(client.clone(), store.clone(), output_paths)
-            .await
-            .map_err(JobFailure::Upload)?;
+        upload_nars(
+            client.clone(),
+            store.clone(),
+            self.metrics.clone(),
+            output_paths,
+        )
+        .await
+        .map_err(JobFailure::Upload)?;
 
         let _ = client // we ignore the error here, as this step status has no prio
             .build_step_update(StepUpdate {
@@ -592,10 +598,11 @@ async fn substitute_paths(
     Ok(())
 }
 
-#[tracing::instrument(skip(client, store), fields(%gcroot), err)]
+#[tracing::instrument(skip(client, store, metrics), fields(%gcroot), err)]
 async fn import_paths(
     mut client: BuilderClient,
     store: nix_utils::LocalStore,
+    metrics: Arc<crate::metrics::Metrics>,
     gcroot: &Gcroot,
     paths: Vec<nix_utils::StorePath>,
     filter: bool,
@@ -616,7 +623,9 @@ async fn import_paths(
     };
     let paths = if use_substitutes {
         // we can ignore the error
+        metrics.add_substituting_path(paths.len() as u64);
         let _ = substitute_paths(&store, &paths).await;
+        metrics.sub_substituting_path(paths.len() as u64);
         let paths = futures::StreamExt::map(tokio_stream::iter(paths), |p| {
             filter_missing(&store, gcroot, p)
         })
@@ -640,6 +649,7 @@ async fn import_paths(
         .await?
         .into_inner();
 
+    metrics.add_downloading_path(paths.len() as u64);
     store
         .import_paths(
             tokio_stream::StreamExt::map(stream, |s| {
@@ -649,6 +659,8 @@ async fn import_paths(
             false,
         )
         .await?;
+
+    metrics.sub_downloading_path(paths.len() as u64);
     tracing::debug!("Finished importing paths");
 
     for p in paths {
@@ -657,10 +669,12 @@ async fn import_paths(
     Ok(())
 }
 
-#[tracing::instrument(skip(client, store, requisites), fields(%gcroot, %drv), err)]
+#[tracing::instrument(skip(client, store, metrics, requisites), fields(%gcroot, %drv), err)]
+#[allow(clippy::too_many_arguments)]
 async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     client: &mut BuilderClient,
     store: nix_utils::LocalStore,
+    metrics: Arc<crate::metrics::Metrics>,
     gcroot: &Gcroot,
     drv: &nix_utils::StorePath,
     requisites: T,
@@ -685,6 +699,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
         import_paths(
             client.clone(),
             store.clone(),
+            metrics.clone(),
             gcroot,
             srcs.to_vec(),
             true,
@@ -697,6 +712,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
         import_paths(
             client.clone(),
             store.clone(),
+            metrics.clone(),
             gcroot,
             drvs.to_vec(),
             true,
@@ -730,6 +746,7 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
         import_paths(
             client.clone(),
             store.clone(),
+            metrics.clone(),
             gcroot,
             other.to_vec(),
             false,
@@ -741,14 +758,18 @@ async fn import_requisites<T: IntoIterator<Item = nix_utils::StorePath>>(
     Ok(())
 }
 
-#[tracing::instrument(skip(client, store), err)]
+#[tracing::instrument(skip(client, store, metrics), err)]
 async fn upload_nars(
     mut client: BuilderClient,
     store: nix_utils::LocalStore,
+    metrics: Arc<crate::metrics::Metrics>,
     nars: Vec<nix_utils::StorePath>,
 ) -> anyhow::Result<()> {
     tracing::debug!("Start uploading paths");
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<NarData>();
+
+    let nars_len = nars.len() as u64;
+    metrics.add_uploading_path(nars_len);
     let closure = move |data: &[u8]| {
         let data = Vec::from(data);
         tx.send(NarData { chunk: data }).is_ok()
@@ -769,6 +790,8 @@ async fn upload_nars(
     .map_err(Into::<anyhow::Error>::into);
     futures::future::try_join(a, b).await?;
     tracing::debug!("Finished uploading paths");
+
+    metrics.sub_uploading_path(nars_len);
     Ok(())
 }
 

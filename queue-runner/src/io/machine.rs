@@ -58,6 +58,8 @@ pub struct MachineStats {
     pressure: Option<PressureState>,
     tmp_free_percent: f64,
     store_free_percent: f64,
+    current_uploading_path_count: u64,
+    current_downloading_path_count: u64,
 
     jobs_in_last_30s_start: i64,
     jobs_in_last_30s_count: u64,
@@ -113,6 +115,8 @@ impl MachineStats {
             }),
             tmp_free_percent: item.get_tmp_free_percent(),
             store_free_percent: item.get_store_free_percent(),
+            current_uploading_path_count: item.get_current_uploading_path_count(),
+            current_downloading_path_count: item.get_current_downloading_count(),
             jobs_in_last_30s_start: item.jobs_in_last_30s_start.load(Ordering::Relaxed),
             jobs_in_last_30s_count: item.jobs_in_last_30s_count.load(Ordering::Relaxed),
             failed_builds: item.get_failed_builds(),
