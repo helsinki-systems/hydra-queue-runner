@@ -275,42 +275,42 @@ impl PromMetrics {
         // Per-machine-type metrics
         let runnable_per_machine_type = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydraqueuerunner_machines_runnable",
+                "hydraqueuerunner_machine_type_runnable",
                 "Number of runnable build steps per machine type",
             ),
             &["machine_type"],
         )?;
         let running_per_machine_type = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydraqueuerunner_machines_running",
+                "hydraqueuerunner_machine_type_running",
                 "Number of running build steps per machine type",
             ),
             &["machine_type"],
         )?;
         let waiting_per_machine_type = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydraqueuerunner_machines_waiting",
+                "hydraqueuerunner_machine_type_waiting",
                 "Number of waiting build steps per machine type",
             ),
             &["machine_type"],
         )?;
         let disabled_per_machine_type = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydraqueuerunner_machines_disabled",
+                "hydraqueuerunner_machine_type_disabled",
                 "Number of disabled build steps per machine type",
             ),
             &["machine_type"],
         )?;
         let avg_runnable_time_per_machine_type = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydraqueuerunner_machines_avg_runnable_time",
+                "hydraqueuerunner_machine_type_avg_runnable_time",
                 "Average runnable time for build steps per machine type",
             ),
             &["machine_type"],
         )?;
         let wait_time_per_machine_type = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
-                "hydraqueuerunner_machines_wait_time",
+                "hydraqueuerunner_machine_type_wait_time",
                 "Wait time for build steps per machine type",
             ),
             &["machine_type"],
