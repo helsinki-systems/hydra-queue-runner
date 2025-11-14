@@ -28,7 +28,7 @@ impl BuildOptions {
             max_log_size,
             max_silent_time,
             build_timeout,
-            check: true,
+            check: false,
         }
     }
 
