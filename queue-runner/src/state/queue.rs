@@ -200,6 +200,15 @@ impl InnerQueues {
     }
 
     #[tracing::instrument(skip(self))]
+    fn ensure_queues_for_systems(&mut self, systems: &[System]) {
+        for system in systems {
+            self.inner
+                .entry(system.clone())
+                .or_insert_with(|| Arc::new(BuildQueue::new()));
+        }
+    }
+
+    #[tracing::instrument(skip(self))]
     fn remove_all_weak_pointer(&mut self) {
         for queue in self.inner.values() {
             queue.scrube_jobs();
@@ -398,6 +407,12 @@ impl Queues {
         wq.remove_all_weak_pointer();
     }
 
+    #[tracing::instrument(skip(self))]
+    pub async fn ensure_queues_for_systems(&self, systems: &[System]) {
+        let mut wq = self.inner.write().await;
+        wq.ensure_queues_for_systems(systems);
+    }
+
     pub(super) async fn process<F>(
         &self,
         processor: F,
@@ -541,5 +556,80 @@ impl Queues {
     pub async fn sort_queues(&self, sort_fn: StepSortFn) {
         let rq = self.inner.read().await;
         rq.sort_queues(sort_fn);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::System;
+
+    #[tokio::test]
+    async fn test_ensure_queues_for_systems() {
+        let queues = Queues::new();
+        let systems = vec!["system1".to_string(), "system2".to_string()];
+
+        // Ensure queues for systems
+        queues.ensure_queues_for_systems(&systems).await;
+
+        // Check that queues were created
+        let inner = queues.inner.read().await;
+        assert!(inner.inner.contains_key("system1"));
+        assert!(inner.inner.contains_key("system2"));
+        assert_eq!(inner.inner.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_ensure_queues_for_systems_empty() {
+        let queues = Queues::new();
+        let systems: Vec<System> = vec![];
+
+        // Ensure queues for empty systems list
+        queues.ensure_queues_for_systems(&systems).await;
+
+        // Check that no queues were created
+        let inner = queues.inner.read().await;
+        assert_eq!(inner.inner.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_ensure_queues_for_systems_duplicate() {
+        let queues = Queues::new();
+        let systems1 = vec!["system1".to_string(), "system2".to_string()];
+        let systems2 = vec!["system2".to_string(), "system3".to_string()];
+
+        // Ensure queues for first set of systems
+        queues.ensure_queues_for_systems(&systems1).await;
+
+        // Ensure queues for second set of systems (with overlap)
+        queues.ensure_queues_for_systems(&systems2).await;
+
+        // Check that all queues were created but no duplicates
+        let inner = queues.inner.read().await;
+        assert!(inner.inner.contains_key("system1"));
+        assert!(inner.inner.contains_key("system2"));
+        assert!(inner.inner.contains_key("system3"));
+        assert_eq!(inner.inner.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_insert_machine_creates_queues_integration() {
+        // Test the integration concept - what happens when insert_machine is called
+        let systems = vec!["x86_64-linux".to_string(), "aarch64-linux".to_string()];
+        let queues = Queues::new();
+
+        // Before: no queues
+        let inner_before = queues.inner.read().await;
+        assert_eq!(inner_before.inner.len(), 0);
+        drop(inner_before);
+
+        // Call ensure_queues_for_systems (what insert_machine does)
+        queues.ensure_queues_for_systems(&systems).await;
+
+        // After: queues should exist for all systems
+        let inner_after = queues.inner.read().await;
+        assert_eq!(inner_after.inner.len(), 2);
+        assert!(inner_after.inner.contains_key("x86_64-linux"));
+        assert!(inner_after.inner.contains_key("aarch64-linux"));
     }
 }

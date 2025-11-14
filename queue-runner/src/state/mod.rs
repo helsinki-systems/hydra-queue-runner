@@ -189,6 +189,12 @@ impl State {
 
     #[tracing::instrument(skip(self, machine))]
     pub async fn insert_machine(&self, machine: Machine) -> uuid::Uuid {
+        if !machine.systems.is_empty() {
+            self.queues
+                .ensure_queues_for_systems(&machine.systems)
+                .await;
+        }
+
         let machine_id = self
             .machines
             .insert_machine(machine, self.config.get_machine_sort_fn());
