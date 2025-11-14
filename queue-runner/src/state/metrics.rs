@@ -339,56 +339,56 @@ impl PromMetrics {
                 "hydraqueuerunner_machine_current_jobs",
                 "Number of currently running jobs on each machine",
             ),
-            &["machine_id", "hostname", "machine_type"],
+            &["hostname"],
         )?;
         let machine_steps_done = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydraqueuerunner_machine_steps_done",
                 "Total number of steps completed by each machine",
             ),
-            &["machine_id", "hostname", "machine_type"],
+            &["hostname"],
         )?;
         let machine_total_step_time_ms = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydraqueuerunner_machine_total_step_time_ms",
                 "Total time in milliseconds spent on all steps by each machine",
             ),
-            &["machine_id", "hostname", "machine_type"],
+            &["hostname"],
         )?;
         let machine_total_step_import_time_ms = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydraqueuerunner_machine_total_step_import_time_ms",
                 "Total time in milliseconds spent importing steps by each machine",
             ),
-            &["machine_id", "hostname", "machine_type"],
+            &["hostname"],
         )?;
         let machine_total_step_build_time_ms = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydraqueuerunner_machine_total_step_build_time_ms",
                 "Total time in milliseconds spent building steps by each machine",
             ),
-            &["machine_id", "hostname", "machine_type"],
+            &["hostname"],
         )?;
         let machine_consecutive_failures = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydraqueuerunner_machine_consecutive_failures",
                 "Number of consecutive failures for each machine",
             ),
-            &["machine_id", "hostname", "machine_type"],
+            &["hostname"],
         )?;
         let machine_last_ping_timestamp = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydraqueuerunner_machine_last_ping_timestamp",
                 "Unix timestamp of the last ping received from each machine",
             ),
-            &["machine_id", "hostname", "machine_type"],
+            &["hostname"],
         )?;
         let machine_idle_since_timestamp = prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "hydraqueuerunner_machine_idle_since_timestamp",
                 "Unix timestamp since when each machine has been idle (0 if currently busy)",
             ),
-            &["machine_id", "hostname", "machine_type"],
+            &["hostname"],
         )?;
 
         // Store metrics (single store)
@@ -909,15 +909,9 @@ impl PromMetrics {
         self.machine_idle_since_timestamp.reset();
 
         for machine in state.machines.get_all_machines() {
-            let machine_id = machine.id.to_string();
             let hostname = &machine.hostname;
-            let machine_type = machine
-                .systems
-                .first()
-                .unwrap_or(&"unknown".to_string())
-                .clone();
 
-            let labels = &[machine_id.as_str(), hostname, &machine_type];
+            let labels = &[hostname];
 
             if let Ok(v) = i64::try_from(machine.stats.get_current_jobs()) {
                 self.machine_current_jobs.with_label_values(labels).set(v);
