@@ -6,6 +6,9 @@ use nix_utils::BaseStore as _;
 
 #[derive(Debug)]
 pub struct PromMetrics {
+    pub queue_runner_current_time_seconds: prometheus::IntGauge, // hydraqueuerunner_current_time_seconds
+    pub queue_runner_uptime_seconds: prometheus::IntGauge,       // hydraqueuerunner_uptime_seconds
+
     pub queue_checks_started: prometheus::IntCounter,
     pub queue_build_loads: prometheus::IntCounter,
     pub queue_steps_created: prometheus::IntCounter,
@@ -106,6 +109,10 @@ pub struct PromMetrics {
     pub queue_sort_duration_ms_total: prometheus::IntCounter, // hydraqueuerunner_sort_duration_ms_total
     pub queue_job_wait_time_histogram: prometheus::HistogramVec, // hydraqueuerunner_job_wait_time_seconds
     pub queue_aborted_jobs_total: prometheus::IntCounter, // hydraqueuerunner_aborted_jobs_total
+
+    // Jobset metrics
+    pub jobset_share_used: prometheus::IntGaugeVec, // hydraqueuerunner_jobset_share_used
+    pub jobset_seconds: prometheus::IntGaugeVec,    // hydraqueuerunner_jobset_seconds
 }
 
 impl PromMetrics {
@@ -577,6 +584,30 @@ impl PromMetrics {
             "Total number of jobs that were aborted",
         ))?;
 
+        // Jobset metrics
+        let jobset_share_used = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new("hydraqueuerunner_jobset_share_used", "Share used by jobset"),
+            &["jobset_name"],
+        )?;
+        let jobset_seconds = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydraqueuerunner_jobset_seconds",
+                "Seconds allocated to jobset",
+            ),
+            &["jobset_name"],
+        )?;
+
+        // Queue runner time metrics
+        let queue_runner_current_time_seconds =
+            prometheus::IntGauge::with_opts(prometheus::Opts::new(
+                "hydraqueuerunner_current_time_seconds",
+                "Current Unix timestamp in seconds",
+            ))?;
+        let queue_runner_uptime_seconds = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydraqueuerunner_uptime_seconds",
+            "Queue runner uptime in seconds",
+        ))?;
+
         let r = prometheus::default_registry();
         r.register(Box::new(queue_checks_started.clone()))?;
         r.register(Box::new(queue_build_loads.clone()))?;
@@ -672,7 +703,17 @@ impl PromMetrics {
         r.register(Box::new(queue_job_wait_time_histogram.clone()))?;
         r.register(Box::new(queue_aborted_jobs_total.clone()))?;
 
+        // Jobset metrics
+        r.register(Box::new(jobset_share_used.clone()))?;
+        r.register(Box::new(jobset_seconds.clone()))?;
+
+        // Queue runner time metrics
+        r.register(Box::new(queue_runner_current_time_seconds.clone()))?;
+        r.register(Box::new(queue_runner_uptime_seconds.clone()))?;
+
         Ok(Self {
+            queue_runner_current_time_seconds,
+            queue_runner_uptime_seconds,
             queue_checks_started,
             queue_build_loads,
             queue_steps_created,
@@ -766,6 +807,10 @@ impl PromMetrics {
             queue_sort_duration_ms_total,
             queue_job_wait_time_histogram,
             queue_aborted_jobs_total,
+
+            // Jobset metrics
+            jobset_share_used,
+            jobset_seconds,
         })
     }
 
@@ -808,6 +853,8 @@ impl PromMetrics {
         self.refresh_store_metrics(state);
         self.refresh_s3_metrics(state);
         self.refresh_transfer_metrics(state);
+        self.refresh_jobset_metrics(state);
+        self.refresh_time_metrics(state);
     }
 
     async fn refresh_per_machine_type_metrics(&self, state: &Arc<super::State>) {
@@ -1023,6 +1070,37 @@ impl PromMetrics {
         if let Ok(v) = i64::try_from(total_downloading_path_count) {
             self.nr_steps_copying_from.set(v);
         }
+    }
+
+    fn refresh_jobset_metrics(&self, state: &Arc<super::State>) {
+        self.jobset_share_used.reset();
+        self.jobset_seconds.reset();
+
+        let jobsets = state.jobsets.read();
+        for ((project_name, jobset_name), jobset) in jobsets.iter() {
+            let full_jobset_name = format!("{project_name}:{jobset_name}");
+            let labels = &[full_jobset_name.as_str()];
+
+            let share_used = jobset.share_used();
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let v = i64::try_from(share_used as u64).unwrap_or(0);
+            self.jobset_share_used.with_label_values(labels).set(v);
+
+            let seconds = jobset.get_seconds();
+            self.jobset_seconds.with_label_values(labels).set(seconds);
+        }
+    }
+
+    fn refresh_time_metrics(&self, state: &Arc<super::State>) {
+        let now = jiff::Timestamp::now();
+
+        self.queue_runner_current_time_seconds.set(now.as_second());
+        #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+        self.queue_runner_uptime_seconds.set(
+            (now - state.started_at)
+                .total(jiff::Unit::Second)
+                .unwrap_or_default() as i64,
+        );
     }
 
     pub async fn gather_metrics(&self, state: &Arc<super::State>) -> anyhow::Result<Vec<u8>> {
