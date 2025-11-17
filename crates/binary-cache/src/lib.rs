@@ -285,7 +285,7 @@ impl S3BinaryCacheClient {
     pub async fn upsert_file_stream(
         &self,
         name: &str,
-        mut stream: Box<(dyn tokio::io::AsyncBufRead + Unpin + Send)>,
+        mut stream: Box<dyn tokio::io::AsyncBufRead + Unpin + Send>,
         content_type: &str,
     ) -> Result<(), CacheError> {
         if name.starts_with("log/") {

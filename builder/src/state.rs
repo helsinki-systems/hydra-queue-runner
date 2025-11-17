@@ -650,7 +650,7 @@ async fn import_paths(
         .into_inner();
 
     metrics.add_downloading_path(paths.len() as u64);
-    store
+    let import_result = store
         .import_paths(
             tokio_stream::StreamExt::map(stream, |s| {
                 s.map(|v| v.chunk.into())
@@ -658,9 +658,9 @@ async fn import_paths(
             }),
             false,
         )
-        .await?;
-
+        .await;
     metrics.sub_downloading_path(paths.len() as u64);
+    import_result?;
     tracing::debug!("Finished importing paths");
 
     for p in paths {
