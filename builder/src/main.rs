@@ -12,6 +12,18 @@ mod system;
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+fn stop_application(state: &std::sync::Arc<state::State>, abort_handle: &tokio::task::AbortHandle) {
+    let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
+    tracing::info!("Enabling halt");
+    state.enable_halt();
+    tracing::info!("Aborting all active builds");
+    state.abort_all_active_builds();
+    tracing::info!("Closing connection with queue-runner");
+    abort_handle.abort();
+    tracing::info!("Cleaning up gcroots");
+    let _ = state.clear_gcroots();
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let _tracing_guard = hydra_tracing::init()?;
@@ -41,17 +53,11 @@ async fn main() -> anyhow::Result<()> {
     tokio::select! {
         _ = sigint.recv() => {
             tracing::info!("Received sigint - shutting down gracefully");
-            let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
-            abort_handle.abort();
-            state.abort_all_active_builds();
-            let _ = state.clear_gcroots();
+            stop_application(&state, &abort_handle);
         }
         _ = sigterm.recv() => {
             tracing::info!("Received sigterm - shutting down gracefully");
-            let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
-            abort_handle.abort();
-            state.abort_all_active_builds();
-            let _ = state.clear_gcroots();
+            stop_application(&state, &abort_handle);
         }
         r = task => {
             let _ = state.clear_gcroots();

@@ -98,6 +98,7 @@ pub struct State {
 
     active_builds: parking_lot::RwLock<AHashMap<uuid::Uuid, Arc<BuildInfo>>>,
     pub client: BuilderClient,
+    pub halt: AtomicBool,
     pub metrics: Arc<crate::metrics::Metrics>,
 }
 
@@ -175,6 +176,7 @@ impl State {
             },
             max_concurrent_downloads: 5.into(),
             client: crate::grpc::init_client(cli).await?,
+            halt: false.into(),
             metrics: Arc::new(crate::metrics::Metrics::default()),
         });
         tracing::info!("Builder systems={:?}", state.config.systems);
@@ -247,6 +249,11 @@ impl State {
 
     #[tracing::instrument(skip(self, m), fields(drv=%m.drv))]
     pub fn schedule_build(self: Arc<Self>, m: BuildMessage) -> anyhow::Result<()> {
+        if self.halt.load(Ordering::SeqCst) {
+            tracing::warn!("State is set to halt, will no longer accept new builds!");
+            return Err(anyhow::anyhow!("State set to halt."));
+        }
+
         let drv = nix_utils::StorePath::new(&m.drv);
         if self.contains_build(&drv) {
             return Ok(());
@@ -571,6 +578,10 @@ impl State {
         std::fs::remove_dir_all(&self.config.gcroots)?;
         std::fs::create_dir_all(&self.config.gcroots)?;
         Ok(())
+    }
+
+    pub fn enable_halt(&self) {
+        self.halt.store(true, Ordering::SeqCst);
     }
 }
 
