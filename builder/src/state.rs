@@ -431,7 +431,7 @@ impl State {
         *import_elapsed = before_import.elapsed();
 
         // Resolved drv and drv output paths are the same
-        let drv_info = nix_utils::query_drv(&drv)
+        let drv_info = nix_utils::query_drv(&store, &drv)
             .await
             .map_err(|e| JobFailure::Import(e.into()))?
             .ok_or(JobFailure::Import(anyhow::anyhow!("drv not found")))?;
@@ -445,6 +445,7 @@ impl State {
             .await;
         let before_build = Instant::now();
         let (mut child, mut log_output) = nix_utils::realise_drv(
+            &store,
             resolved_drv.as_ref().unwrap_or(&drv),
             &nix_utils::BuildOptions::complete(m.max_log_size, m.max_silent_time, m.build_timeout),
             true,
@@ -483,7 +484,7 @@ impl State {
         )
         .map_err(|e| JobFailure::Build(e.into()))?;
         for o in &output_paths {
-            nix_utils::add_root(&gcroot.root, o);
+            nix_utils::add_root(&store, &gcroot.root, o);
         }
 
         *build_elapsed = before_build.elapsed();
@@ -592,7 +593,7 @@ async fn filter_missing(
     path: nix_utils::StorePath,
 ) -> Option<nix_utils::StorePath> {
     if store.is_valid_path(&path).await {
-        nix_utils::add_root(&gcroot.root, &path);
+        nix_utils::add_root(store, &gcroot.root, &path);
         None
     } else {
         Some(path)
@@ -675,7 +676,7 @@ async fn import_paths(
     tracing::debug!("Finished importing paths");
 
     for p in paths {
-        nix_utils::add_root(&gcroot.root, &p);
+        nix_utils::add_root(&store, &gcroot.root, &p);
     }
     Ok(())
 }
@@ -822,7 +823,11 @@ async fn new_success_build_result_info(
         .filter_map(|o| o.path.as_ref())
         .collect::<Vec<_>>();
     let pathinfos = store.query_path_infos(outputs).await;
-    let nix_support = Box::pin(shared::parse_nix_support_from_outputs(&drv_info.outputs)).await?;
+    let nix_support = Box::pin(shared::parse_nix_support_from_outputs(
+        &store,
+        &drv_info.outputs,
+    ))
+    .await?;
 
     let mut build_outputs = vec![];
     for o in drv_info.outputs {

@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use secrecy::ExposeSecret as _;
 
 use crate::Compression;
@@ -20,6 +22,7 @@ pub struct NarInfo {
 impl NarInfo {
     #[must_use]
     pub fn new(
+        store: &nix_utils::LocalStore,
         path: &nix_utils::StorePath,
         path_info: nix_utils::PathInfo,
         compression: Compression,
@@ -56,7 +59,7 @@ impl NarInfo {
         };
 
         if !signing_keys.is_empty()
-            && let Some(fp) = narinfo.fingerprint_path()
+            && let Some(fp) = narinfo.fingerprint_path(store)
         {
             for s in signing_keys {
                 narinfo
@@ -73,9 +76,9 @@ impl NarInfo {
     }
 
     #[must_use]
-    pub fn fingerprint_path(&self) -> Option<String> {
+    pub fn fingerprint_path(&self, store: &nix_utils::LocalStore) -> Option<String> {
         let root_store_dir = nix_utils::get_store_dir();
-        let abs_path = self.store_path.get_full_path();
+        let abs_path = store.print_store_path(&self.store_path);
 
         if abs_path[0..root_store_dir.len()] != root_store_dir || &self.nar_hash[0..7] != "sha256:"
         {
@@ -89,7 +92,7 @@ impl NarInfo {
         let refs = self
             .references
             .iter()
-            .map(nix_utils::StorePath::get_full_path)
+            .map(|r| store.print_store_path(r))
             .collect::<Vec<_>>();
         for r in &refs {
             if r[0..root_store_dir.len()] != root_store_dir {
@@ -104,6 +107,43 @@ impl NarInfo {
             self.nar_size,
             refs.join(",")
         ))
+    }
+
+    pub fn render(&self, store: &nix_utils::LocalStore) -> Result<String, std::fmt::Error> {
+        let mut o = String::with_capacity(200);
+        writeln!(o, "StorePath: {}", store.print_store_path(&self.store_path))?;
+        writeln!(o, "URL: {}", self.url)?;
+        writeln!(o, "Compression: {}", self.compression.as_str())?;
+        if let Some(h) = &self.file_hash {
+            writeln!(o, "FileHash: {h}")?;
+        }
+        if let Some(s) = self.file_size {
+            writeln!(o, "FileSize: {s}")?;
+        }
+        writeln!(o, "NarHash: {}", self.nar_hash)?;
+        writeln!(o, "NarSize: {}", self.nar_size)?;
+
+        writeln!(
+            o,
+            "References: {}",
+            self.references
+                .iter()
+                .map(nix_utils::StorePath::base_name)
+                .collect::<Vec<_>>()
+                .join(" ")
+        )?;
+
+        if let Some(d) = &self.deriver {
+            writeln!(o, "Deriver: {}", d.base_name())?;
+        }
+        if let Some(ca) = &self.ca {
+            writeln!(o, "CA: {ca}")?;
+        }
+
+        for sig in &self.sigs {
+            writeln!(o, "Sig: {sig}")?;
+        }
+        Ok(o)
     }
 }
 
@@ -255,43 +295,5 @@ impl std::str::FromStr for NarInfo {
         }
 
         Ok(out)
-    }
-}
-
-impl std::fmt::Display for NarInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "StorePath: {}", self.store_path.get_full_path())?;
-        writeln!(f, "URL: {}", self.url)?;
-        writeln!(f, "Compression: {}", self.compression.as_str())?;
-        if let Some(h) = &self.file_hash {
-            writeln!(f, "FileHash: {h}")?;
-        }
-        if let Some(s) = self.file_size {
-            writeln!(f, "FileSize: {s}")?;
-        }
-        writeln!(f, "NarHash: {}", self.nar_hash)?;
-        writeln!(f, "NarSize: {}", self.nar_size)?;
-
-        writeln!(
-            f,
-            "References: {}",
-            self.references
-                .iter()
-                .map(nix_utils::StorePath::base_name)
-                .collect::<Vec<_>>()
-                .join(" ")
-        )?;
-
-        if let Some(d) = &self.deriver {
-            writeln!(f, "Deriver: {}", d.base_name())?;
-        }
-        if let Some(ca) = &self.ca {
-            writeln!(f, "CA: {ca}")?;
-        }
-
-        for sig in &self.sigs {
-            writeln!(f, "Sig: {sig}")?;
-        }
-        Ok(())
     }
 }

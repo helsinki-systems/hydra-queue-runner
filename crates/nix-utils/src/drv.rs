@@ -149,13 +149,16 @@ fn parse_drv(drv_path: &StorePath, input: &str) -> Result<Derivation, crate::Err
     ))
 }
 
-#[tracing::instrument(fields(%drv), err)]
-pub async fn query_drv(drv: &StorePath) -> Result<Option<Derivation>, crate::Error> {
+#[tracing::instrument(skip(store), fields(%drv), err)]
+pub async fn query_drv(
+    store: &crate::LocalStore,
+    drv: &StorePath,
+) -> Result<Option<Derivation>, crate::Error> {
     if !drv.is_drv() {
         return Ok(None);
     }
 
-    let full_path = drv.get_full_path();
+    let full_path = store.print_store_path(drv);
     if !tokio::fs::try_exists(&full_path).await? {
         return Ok(None);
     }

@@ -47,11 +47,6 @@ impl StorePath {
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("drv"))
     }
-
-    #[must_use]
-    pub fn get_full_path(&self) -> String {
-        format!("/nix/store/{}", self.base_name)
-    }
 }
 
 impl serde::Serialize for StorePath {
@@ -81,10 +76,6 @@ mod tests {
         assert_eq!(store_path.base_name(), path_str);
         assert_eq!(store_path.name(), "package-name");
         assert_eq!(store_path.hash_part(), "abc123def45678901234567890123456");
-        assert_eq!(
-            store_path.get_full_path(),
-            "/nix/store/abc123def45678901234567890123456-package-name"
-        );
     }
 
     #[test]
@@ -98,10 +89,6 @@ mod tests {
         );
         assert_eq!(store_path.name(), "package-name");
         assert_eq!(store_path.hash_part(), "abc123def45678901234567890123456");
-        assert_eq!(
-            store_path.get_full_path(),
-            "/nix/store/abc123def45678901234567890123456-package-name"
-        );
     }
 
     #[test]
@@ -133,10 +120,6 @@ mod tests {
     //     let expected_path = format!("{}/{}", expected_prefix, path_str);
     //
     //     assert_eq!(printed_path, expected_path);
-    //
-    //     if expected_prefix != "/nix/store" {
-    //         assert_ne!(printed_path, store_path.get_full_path());
-    //     }
     // }
 
     #[test]

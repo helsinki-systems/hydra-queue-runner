@@ -134,14 +134,18 @@ fn parse_release_name(content: &str) -> Option<String> {
     }
 }
 
-fn parse_metric(line: &str, output: &StorePath) -> Option<BuildMetric> {
+fn parse_metric(
+    store: &nix_utils::LocalStore,
+    line: &str,
+    output: &StorePath,
+) -> Option<BuildMetric> {
     let fields: Vec<String> = line.split_whitespace().map(ToOwned::to_owned).collect();
     if fields.len() < 2 || !VALIDATE_METRICS_NAME.is_match(&fields[0]) {
         return None;
     }
 
     Some(BuildMetric {
-        path: output.get_full_path(),
+        path: store.print_store_path(output),
         name: fields[0].clone(),
         value: fields[1].parse::<f64>().unwrap_or(0.0),
         unit: if fields.len() >= 3 && VALIDATE_METRICS_UNIT.is_match(&fields[2]) {
@@ -153,6 +157,7 @@ fn parse_metric(line: &str, output: &StorePath) -> Option<BuildMetric> {
 }
 
 async fn parse_build_product(
+    store: &nix_utils::LocalStore,
     handle: &impl FsOperations,
     output: &StorePath,
     line: &str,
@@ -175,7 +180,7 @@ async fn parse_build_product(
     let metadata = handle.get_metadata(&path).await.ok()?;
 
     let name = {
-        let name = if path == output.get_full_path() {
+        let name = if path == store.print_store_path(output) {
             String::new()
         } else {
             std::path::Path::new(&path)
@@ -217,8 +222,9 @@ async fn parse_build_product(
     })
 }
 
-#[tracing::instrument(err)]
+#[tracing::instrument(skip(store), err)]
 pub async fn parse_nix_support_from_outputs(
+    store: &nix_utils::LocalStore,
     derivation_outputs: &[nix_utils::DerivationOutput],
 ) -> anyhow::Result<NixSupport> {
     let mut metrics = Vec::new();
@@ -230,7 +236,7 @@ pub async fn parse_nix_support_from_outputs(
         .filter_map(|o| o.path.as_ref())
         .collect::<Vec<_>>();
     for output in &outputs {
-        let output_full_path = output.get_full_path();
+        let output_full_path = store.print_store_path(output);
         let file_path = std::path::Path::new(&output_full_path).join("nix-support/hydra-metrics");
         let Ok(file) = tokio::fs::File::open(&file_path).await else {
             continue;
@@ -240,14 +246,15 @@ pub async fn parse_nix_support_from_outputs(
         let mut lines = reader.lines();
 
         while let Some(line) = lines.next_line().await? {
-            if let Some(m) = parse_metric(&line, output) {
+            if let Some(m) = parse_metric(store, &line, output) {
                 metrics.push(m);
             }
         }
     }
 
     for output in &outputs {
-        let file_path = std::path::Path::new(&output.get_full_path()).join("nix-support/failed");
+        let file_path =
+            std::path::Path::new(&store.print_store_path(output)).join("nix-support/failed");
         if tokio::fs::try_exists(file_path).await.unwrap_or_default() {
             failed = true;
             break;
@@ -255,8 +262,8 @@ pub async fn parse_nix_support_from_outputs(
     }
 
     for output in &outputs {
-        let file_path =
-            std::path::Path::new(&output.get_full_path()).join("nix-support/hydra-release-name");
+        let file_path = std::path::Path::new(&store.print_store_path(output))
+            .join("nix-support/hydra-release-name");
         if let Ok(v) = tokio::fs::read_to_string(file_path).await
             && let Some(v) = parse_release_name(&v)
         {
@@ -268,7 +275,7 @@ pub async fn parse_nix_support_from_outputs(
     let mut explicit_products = false;
     let mut products = Vec::new();
     for output in &outputs {
-        let output_full_path = output.get_full_path();
+        let output_full_path = store.print_store_path(output);
         let file_path =
             std::path::Path::new(&output_full_path).join("nix-support/hydra-build-products");
         let Ok(file) = tokio::fs::File::open(&file_path).await else {
@@ -281,7 +288,7 @@ pub async fn parse_nix_support_from_outputs(
         let mut lines = reader.lines();
         let fsop = FilesystemOperations::new();
         while let Some(line) = lines.next_line().await? {
-            if let Some(o) = Box::pin(parse_build_product(&fsop, output, &line)).await {
+            if let Some(o) = Box::pin(parse_build_product(store, &fsop, output, &line)).await {
                 products.push(o);
             }
         }
@@ -292,7 +299,7 @@ pub async fn parse_nix_support_from_outputs(
             let Some(path) = &o.path else {
                 continue;
             };
-            let full_path = path.get_full_path();
+            let full_path = store.print_store_path(path);
             let Ok(metadata) = tokio::fs::metadata(&full_path).await else {
                 continue;
             };
@@ -368,7 +375,10 @@ mod tests {
             },
             file_hash: "4306152c73d2a7a01dbac16ba48f45fa4ae5b746a1d282638524ae2ae93af210".into(),
         };
-        let build_product = parse_build_product(&fsop, &output, line).await.unwrap();
+        let store = nix_utils::LocalStore::init();
+        let build_product = parse_build_product(&store, &fsop, &output, line)
+            .await
+            .unwrap();
         assert!(build_product.is_regular);
         assert_eq!(
             build_product.path,
@@ -387,7 +397,8 @@ mod tests {
         let output =
             nix_utils::StorePath::new("/nix/store/ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
         let line = "nix-env.qaCount";
-        let m = parse_metric(line, &output);
+        let store = nix_utils::LocalStore::init();
+        let m = parse_metric(&store, line, &output);
         assert!(m.is_none());
     }
 
@@ -396,7 +407,8 @@ mod tests {
         let output =
             nix_utils::StorePath::new("/nix/store/ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
         let line = "nix-env.qaCount 4";
-        let m = parse_metric(line, &output).unwrap();
+        let store = nix_utils::LocalStore::init();
+        let m = parse_metric(&store, line, &output).unwrap();
         assert_eq!(m.name, "nix-env.qaCount");
         assert!((m.value - 4.0_f64).abs() < f64::EPSILON);
         assert_eq!(m.unit, None);
@@ -407,7 +419,8 @@ mod tests {
         let output =
             nix_utils::StorePath::new("/nix/store/ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
         let line = "xzy.time 123.321 s";
-        let m = parse_metric(line, &output).unwrap();
+        let store = nix_utils::LocalStore::init();
+        let m = parse_metric(&store, line, &output).unwrap();
         assert_eq!(m.name, "xzy.time");
         assert!((m.value - 123.321_f64).abs() < f64::EPSILON);
         assert_eq!(m.unit, Some("s".into()));

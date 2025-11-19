@@ -50,14 +50,14 @@ pub fn validate_statuscode(status: std::process::ExitStatus) -> Result<(), Error
     }
 }
 
-pub fn add_root(root_dir: &std::path::Path, store_path: &StorePath) {
+pub fn add_root(store: &LocalStore, root_dir: &std::path::Path, store_path: &StorePath) {
     let path = root_dir.join(store_path.base_name());
     // force create symlink
     if path.exists() {
         let _ = std::fs::remove_file(&path);
     }
     if !path.exists() {
-        let _ = std::os::unix::fs::symlink(store_path.get_full_path(), path);
+        let _ = std::os::unix::fs::symlink(store.print_store_path(store_path), path);
     }
 }
 
@@ -321,7 +321,7 @@ pub async fn copy_paths(
 ) -> Result<(), Error> {
     let paths = paths
         .iter()
-        .map(StorePath::get_full_path)
+        .map(|p| src.print_store_path(p))
         .collect::<Vec<_>>();
 
     let src = src.wrapper.clone();
@@ -453,6 +453,9 @@ pub trait BaseStore {
         &self,
         path: &StorePath,
     ) -> impl std::future::Future<Output = Option<StorePath>>;
+
+    #[must_use]
+    fn print_store_path(&self, path: &StorePath) -> String;
 }
 
 unsafe impl Send for crate::ffi::StoreWrapper {}
@@ -461,11 +464,15 @@ unsafe impl Sync for crate::ffi::StoreWrapper {}
 #[derive(Clone)]
 pub struct BaseStoreImpl {
     wrapper: cxx::SharedPtr<crate::ffi::StoreWrapper>,
+    store_path_prefix: String,
 }
 
 impl BaseStoreImpl {
     fn new(store: cxx::SharedPtr<crate::ffi::StoreWrapper>) -> Self {
-        Self { wrapper: store }
+        Self {
+            wrapper: store,
+            store_path_prefix: get_store_dir(),
+        }
     }
 }
 
@@ -506,7 +513,7 @@ impl BaseStore for BaseStoreImpl {
     #[inline]
     async fn is_valid_path(&self, path: &StorePath) -> bool {
         let store = self.wrapper.clone();
-        let path = path.get_full_path();
+        let path = self.print_store_path(path);
         asyncify(move || ffi::is_valid_path(&store, &path))
             .await
             .unwrap_or(false)
@@ -515,7 +522,7 @@ impl BaseStore for BaseStoreImpl {
     #[inline]
     async fn query_path_info(&self, path: &StorePath) -> Option<PathInfo> {
         let store = self.wrapper.clone();
-        let path = path.get_full_path();
+        let path = self.print_store_path(path);
         asyncify(move || Ok(ffi::query_path_info(&store, &path).ok().map(Into::into)))
             .await
             .ok()
@@ -524,20 +531,23 @@ impl BaseStore for BaseStoreImpl {
 
     #[inline]
     async fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo> {
-        let store = self.wrapper.clone();
         let paths = paths.iter().map(|v| (*v).to_owned()).collect::<Vec<_>>();
 
-        asyncify(move || {
-            let mut res = AHashMap::new();
-            for p in paths {
-                if let Some(info) = ffi::query_path_info(&store, &p.get_full_path())
-                    .ok()
-                    .map(Into::into)
-                {
-                    res.insert(p, info);
+        asyncify({
+            let self_ = self.clone();
+            move || {
+                let mut res = AHashMap::new();
+                for p in paths {
+                    let full_path = self_.print_store_path(&p);
+                    if let Some(info) = ffi::query_path_info(&self_.wrapper, &full_path)
+                        .ok()
+                        .map(Into::into)
+                    {
+                        res.insert(p, info);
+                    }
                 }
+                Ok(res)
             }
-            Ok(res)
         })
         .await
         .unwrap_or_default()
@@ -546,7 +556,7 @@ impl BaseStore for BaseStoreImpl {
     #[inline]
     async fn compute_closure_size(&self, path: &StorePath) -> u64 {
         let store = self.wrapper.clone();
-        let path = path.get_full_path();
+        let path = self.print_store_path(path);
         asyncify(move || ffi::compute_closure_size(&store, &path))
             .await
             .unwrap_or_default()
@@ -588,7 +598,7 @@ impl BaseStore for BaseStoreImpl {
         let store = self.wrapper.clone();
         let paths = paths
             .iter()
-            .map(|v| (*v).get_full_path())
+            .map(|v| self.print_store_path(v))
             .collect::<Vec<_>>();
 
         asyncify(move || {
@@ -670,7 +680,7 @@ impl BaseStore for BaseStoreImpl {
     {
         let paths = paths
             .iter()
-            .map(StorePath::get_full_path)
+            .map(|v| self.print_store_path(v))
             .collect::<Vec<_>>();
         let slice = paths
             .iter()
@@ -690,7 +700,7 @@ impl BaseStore for BaseStoreImpl {
     where
         F: FnMut(&[u8]) -> bool,
     {
-        let path = path.get_full_path();
+        let path = self.print_store_path(path);
         ffi::nar_from_path(
             &self.wrapper,
             &path,
@@ -703,14 +713,14 @@ impl BaseStore for BaseStoreImpl {
     #[tracing::instrument(skip(self), err)]
     async fn list_nar(&self, path: &StorePath, recursive: bool) -> Result<String, crate::Error> {
         let store = self.wrapper.clone();
-        let path = path.get_full_path();
+        let path = self.print_store_path(path);
         asyncify(move || ffi::list_nar(&store, &path, recursive)).await
     }
 
     #[inline]
     async fn ensure_path(&self, path: &StorePath) -> Result<(), Error> {
         let store = self.wrapper.clone();
-        let path = path.get_full_path();
+        let path = self.print_store_path(path);
         asyncify(move || {
             ffi::ensure_path(&store, &path)?;
             Ok(())
@@ -721,7 +731,7 @@ impl BaseStore for BaseStoreImpl {
     #[inline]
     async fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath> {
         let store = self.wrapper.clone();
-        let path = path.get_full_path();
+        let path = self.print_store_path(path);
         asyncify(move || {
             let v = ffi::try_resolve_drv(&store, &path)?;
             Ok(v.is_empty().then_some(v).map(|v| StorePath::new(&v)))
@@ -729,6 +739,10 @@ impl BaseStore for BaseStoreImpl {
         .await
         .ok()
         .flatten()
+    }
+
+    fn print_store_path(&self, path: &StorePath) -> String {
+        format!("{}/{}", self.store_path_prefix, path.base_name())
     }
 }
 
@@ -768,7 +782,6 @@ impl BaseStoreImpl {
 #[derive(Clone)]
 pub struct LocalStore {
     base: BaseStoreImpl,
-    store_path_prefix: String,
 }
 
 impl LocalStore {
@@ -777,10 +790,7 @@ impl LocalStore {
     #[must_use]
     pub fn init() -> Self {
         let base = BaseStoreImpl::new(ffi::init(""));
-        Self {
-            base,
-            store_path_prefix: get_store_dir(),
-        }
+        Self { base }
     }
 
     #[must_use]
@@ -814,16 +824,16 @@ impl LocalStore {
 
     #[must_use]
     pub fn print_store_path(&self, path: &StorePath) -> String {
-        format!("{}/{}", self.store_path_prefix, path.base_name())
+        self.base.print_store_path(path)
     }
 
     #[must_use]
     pub fn get_store_path_prefix(&self) -> &str {
-        self.store_path_prefix.as_str()
+        self.base.store_path_prefix.as_str()
     }
 
     pub fn unsafe_set_store_path_prefix(&mut self, prefix: String) {
-        self.store_path_prefix = prefix;
+        self.base.store_path_prefix = prefix;
     }
 }
 
@@ -955,6 +965,10 @@ impl BaseStore for LocalStore {
     #[inline]
     async fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath> {
         self.base.try_resolve_drv(path).await
+    }
+
+    fn print_store_path(&self, path: &StorePath) -> String {
+        self.print_store_path(path)
     }
 }
 
@@ -1181,5 +1195,9 @@ impl BaseStore for RemoteStore {
     #[inline]
     async fn try_resolve_drv(&self, path: &StorePath) -> Option<StorePath> {
         self.base.try_resolve_drv(path).await
+    }
+
+    fn print_store_path(&self, path: &StorePath) -> String {
+        self.base.print_store_path(path)
     }
 }

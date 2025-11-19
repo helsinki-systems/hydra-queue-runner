@@ -63,8 +63,9 @@ impl BuildOptions {
 }
 
 #[allow(clippy::type_complexity)]
-#[tracing::instrument(skip(opts, drvs), err)]
+#[tracing::instrument(skip(store, opts, drvs), err)]
 pub async fn realise_drvs(
+    store: &crate::LocalStore,
     drvs: &[&StorePath],
     opts: &BuildOptions,
     kill_on_drop: bool,
@@ -102,7 +103,7 @@ pub async fn realise_drvs(
             "",
         ])
         .args(if opts.check { vec!["--check"] } else { vec![] })
-        .args(drvs.iter().map(|v| v.get_full_path()))
+        .args(drvs.iter().map(|v| store.print_store_path(v)))
         .kill_on_drop(kill_on_drop)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -118,8 +119,9 @@ pub async fn realise_drvs(
 }
 
 #[allow(clippy::type_complexity)]
-#[tracing::instrument(skip(opts), fields(%drv), err)]
+#[tracing::instrument(skip(store, opts), fields(%drv), err)]
 pub async fn realise_drv(
+    store: &crate::LocalStore,
     drv: &StorePath,
     opts: &BuildOptions,
     kill_on_drop: bool,
@@ -133,5 +135,5 @@ pub async fn realise_drv(
     ),
     crate::Error,
 > {
-    realise_drvs(&[drv], opts, kill_on_drop).await
+    realise_drvs(store, &[drv], opts, kill_on_drop).await
 }

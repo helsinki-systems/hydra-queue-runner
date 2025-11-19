@@ -318,7 +318,7 @@ impl State {
                 .create_build_step(
                     job.result.start_time.map(jiff::Timestamp::as_second),
                     build_id,
-                    &step_info.step.get_drv_path().get_full_path(),
+                    &self.store.print_store_path(step_info.step.get_drv_path()),
                     step_info.step.get_system().as_deref(),
                     machine.hostname.clone(),
                     BuildStatus::Busy,
@@ -329,7 +329,7 @@ impl State {
                         .get_outputs()
                         .unwrap_or_default()
                         .into_iter()
-                        .map(|o| (o.name, o.path.map(|s| s.get_full_path())))
+                        .map(|o| (o.name, o.path.map(|s| self.store.print_store_path(&s))))
                         .collect(),
                 )
                 .await?;
@@ -534,11 +534,15 @@ impl State {
         drv_path: &nix_utils::StorePath,
     ) -> anyhow::Result<()> {
         let mut db = self.db.get().await?;
-        let drv = nix_utils::query_drv(drv_path)
+        let drv = nix_utils::query_drv(&self.store, drv_path)
             .await?
             .ok_or(anyhow::anyhow!("drv not found"))?;
-        db.insert_debug_build(jobset_id, &drv_path.get_full_path(), &drv.system)
-            .await?;
+        db.insert_debug_build(
+            jobset_id,
+            &self.store.print_store_path(drv_path),
+            &drv.system,
+        )
+        .await?;
 
         let mut tx = db.begin_transaction().await?;
         tx.notify_builds_added().await?;
@@ -1031,6 +1035,7 @@ impl State {
             let mut tx = db.begin_transaction().await?;
             finish_build_step(
                 &mut tx,
+                &self.store,
                 job.build_id,
                 job.step_nr,
                 &job.result,
@@ -1083,7 +1088,7 @@ impl State {
             for b in &direct {
                 let is_cached = job.build_id != b.id || job.result.is_cached;
                 tx.mark_succeeded_build(
-                    get_mark_build_sccuess_data(b, &output),
+                    get_mark_build_sccuess_data(&self.store, b, &output),
                     is_cached,
                     i32::try_from(
                         job.result
@@ -1217,6 +1222,7 @@ impl State {
                     let mut tx = db.begin_transaction().await?;
                     finish_build_step(
                         &mut tx,
+                        &self.store,
                         job.build_id,
                         job.step_nr,
                         &job.result,
@@ -1303,6 +1309,7 @@ impl State {
             let mut tx = db.begin_transaction().await?;
             finish_build_step(
                 &mut tx,
+                &self.store,
                 job.build_id,
                 job.step_nr,
                 &job.result,
@@ -1341,7 +1348,7 @@ impl State {
                     tx.create_build_step(
                         None,
                         b.id,
-                        &step.get_drv_path().get_full_path(),
+                        &self.store.print_store_path(step.get_drv_path()),
                         step.get_system().as_deref(),
                         machine
                             .as_deref()
@@ -1357,7 +1364,7 @@ impl State {
                         step.get_outputs()
                             .unwrap_or_default()
                             .into_iter()
-                            .map(|o| (o.name, o.path.map(|s| s.get_full_path())))
+                            .map(|o| (o.name, o.path.map(|s| self.store.print_store_path(&s))))
                             .collect(),
                     )
                     .await?;
@@ -1401,7 +1408,8 @@ impl State {
                 if job.result.step_status == BuildStatus::CachedFailure && job.result.can_cache {
                     for o in step.get_outputs().unwrap_or_default() {
                         let Some(p) = o.path else { continue };
-                        tx.insert_failed_paths(&p.get_full_path()).await?;
+                        tx.insert_failed_paths(&self.store.print_store_path(&p))
+                            .await?;
                     }
                 }
 
@@ -1524,7 +1532,7 @@ impl State {
         // Find the previous build step record, first by derivation path, then by output
         // path.
         let mut propagated_from = tx
-            .get_last_build_step_id(&step.get_drv_path().get_full_path())
+            .get_last_build_step_id(&self.store.print_store_path(step.get_drv_path()))
             .await?
             .unwrap_or_default();
 
@@ -1535,11 +1543,11 @@ impl State {
             let outputs = step.get_outputs().unwrap_or_default();
             for o in outputs {
                 let res = if let Some(path) = &o.path {
-                    tx.get_last_build_step_id_for_output_path(&path.get_full_path())
+                    tx.get_last_build_step_id_for_output_path(&self.store.print_store_path(path))
                         .await
                 } else {
                     tx.get_last_build_step_id_for_output_with_drv(
-                        &step.get_drv_path().get_full_path(),
+                        &self.store.print_store_path(step.get_drv_path()),
                         &o.name,
                     )
                     .await
@@ -1554,7 +1562,7 @@ impl State {
         tx.create_build_step(
             None,
             build.id,
-            &step.get_drv_path().get_full_path(),
+            &self.store.print_store_path(step.get_drv_path()),
             step.get_system().as_deref(),
             String::new(),
             BuildStatus::CachedFailure,
@@ -1563,7 +1571,7 @@ impl State {
             step.get_outputs()
                 .unwrap_or_default()
                 .into_iter()
-                .map(|o| (o.name, o.path.map(|s| s.get_full_path())))
+                .map(|o| (o.name, o.path.map(|s| self.store.print_store_path(&s))))
                 .collect(),
         )
         .await?;
@@ -1781,7 +1789,11 @@ impl State {
         self.metrics.queue_steps_created.inc();
         tracing::debug!("considering derivation '{drv_path}'");
 
-        let Some(drv) = nix_utils::query_drv(&drv_path).await.ok().flatten() else {
+        let Some(drv) = nix_utils::query_drv(&self.store, &drv_path)
+            .await
+            .ok()
+            .flatten()
+        else {
             return CreateStepResult::None;
         };
         if let Some(fod_checker) = &self.fod_checker {
@@ -1959,7 +1971,7 @@ impl State {
         conn.check_if_paths_failed(
             &drv_outputs
                 .iter()
-                .filter_map(|o| o.path.as_ref().map(nix_utils::StorePath::get_full_path))
+                .filter_map(|o| o.path.as_ref().map(|p| self.store.print_store_path(p)))
                 .collect::<Vec<_>>(),
         )
         .await
@@ -2002,7 +2014,7 @@ impl State {
             tracing::info!("marking build {} as succeeded (cached)", build.id);
             let now = jiff::Timestamp::now().as_second();
             tx.mark_succeeded_build(
-                get_mark_build_sccuess_data(&build, &res),
+                get_mark_build_sccuess_data(&self.store, &build, &res),
                 true,
                 i32::try_from(now)?, // TODO
                 i32::try_from(now)?, // TODO
@@ -2023,7 +2035,7 @@ impl State {
         &self,
         drv_path: &nix_utils::StorePath,
     ) -> anyhow::Result<BuildOutput> {
-        let drv = nix_utils::query_drv(drv_path)
+        let drv = nix_utils::query_drv(&self.store, drv_path)
             .await?
             .ok_or(anyhow::anyhow!("Derivation not found"))?;
 
@@ -2034,7 +2046,7 @@ impl State {
                     continue;
                 };
                 let Some(db_build_output) = db
-                    .get_build_output_for_path(&out_path.get_full_path())
+                    .get_build_output_for_path(&self.store.print_store_path(out_path))
                     .await?
                 else {
                     continue;
@@ -2072,7 +2084,7 @@ impl State {
 
     fn add_root(&self, drv_path: &nix_utils::StorePath) {
         let roots_dir = self.config.get_roots_dir();
-        nix_utils::add_root(&roots_dir, drv_path);
+        nix_utils::add_root(&self.store, &roots_dir, drv_path);
     }
 
     async fn abort_unsupported(&self) {

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use ahash::{AHashMap, AHashSet};
-use nix_utils::{Derivation, StorePath};
+use nix_utils::{Derivation, LocalStore, StorePath};
 
 pub struct FodChecker {
     ca_derivations: parking_lot::RwLock<AHashMap<StorePath, nix_utils::Derivation>>,
@@ -12,6 +12,7 @@ pub struct FodChecker {
 }
 
 async fn collect_ca_derivations(
+    store: &LocalStore,
     drv: &StorePath,
     processed: Arc<parking_lot::RwLock<AHashSet<StorePath>>>,
 ) -> AHashMap<StorePath, nix_utils::Derivation> {
@@ -28,7 +29,7 @@ async fn collect_ca_derivations(
         p.insert(drv.clone());
     }
 
-    let Some(parsed) = nix_utils::query_drv(drv).await.ok().flatten() else {
+    let Some(parsed) = nix_utils::query_drv(store, drv).await.ok().flatten() else {
         return AHashMap::new();
     };
 
@@ -40,7 +41,7 @@ async fn collect_ca_derivations(
             let processed = processed.clone();
             async move {
                 let i = StorePath::new(&i);
-                Box::pin(collect_ca_derivations(&i, processed)).await
+                Box::pin(collect_ca_derivations(store, &i, processed)).await
             }
         })
         .buffered(10)
@@ -79,7 +80,7 @@ impl FodChecker {
         tt.insert(drv.clone());
     }
 
-    async fn traverse(&self) {
+    async fn traverse(&self, store: &nix_utils::LocalStore) {
         use futures::StreamExt as _;
 
         let drvs = {
@@ -92,7 +93,7 @@ impl FodChecker {
         let processed = Arc::new(parking_lot::RwLock::new(AHashSet::<StorePath>::new()));
         let out = futures::StreamExt::map(tokio_stream::iter(drvs), |i| {
             let processed = processed.clone();
-            async move { Box::pin(collect_ca_derivations(&i, processed)).await }
+            async move { Box::pin(collect_ca_derivations(store, &i, processed)).await }
         })
         .buffered(10)
         .flat_map(futures::stream::iter)
@@ -111,23 +112,26 @@ impl FodChecker {
         self.notify_traverse.notify_one();
     }
 
-    #[tracing::instrument(skip(self))]
-    async fn traverse_loop(&self) {
+    #[tracing::instrument(skip(self, store))]
+    async fn traverse_loop(&self, store: nix_utils::LocalStore) {
         loop {
             tokio::select! {
                 () = self.notify_traverse.notified() => {},
                 () = tokio::time::sleep(tokio::time::Duration::from_secs(60)) => {},
             };
-            self.traverse().await;
+            self.traverse(&store).await;
             if let Some(tx) = &self.traverse_done_notifier {
                 let _ = tx.send(()).await;
             }
         }
     }
 
-    pub fn start_traverse_loop(self: Arc<Self>) -> tokio::task::AbortHandle {
+    pub fn start_traverse_loop(
+        self: Arc<Self>,
+        store: nix_utils::LocalStore,
+    ) -> tokio::task::AbortHandle {
         let task = tokio::task::spawn(async move {
-            Box::pin(self.traverse_loop()).await;
+            Box::pin(self.traverse_loop(store)).await;
         });
         task.abort_handle()
     }
@@ -168,7 +172,7 @@ mod tests {
 
         let fod = FodChecker::new(None);
         fod.to_traverse(&hello_drv);
-        fod.traverse().await;
+        fod.traverse(&store).await;
         assert_eq!(fod.ca_derivations.read().len(), 59);
     }
 }

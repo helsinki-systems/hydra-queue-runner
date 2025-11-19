@@ -95,6 +95,8 @@ pub enum CacheError {
     ReferenceVerifyError(nix_utils::StorePath, nix_utils::StorePath),
     #[error("Hash error: {0}")]
     HashingError(#[from] crate::streaming_hash::Error),
+    #[error("Render error: {0}")]
+    RenderError(#[from] std::fmt::Error),
 }
 
 #[derive(Clone)]
@@ -463,11 +465,15 @@ impl S3BinaryCacheClient {
         Ok(info_key)
     }
 
-    #[tracing::instrument(skip(self, narinfo), err)]
-    async fn upload_narinfo(&self, narinfo: NarInfo) -> Result<String, CacheError> {
+    #[tracing::instrument(skip(self, store, narinfo), err)]
+    async fn upload_narinfo(
+        &self,
+        store: &nix_utils::LocalStore,
+        narinfo: NarInfo,
+    ) -> Result<String, CacheError> {
         let base = narinfo.store_path.hash_part();
         let info_key = format!("{base}.narinfo");
-        self.upsert_file(&info_key, narinfo.to_string(), "text/x-nix-narinfo")
+        self.upsert_file(&info_key, narinfo.render(store)?, "text/x-nix-narinfo")
             .await?;
         Ok(info_key)
     }
@@ -486,7 +492,13 @@ impl S3BinaryCacheClient {
         let Some(path_info) = store.query_path_info(path).await else {
             return Ok(()); // TODO: not found error?
         };
-        let mut narinfo = NarInfo::new(path, path_info, self.cfg.compression, &self.signing_keys);
+        let mut narinfo = NarInfo::new(
+            store,
+            path,
+            path_info,
+            self.cfg.compression,
+            &self.signing_keys,
+        );
         let queried_references = store
             .query_path_infos(&narinfo.references.iter().collect::<Vec<_>>())
             .await;
@@ -549,7 +561,7 @@ impl S3BinaryCacheClient {
             narinfo.file_size = Some(file_size as u64);
         }
 
-        self.upload_narinfo(narinfo).await?;
+        self.upload_narinfo(store, narinfo).await?;
 
         Ok(())
     }

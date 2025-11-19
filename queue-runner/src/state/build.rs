@@ -443,7 +443,7 @@ impl BuildOutput {
             .filter_map(|o| o.path.as_ref())
             .collect::<Vec<_>>();
         let pathinfos = store.query_path_infos(&flat_outputs).await;
-        let nix_support = Box::pin(shared::parse_nix_support_from_outputs(&outputs)).await?;
+        let nix_support = Box::pin(shared::parse_nix_support_from_outputs(store, &outputs)).await?;
 
         let mut outputs_map = AHashMap::new();
         let mut closure_size = 0;
@@ -487,6 +487,7 @@ impl BuildOutput {
 }
 
 pub fn get_mark_build_sccuess_data<'a>(
+    store: &nix_utils::LocalStore,
     b: &'a Arc<crate::state::Build>,
     res: &'a crate::state::BuildOutput,
 ) -> db::models::MarkBuildSuccessData<'a> {
@@ -504,7 +505,7 @@ pub fn get_mark_build_sccuess_data<'a>(
         outputs: res
             .outputs
             .iter()
-            .map(|(name, path)| (name.clone(), path.get_full_path()))
+            .map(|(name, path)| (name.clone(), store.print_store_path(path)))
             .collect(),
         products: res
             .products
@@ -514,7 +515,7 @@ pub fn get_mark_build_sccuess_data<'a>(
                 subtype: &v.subtype,
                 filesize: v.file_size.and_then(|v| i64::try_from(v).ok()),
                 sha256hash: v.sha256hash.as_deref(),
-                path: v.path.as_ref().map(nix_utils::StorePath::get_full_path),
+                path: v.path.as_ref().map(|p| store.print_store_path(p)),
                 name: &v.name,
                 defaultpath: v.default_path.as_deref(),
             })

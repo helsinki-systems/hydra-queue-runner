@@ -4,9 +4,10 @@ use nix_utils::BaseStore as _;
 
 use crate::state::RemoteBuild;
 
-#[tracing::instrument(skip(tx, res), err)]
+#[tracing::instrument(skip(tx, store, res), err)]
 pub async fn finish_build_step(
     tx: &mut Transaction<'_>,
+    store: &nix_utils::LocalStore,
     build_id: BuildID,
     step_nr: i32,
     res: &RemoteBuild,
@@ -58,14 +59,16 @@ pub async fn finish_build_step(
         let drv_path = tx.get_drv_path_from_build_step(build_id, step_nr).await?;
         if let Some(drv_path) = drv_path {
             // If we've finished building, all the paths should be known
-            if let Some(drv) = nix_utils::query_drv(&nix_utils::StorePath::new(&drv_path)).await? {
+            if let Some(drv) =
+                nix_utils::query_drv(store, &nix_utils::StorePath::new(&drv_path)).await?
+            {
                 for o in drv.outputs {
                     if let Some(path) = o.path {
                         tx.update_build_step_output(
                             build_id,
                             step_nr,
                             &o.name,
-                            &path.get_full_path(),
+                            &store.print_store_path(&path),
                         )
                         .await?;
                     }
@@ -115,8 +118,8 @@ pub async fn substitute_output(
         starttime,
         stoptime,
         build_id,
-        &drv_path.get_full_path(),
-        (o.name, o.path.map(|p| p.get_full_path())),
+        &store.print_store_path(drv_path),
+        (o.name.clone(), o.path.map(|p| store.print_store_path(&p))),
     )
     .await?;
     tx.commit().await?;
