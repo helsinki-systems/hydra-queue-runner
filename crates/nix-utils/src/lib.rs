@@ -6,6 +6,7 @@ mod drv;
 mod hash;
 mod realisation;
 mod realise;
+mod store_path;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -39,76 +40,7 @@ pub use drv::{Derivation, Output as DerivationOutput, query_drv};
 pub use hash::{HashAlgorithm, HashFormat, convert_hash};
 pub use realisation::{DrvOutput, Realisation, RealisationOperations};
 pub use realise::{BuildOptions, realise_drv, realise_drvs};
-
-pub const HASH_LEN: usize = 32;
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct StorePath {
-    base_name: String,
-}
-
-impl StorePath {
-    #[must_use]
-    pub fn new(p: &str) -> Self {
-        if let Some(postfix) = p.strip_prefix("/nix/store/") {
-            debug_assert!(postfix.len() > HASH_LEN + 1);
-            Self {
-                base_name: postfix.to_string(),
-            }
-        } else {
-            debug_assert!(p.len() > HASH_LEN + 1);
-            Self {
-                base_name: p.to_string(),
-            }
-        }
-    }
-
-    #[must_use]
-    pub fn into_base_name(self) -> String {
-        self.base_name
-    }
-
-    #[must_use]
-    pub fn base_name(&self) -> &str {
-        &self.base_name
-    }
-
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.base_name[HASH_LEN + 1..]
-    }
-
-    #[must_use]
-    pub fn hash_part(&self) -> &str {
-        &self.base_name[..HASH_LEN]
-    }
-
-    #[must_use]
-    pub fn is_drv(&self) -> bool {
-        std::path::Path::new(&self.base_name)
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("drv"))
-    }
-
-    #[must_use]
-    pub fn get_full_path(&self) -> String {
-        format!("/nix/store/{}", self.base_name)
-    }
-}
-impl serde::Serialize for StorePath {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(self.base_name())
-    }
-}
-
-impl std::fmt::Display for StorePath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", self.base_name)
-    }
-}
+pub use store_path::StorePath;
 
 pub fn validate_statuscode(status: std::process::ExitStatus) -> Result<(), Error> {
     if status.success() {
@@ -836,6 +768,7 @@ impl BaseStoreImpl {
 #[derive(Clone)]
 pub struct LocalStore {
     base: BaseStoreImpl,
+    store_path_prefix: String,
 }
 
 impl LocalStore {
@@ -843,23 +776,16 @@ impl LocalStore {
     /// Initialise a new store
     #[must_use]
     pub fn init() -> Self {
+        let base = BaseStoreImpl::new(ffi::init(""));
         Self {
-            base: BaseStoreImpl::new(ffi::init("")),
+            base,
+            store_path_prefix: get_store_dir(),
         }
     }
 
     #[must_use]
     pub fn as_base_store(&self) -> &BaseStoreImpl {
         &self.base
-    }
-
-    #[must_use]
-    /// Check whether a path is inside the nix store.
-    pub fn is_in_store(&self, path: &StorePath) -> bool {
-        is_subpath(
-            std::path::Path::new(&get_store_dir()),
-            std::path::Path::new(&path.get_full_path()),
-        )
     }
 
     #[tracing::instrument(skip(self, outputs))]
@@ -884,6 +810,20 @@ impl LocalStore {
             .filter_map(|o| async { o })
             .collect()
             .await
+    }
+
+    #[must_use]
+    pub fn print_store_path(&self, path: &StorePath) -> String {
+        format!("{}/{}", self.store_path_prefix, path.base_name())
+    }
+
+    #[must_use]
+    pub fn get_store_path_prefix(&self) -> &str {
+        self.store_path_prefix.as_str()
+    }
+
+    pub fn unsafe_set_store_path_prefix(&mut self, prefix: String) {
+        self.store_path_prefix = prefix;
     }
 }
 

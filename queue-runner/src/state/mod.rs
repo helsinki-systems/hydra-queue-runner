@@ -847,6 +847,7 @@ impl State {
             }
         };
         if let Some(status) = db.get_status().await? {
+            // we want a println! here so it can be consumed by other tools
             println!("{}", serde_json::to_string_pretty(&status)?);
         }
 

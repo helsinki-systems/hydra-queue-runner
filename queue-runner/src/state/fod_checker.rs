@@ -103,7 +103,7 @@ impl FodChecker {
             let mut ca_derivations = self.ca_derivations.write();
             ca_derivations.extend(out);
         }
-        println!("ca count: {}", self.ca_derivations.read().len());
+        tracing::info!("ca count: {}", self.ca_derivations.read().len());
     }
 
     #[tracing::instrument(skip(self))]

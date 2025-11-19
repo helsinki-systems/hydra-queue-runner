@@ -16,6 +16,7 @@ use nix_utils::RealisationOperations as _;
 
 mod cfg;
 mod compression;
+mod debug_info;
 mod narinfo;
 mod streaming_hash;
 
@@ -82,6 +83,8 @@ pub enum CacheError {
     ObjectStore(#[from] object_store::Error),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("serde_json error: {0}")]
+    Serde(#[from] serde_json::Error),
     #[error("Signing error: {0}")]
     Signing(String),
     #[error(transparent)]
@@ -501,6 +504,10 @@ impl S3BinaryCacheClient {
             self.upload_listing(path, ls).await?;
         }
 
+        if self.cfg.write_debug_info {
+            debug_info::process_debug_info(&narinfo.url, store, &narinfo.store_path, self).await?;
+        }
+
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Result<Bytes, std::io::Error>>();
         let closure = move |data: &[u8]| {
             let data = Bytes::copy_from_slice(data);
@@ -693,5 +700,56 @@ impl S3BinaryCacheClient {
             .filter_map(|o| async { o })
             .collect()
             .await
+    }
+}
+
+impl crate::debug_info::DebugInfoClient for S3BinaryCacheClient {
+    /// Creates debug info links for build IDs found in NAR files.
+    ///
+    /// This function processes debug information from NIX store paths that contain
+    /// debug symbols in the standard `lib/debug/.build-id` directory structure.
+    /// It creates JSON links that allow debuggers to find debug symbols by build ID.
+    ///
+    /// The directory structure expected is:
+    /// lib/debug/.build-id/ab/cdef1234567890123456789012345678901234.debug
+    /// where 'ab' are the first 2 hex characters of the build ID and the rest
+    /// are the remaining 38 characters.
+    ///
+    /// Each debug info link contains:
+    /// ```json
+    /// {
+    ///   "archive": "../nar-url",
+    ///   "member": "lib/debug/.build-id/ab/cdef1234567890123456789012345678901234.debug"
+    /// }
+    /// ```
+    #[tracing::instrument(skip(self, nar_url, build_id, debug_path), err)]
+    async fn create_debug_info_link(
+        &self,
+        nar_url: &str,
+        build_id: &str,
+        debug_path: &str,
+    ) -> Result<(), CacheError> {
+        let key = format!("debuginfo/{build_id}");
+
+        if self.head_object(&key).await? {
+            tracing::debug!("Debuginfo link {} already exists, skipping", key);
+            return Ok(());
+        }
+
+        let json_content = crate::debug_info::DebugInfoLink {
+            archive: format!("../{nar_url}"),
+            member: debug_path.to_string(),
+        };
+
+        tracing::debug!("Creating debuginfo link from '{}' to '{}'", key, nar_url);
+
+        self.upsert_file(
+            &key,
+            serde_json::to_string(&json_content)?,
+            "application/json",
+        )
+        .await?;
+
+        Ok(())
     }
 }

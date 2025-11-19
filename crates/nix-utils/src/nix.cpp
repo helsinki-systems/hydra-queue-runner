@@ -19,12 +19,22 @@
 #include <nlohmann/json.hpp>
 
 static std::atomic<bool> initializedNix = false;
+static std::mutex nixInitMtx;
 
 namespace nix_utils {
 void init_nix() {
   if (!initializedNix) {
-    initializedNix = true;
-    nix::initNix();
+    // We need this mutex here. if we have multiple threads that want to do
+    // init_nix at the same time.
+    // We need to ensure that initNix is finished on all threads before setting
+    // initializedNix.
+    // We also need to ensure that initNix not runs multiple times at the same
+    // time
+    std::lock_guard<std::mutex> lock(nixInitMtx);
+    if (!initializedNix) {
+      nix::initNix();
+      initializedNix = true;
+    }
   }
 }
 
@@ -42,12 +52,13 @@ std::shared_ptr<StoreWrapper> init(rust::Str uri) {
 }
 
 rust::String get_nix_prefix() { return nix::settings.nixPrefix; }
-rust::String get_store_dir() { return nix::settings.nixStore; }
+rust::String get_store_dir() {
+  init_nix();
+  return nix::settings.nixStore;
+}
 rust::String get_log_dir() { return nix::settings.nixLogDir; }
 rust::String get_state_dir() { return nix::settings.nixStateDir; }
-rust::String get_nix_version() {
-  return nix::nixVersion;
-}
+rust::String get_nix_version() { return nix::nixVersion; }
 rust::String get_this_system() { return nix::settings.thisSystem.get(); }
 rust::Vec<rust::String> get_extra_platforms() {
   auto set = nix::settings.extraPlatforms.get();

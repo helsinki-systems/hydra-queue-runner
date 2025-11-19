@@ -448,7 +448,6 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvbSTAGINGKEY"
             )
             .unwrap();
 
-        // Debug: print what keys are available
         println!(
             "Available profiles: {:?}",
             config_map.keys().collect::<Vec<_>>()
