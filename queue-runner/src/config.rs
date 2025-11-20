@@ -252,6 +252,9 @@ struct AppConfig {
 
     #[serde(default)]
     use_presigned_uploads: bool,
+
+    #[serde(default)]
+    forced_substituters: Vec<String>,
 }
 
 /// Prepared configuration of the application
@@ -281,6 +284,7 @@ pub struct PreparedApp {
     token_list: Option<Vec<String>>,
     pub enable_fod_checker: bool,
     pub use_presigned_uploads: bool,
+    pub forced_substituters: Vec<String>,
 }
 
 impl TryFrom<AppConfig> for PreparedApp {
@@ -367,6 +371,7 @@ impl TryFrom<AppConfig> for PreparedApp {
             token_list,
             enable_fod_checker: val.enable_fod_checker,
             use_presigned_uploads: val.use_presigned_uploads,
+            forced_substituters: val.forced_substituters,
         })
     }
 }
@@ -529,6 +534,12 @@ impl App {
     pub fn get_enable_fod_checker(&self) -> bool {
         let inner = self.inner.load();
         inner.enable_fod_checker
+    }
+
+    #[must_use]
+    pub fn get_forced_substituters(&self) -> Vec<String> {
+        let inner = self.inner.load();
+        inner.forced_substituters.clone()
     }
 }
 

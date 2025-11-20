@@ -600,7 +600,31 @@ impl std::fmt::Display for Machine {
 }
 
 impl Machine {
-    pub fn new(msg: JoinMessage, tx: mpsc::Sender<Message>) -> anyhow::Result<Self> {
+    #[tracing::instrument(skip(tx), err)]
+    pub fn new(
+        msg: JoinMessage,
+        tx: mpsc::Sender<Message>,
+        use_presigned_uploads: bool,
+        forced_substituters: &[String],
+    ) -> anyhow::Result<Self> {
+        if use_presigned_uploads && !forced_substituters.is_empty() {
+            if !msg.use_substitutes {
+                return Err(anyhow::anyhow!(
+                    "Forced_substituters is configured but builder doesnt use substituters. This is an issue because presigned uploads are enabled",
+                ));
+            }
+
+            for forced_sub in forced_substituters {
+                if !msg.substituters.contains(forced_sub) {
+                    return Err(anyhow::anyhow!(
+                        "Builder missing required substituter '{}'. Available: {:?}",
+                        forced_sub,
+                        msg.substituters
+                    ));
+                }
+            }
+        }
+
         Ok(Self {
             id: msg.machine_id.parse()?,
             systems: msg.systems,

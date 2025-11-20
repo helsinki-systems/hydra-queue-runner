@@ -251,10 +251,18 @@ impl RunnerService for Server {
 
         let mut stream = req.into_inner();
         let (input_tx, mut input_rx) = mpsc::channel::<MachineMessage>(128);
+        let use_presigned_uploads = self.state.config.use_presigned_uploads();
+        let forced_substituters = self.state.config.get_forced_substituters();
         let machine = match stream.next().await {
             Some(Ok(m)) => match m.message {
                 Some(runner_v1::builder_request::Message::Join(v)) => {
-                    Machine::new(v, input_tx).ok()
+                    match Machine::new(v, input_tx, use_presigned_uploads, &forced_substituters) {
+                        Ok(m) => Some(m),
+                        Err(e) => {
+                            tracing::error!("Rejecting new machine creation: {e}");
+                            return Err(tonic::Status::invalid_argument("Machine is not valid"));
+                        }
+                    }
                 }
                 _ => None,
             },
