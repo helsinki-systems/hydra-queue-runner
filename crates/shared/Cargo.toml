@@ -9,6 +9,7 @@ rust-version.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
 tokio = { workspace = true, features = ["full"] }
+fs-err = { workspace = true, features = ["tokio"] }
 regex.workspace = true
 sha2.workspace = true
 

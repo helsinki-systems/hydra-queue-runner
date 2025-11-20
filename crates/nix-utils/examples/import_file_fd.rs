@@ -6,7 +6,7 @@ use nix_utils::{self, BaseStore as _};
 async fn main() {
     let store = nix_utils::LocalStore::init();
 
-    let file = tokio::fs::File::open("/tmp/test.nar").await.unwrap();
+    let file = fs_err::tokio::File::open("/tmp/test.nar").await.unwrap();
     let mut reader = tokio::io::BufReader::new(file);
 
     println!("Importing test.nar == 5g60vyp4cbgwl12pav5apyi571smp62s-hello-2.12.2.drv");

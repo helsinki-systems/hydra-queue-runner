@@ -17,6 +17,7 @@ clap = { workspace = true, features = ["derive"] }
 uuid = { workspace = true, features = ["v4"] }
 ahash.workspace = true
 parking_lot.workspace = true
+fs-err = { workspace = true, features = ["tokio"] }
 
 tokio = { workspace = true, features = ["full"] }
 tokio-stream.workspace = true
@@ -46,6 +47,7 @@ tikv-jemallocator.workspace = true
 [build-dependencies]
 tonic-prost-build.workspace = true
 sha2.workspace = true
+fs-err = { workspace = true }
 
 [features]
 otel = ["hydra-tracing/otel"]

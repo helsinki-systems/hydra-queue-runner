@@ -74,7 +74,7 @@ impl Uploader {
 
             // Upload log file with backon retry
             let log_upload_result = (|| async {
-                let file = tokio::fs::File::open(&msg.log_local_path).await?;
+                let file = fs_err::tokio::File::open(&msg.log_local_path).await?;
                 let reader = Box::new(tokio::io::BufReader::new(file));
 
                 remote_store

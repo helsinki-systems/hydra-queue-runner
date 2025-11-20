@@ -159,11 +159,11 @@ pub async fn query_drv(
     }
 
     let full_path = store.print_store_path(drv);
-    if !tokio::fs::try_exists(&full_path).await? {
+    if !fs_err::tokio::try_exists(&full_path).await? {
         return Ok(None);
     }
 
-    let input = tokio::fs::read_to_string(&full_path).await?;
+    let input = fs_err::tokio::read_to_string(&full_path).await?;
     Ok(Some(parse_drv(drv, &input)?))
 }
 

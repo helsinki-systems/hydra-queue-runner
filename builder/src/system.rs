@@ -135,14 +135,14 @@ fn parse_pressure_record(line: &str) -> procfs_core::ProcResult<procfs_core::Pre
 impl PressureState {
     #[must_use]
     pub fn new() -> Option<Self> {
-        if !std::fs::exists("/proc/pressure").unwrap_or_default() {
+        if !fs_err::exists("/proc/pressure").unwrap_or_default() {
             return None;
         }
 
         let cpu_psi = procfs_core::CpuPressure::from_file("proc/pressure/cpu").ok();
         let mem_psi = procfs_core::MemoryPressure::from_file("/proc/pressure/memory").ok();
         let io_psi = procfs_core::IoPressure::from_file("/proc/pressure/io").ok();
-        let irq_psi_full = std::fs::read_to_string("/proc/pressure/irq")
+        let irq_psi_full = fs_err::read_to_string("/proc/pressure/irq")
             .ok()
             .and_then(|v| parse_pressure_record(&v).ok());
 

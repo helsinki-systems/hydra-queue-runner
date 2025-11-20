@@ -212,7 +212,7 @@ impl S3BinaryCacheClient {
         let mut signing_keys = vec![];
         for p in &cfg.secret_key_files {
             signing_keys.push(secrecy::SecretString::new(
-                tokio::fs::read_to_string(p).await?.into(),
+                fs_err::tokio::read_to_string(p).await?.into(),
             ));
         }
 

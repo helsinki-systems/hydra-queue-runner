@@ -53,11 +53,11 @@ pub fn validate_statuscode(status: std::process::ExitStatus) -> Result<(), Error
 pub fn add_root(store: &LocalStore, root_dir: &std::path::Path, store_path: &StorePath) {
     let path = root_dir.join(store_path.base_name());
     // force create symlink
-    if path.exists() {
-        let _ = std::fs::remove_file(&path);
+    if fs_err::exists(&path).unwrap_or_default() {
+        let _ = fs_err::remove_file(&path);
     }
-    if !path.exists() {
-        let _ = std::os::unix::fs::symlink(store.print_store_path(store_path), path);
+    if !fs_err::exists(&path).unwrap_or_default() {
+        let _ = fs_err::os::unix::fs::symlink(store.print_store_path(store_path), path);
     }
 }
 
@@ -1011,7 +1011,7 @@ impl RemoteStore {
     ) -> Result<(), Error> {
         let store = self.base.wrapper.clone();
         asyncify(move || {
-            if let Ok(data) = std::fs::read_to_string(local_path) {
+            if let Ok(data) = fs_err::read_to_string(local_path) {
                 ffi::upsert_file(&store, &path, &data, mime_type)?;
             }
             Ok(())

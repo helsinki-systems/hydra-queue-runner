@@ -109,7 +109,7 @@ struct Gcroot {
 
 impl Gcroot {
     pub fn new(path: std::path::PathBuf) -> std::io::Result<Self> {
-        std::fs::create_dir_all(&path)?;
+        fs_err::create_dir_all(&path)?;
         Ok(Self { root: path })
     }
 }
@@ -123,7 +123,7 @@ impl std::fmt::Display for Gcroot {
 impl Drop for Gcroot {
     fn drop(&mut self) {
         if self.root.exists() {
-            let _ = std::fs::remove_dir_all(&self.root);
+            let _ = fs_err::remove_dir_all(&self.root);
         }
     }
 }
@@ -138,7 +138,7 @@ impl State {
             .join("gcroots/per-user")
             .join(logname)
             .join("hydra-roots");
-        std::fs::create_dir_all(&gcroots)?;
+        fs_err::tokio::create_dir_all(&gcroots).await?;
 
         let state = Arc::new(Self {
             id: uuid::Uuid::new_v4(),
@@ -575,9 +575,9 @@ impl State {
         );
     }
 
-    pub fn clear_gcroots(&self) -> std::io::Result<()> {
-        std::fs::remove_dir_all(&self.config.gcroots)?;
-        std::fs::create_dir_all(&self.config.gcroots)?;
+    pub async fn clear_gcroots(&self) -> std::io::Result<()> {
+        fs_err::tokio::remove_dir_all(&self.config.gcroots).await?;
+        fs_err::tokio::create_dir_all(&self.config.gcroots).await?;
         Ok(())
     }
 

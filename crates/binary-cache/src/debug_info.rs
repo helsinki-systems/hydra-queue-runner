@@ -55,7 +55,7 @@ async fn find_debug_files(
 ) -> Result<Vec<(String, String)>, CacheError> {
     let mut debug_files = Vec::new();
 
-    let mut entries = tokio::fs::read_dir(build_id_path)
+    let mut entries = fs_err::tokio::read_dir(build_id_path)
         .await
         .map_err(CacheError::Io)?;
 
@@ -72,7 +72,7 @@ async fn find_debug_files(
         }
 
         let subdir_path = build_id_path.join(&s1);
-        let mut subdir_entries = tokio::fs::read_dir(&subdir_path)
+        let mut subdir_entries = fs_err::tokio::read_dir(&subdir_path)
             .await
             .map_err(CacheError::Io)?;
 
@@ -147,11 +147,11 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap().keep();
         let build_id_dir = temp_dir.join("test_build_id");
 
-        tokio::fs::create_dir_all(&build_id_dir).await.unwrap();
+        fs_err::tokio::create_dir_all(&build_id_dir).await.unwrap();
 
         let ab_dir = build_id_dir.join("ab");
-        tokio::fs::create_dir(&ab_dir).await.unwrap();
-        tokio::fs::write(
+        fs_err::tokio::create_dir(&ab_dir).await.unwrap();
+        fs_err::tokio::write(
             &ab_dir.join("cdef1234567890123456789012345678901234.debug"),
             "test debug content",
         )
@@ -159,8 +159,8 @@ mod tests {
         .unwrap();
 
         let cd_dir = build_id_dir.join("cd");
-        tokio::fs::create_dir(&cd_dir).await.unwrap();
-        tokio::fs::write(
+        fs_err::tokio::create_dir(&cd_dir).await.unwrap();
+        fs_err::tokio::write(
             &cd_dir.join("ef567890123456789012345678901234567890.debug"),
             "test debug content 2",
         )
@@ -186,7 +186,7 @@ mod tests {
             )
         );
 
-        tokio::fs::remove_dir_all(&build_id_dir).await.unwrap();
+        fs_err::tokio::remove_dir_all(&build_id_dir).await.unwrap();
     }
 
     #[tokio::test]
@@ -199,14 +199,14 @@ mod tests {
         let store_path = nix_utils::StorePath::new(store_path_str);
         let full_path = store_prefix.join(store_path_str);
 
-        tokio::fs::create_dir_all(&full_path).await.unwrap();
+        fs_err::tokio::create_dir_all(&full_path).await.unwrap();
         let build_id_dir = full_path.join("lib/debug/.build-id");
-        tokio::fs::create_dir_all(&build_id_dir).await.unwrap();
+        fs_err::tokio::create_dir_all(&build_id_dir).await.unwrap();
 
         let ab_dir = build_id_dir.join("ab");
-        tokio::fs::create_dir(&ab_dir).await.unwrap();
+        fs_err::tokio::create_dir(&ab_dir).await.unwrap();
         let debug_file = ab_dir.join("cdef1234567890123456789012345678901234.debug");
-        tokio::fs::write(&debug_file, "test debug content")
+        fs_err::tokio::write(&debug_file, "test debug content")
             .await
             .unwrap();
 
@@ -225,7 +225,7 @@ mod tests {
             "lib/debug/.build-id/ab/cdef1234567890123456789012345678901234.debug"
         );
 
-        tokio::fs::remove_dir_all(&full_path).await.unwrap();
+        fs_err::tokio::remove_dir_all(&full_path).await.unwrap();
     }
 
     #[tokio::test]
@@ -233,12 +233,12 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap().keep();
         let build_id_dir = temp_dir.join("empty_build_id");
 
-        tokio::fs::create_dir_all(&build_id_dir).await.unwrap();
+        fs_err::tokio::create_dir_all(&build_id_dir).await.unwrap();
 
         let debug_files = find_debug_files(&build_id_dir).await.unwrap();
         assert_eq!(debug_files.len(), 0);
 
-        tokio::fs::remove_dir_all(&build_id_dir).await.unwrap();
+        fs_err::tokio::remove_dir_all(&build_id_dir).await.unwrap();
     }
 
     #[tokio::test]
@@ -246,40 +246,40 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap().keep();
         let build_id_dir = temp_dir.join("invalid_build_id");
 
-        tokio::fs::create_dir_all(&build_id_dir).await.unwrap();
+        fs_err::tokio::create_dir_all(&build_id_dir).await.unwrap();
 
-        tokio::fs::create_dir(&build_id_dir.join("invalid"))
+        fs_err::tokio::create_dir(&build_id_dir.join("invalid"))
             .await
             .unwrap();
-        tokio::fs::create_dir(&build_id_dir.join("xyz"))
+        fs_err::tokio::create_dir(&build_id_dir.join("xyz"))
             .await
             .unwrap();
-        tokio::fs::create_dir(&build_id_dir.join("123"))
+        fs_err::tokio::create_dir(&build_id_dir.join("123"))
             .await
             .unwrap();
 
         let valid_dir = build_id_dir.join("ab");
-        tokio::fs::create_dir(&valid_dir).await.unwrap();
+        fs_err::tokio::create_dir(&valid_dir).await.unwrap();
 
-        tokio::fs::write(&valid_dir.join("invalid.txt"), "content")
+        fs_err::tokio::write(&valid_dir.join("invalid.txt"), "content")
             .await
             .unwrap();
-        tokio::fs::write(&valid_dir.join("cdef.debug"), "content")
+        fs_err::tokio::write(&valid_dir.join("cdef.debug"), "content")
             .await
             .unwrap();
-        tokio::fs::write(
+        fs_err::tokio::write(
             &valid_dir.join("cdef12345678901234567890123456789012345.debug"),
             "content",
         )
         .await
         .unwrap();
-        tokio::fs::write(
+        fs_err::tokio::write(
             &valid_dir.join("cdef1234567890123456789012345678901234.txt"),
             "content",
         )
         .await
         .unwrap();
-        tokio::fs::write(
+        fs_err::tokio::write(
             &valid_dir.join("xyz1234567890123456789012345678901234.debug"),
             "content",
         )
@@ -289,7 +289,7 @@ mod tests {
         let debug_files = find_debug_files(&build_id_dir).await.unwrap();
         assert_eq!(debug_files.len(), 0);
 
-        tokio::fs::remove_dir_all(&build_id_dir).await.unwrap();
+        fs_err::tokio::remove_dir_all(&build_id_dir).await.unwrap();
     }
 
     #[tokio::test]
@@ -297,21 +297,21 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap().keep();
         let build_id_dir = temp_dir.join("mixed_build_id");
 
-        tokio::fs::create_dir_all(&build_id_dir).await.unwrap();
+        fs_err::tokio::create_dir_all(&build_id_dir).await.unwrap();
 
         let ab_dir = build_id_dir.join("ab");
-        tokio::fs::create_dir(&ab_dir).await.unwrap();
-        tokio::fs::write(
+        fs_err::tokio::create_dir(&ab_dir).await.unwrap();
+        fs_err::tokio::write(
             &ab_dir.join("cdef1234567890123456789012345678901234.debug"),
             "valid debug content",
         )
         .await
         .unwrap();
 
-        tokio::fs::create_dir(&build_id_dir.join("invalid"))
+        fs_err::tokio::create_dir(&build_id_dir.join("invalid"))
             .await
             .unwrap();
-        tokio::fs::write(
+        fs_err::tokio::write(
             &build_id_dir.join("invalid").join("somefile.debug"),
             "content",
         )
@@ -319,14 +319,14 @@ mod tests {
         .unwrap();
 
         let cd_dir = build_id_dir.join("cd");
-        tokio::fs::create_dir(&cd_dir).await.unwrap();
-        tokio::fs::write(
+        fs_err::tokio::create_dir(&cd_dir).await.unwrap();
+        fs_err::tokio::write(
             &cd_dir.join("ef567890123456789012345678901234567890.debug"),
             "another valid debug content",
         )
         .await
         .unwrap();
-        tokio::fs::write(&cd_dir.join("invalid.txt"), "invalid content")
+        fs_err::tokio::write(&cd_dir.join("invalid.txt"), "invalid content")
             .await
             .unwrap();
 
@@ -337,7 +337,7 @@ mod tests {
         assert!(build_ids.contains(&"abcdef1234567890123456789012345678901234".to_string()));
         assert!(build_ids.contains(&"cdef567890123456789012345678901234567890".to_string()));
 
-        tokio::fs::remove_dir_all(&build_id_dir).await.unwrap();
+        fs_err::tokio::remove_dir_all(&build_id_dir).await.unwrap();
     }
 
     #[tokio::test]
@@ -350,7 +350,7 @@ mod tests {
         let store_path = nix_utils::StorePath::new(store_path_str);
         let full_path = temp_dir.join("nix/store").join(store_path_str);
 
-        tokio::fs::create_dir_all(&full_path).await.unwrap();
+        fs_err::tokio::create_dir_all(&full_path).await.unwrap();
 
         let mut local = nix_utils::LocalStore::init();
         local.unsafe_set_store_path_prefix(store_prefix.as_path().to_string_lossy().to_string());
@@ -362,7 +362,7 @@ mod tests {
         let created_links = mock_client.get_created_links();
         assert_eq!(created_links.len(), 0);
 
-        tokio::fs::remove_dir_all(&full_path).await.unwrap();
+        fs_err::tokio::remove_dir_all(&full_path).await.unwrap();
     }
 
     #[tokio::test]
@@ -375,9 +375,9 @@ mod tests {
         let store_path = nix_utils::StorePath::new(store_path_str);
         let full_path = temp_dir.join("nix/store").join(store_path_str);
 
-        tokio::fs::create_dir_all(&full_path).await.unwrap();
+        fs_err::tokio::create_dir_all(&full_path).await.unwrap();
         let build_id_dir = full_path.join("lib/debug/.build-id");
-        tokio::fs::create_dir_all(&build_id_dir).await.unwrap();
+        fs_err::tokio::create_dir_all(&build_id_dir).await.unwrap();
 
         let mut local = nix_utils::LocalStore::init();
         local.unsafe_set_store_path_prefix(store_prefix.as_path().to_string_lossy().to_string());
@@ -389,7 +389,7 @@ mod tests {
         let created_links = mock_client.get_created_links();
         assert_eq!(created_links.len(), 0);
 
-        tokio::fs::remove_dir_all(&full_path).await.unwrap();
+        fs_err::tokio::remove_dir_all(&full_path).await.unwrap();
     }
 
     #[tokio::test]
@@ -402,9 +402,9 @@ mod tests {
         let store_path = nix_utils::StorePath::new(store_path_str);
         let full_path = temp_dir.join("nix/store").join(store_path_str);
 
-        tokio::fs::create_dir_all(&full_path).await.unwrap();
+        fs_err::tokio::create_dir_all(&full_path).await.unwrap();
         let build_id_dir = full_path.join("lib/debug/.build-id");
-        tokio::fs::create_dir_all(&build_id_dir).await.unwrap();
+        fs_err::tokio::create_dir_all(&build_id_dir).await.unwrap();
 
         let subdirs = [
             ("ab", "cdef1234567890123456789012345678901234"),
@@ -414,8 +414,8 @@ mod tests {
 
         for (subdir, filename) in &subdirs {
             let dir = build_id_dir.join(subdir);
-            tokio::fs::create_dir(&dir).await.unwrap();
-            tokio::fs::write(&dir.join(format!("{filename}.debug")), "debug content")
+            fs_err::tokio::create_dir(&dir).await.unwrap();
+            fs_err::tokio::write(&dir.join(format!("{filename}.debug")), "debug content")
                 .await
                 .unwrap();
         }
@@ -445,7 +445,7 @@ mod tests {
             &"lib/debug/.build-id/12/34567890123456789012345678901234567890.debug".to_string()
         ));
 
-        tokio::fs::remove_dir_all(&full_path).await.unwrap();
+        fs_err::tokio::remove_dir_all(&full_path).await.unwrap();
     }
 
     #[tokio::test]

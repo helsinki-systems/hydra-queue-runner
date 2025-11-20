@@ -7,14 +7,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let workspace_version = env::var("CARGO_PKG_VERSION")?;
 
     let proto_path = "../proto/v1/streaming.proto";
-    let proto_content = std::fs::read_to_string(proto_path)?;
+    let proto_content = fs_err::read_to_string(proto_path)?;
     let mut hasher = sha2::Sha256::new();
     hasher.update(proto_content.as_bytes());
     let proto_hash = format!("{:x}", hasher.finalize());
     let version = format!("{}-{}", workspace_version, &proto_hash[..8]);
 
     // Generate version module
-    std::fs::write(
+    fs_err::write(
         out_dir.join("proto_version.rs"),
         format!(
             r#"// Generated during build - do not edit

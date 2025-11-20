@@ -138,11 +138,11 @@ impl Cli {
             .as_deref()
             .ok_or(anyhow::anyhow!("domain_name not provided"))?;
 
-        let server_root_ca_cert = tokio::fs::read_to_string(server_root_ca_cert_path).await?;
+        let server_root_ca_cert = fs_err::tokio::read_to_string(server_root_ca_cert_path).await?;
         let server_root_ca_cert = tonic::transport::Certificate::from_pem(server_root_ca_cert);
 
-        let client_cert = tokio::fs::read_to_string(client_cert_path).await?;
-        let client_key = tokio::fs::read_to_string(client_key_path).await?;
+        let client_cert = fs_err::tokio::read_to_string(client_cert_path).await?;
+        let client_key = fs_err::tokio::read_to_string(client_key_path).await?;
         let client_identity = tonic::transport::Identity::from_pem(client_cert, client_key);
 
         Ok((server_root_ca_cert, client_identity, domain_name.to_owned()))
@@ -151,7 +151,10 @@ impl Cli {
     pub async fn get_authorization_token(&self) -> anyhow::Result<Option<String>> {
         if let Some(path) = &self.authorization_file {
             Ok(Some(
-                tokio::fs::read_to_string(path).await?.trim().to_string(),
+                fs_err::tokio::read_to_string(path)
+                    .await?
+                    .trim()
+                    .to_string(),
             ))
         } else {
             Ok(None)

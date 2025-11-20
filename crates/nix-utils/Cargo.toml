@@ -13,6 +13,7 @@ anyhow.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true, features = ["io-util"] }
 tokio-util = { workspace = true, features = ["io", "io-util"] }
+fs-err = { workspace = true, features = ["tokio"] }
 futures.workspace = true
 ahash = { workspace = true, features = ["serde"] }
 url.workspace = true

@@ -69,7 +69,7 @@ trait FsOperations {
     ) -> impl std::future::Future<Output = Result<FileMetadata, std::io::Error>>;
     fn get_file_hash(
         &self,
-        path: impl AsRef<std::path::Path> + std::fmt::Debug,
+        path: impl Into<std::path::PathBuf> + std::fmt::Debug,
     ) -> impl std::future::Future<Output = tokio::io::Result<String>>;
 }
 
@@ -95,7 +95,7 @@ impl FsOperations for FilesystemOperations {
         &self,
         path: impl AsRef<std::path::Path> + std::fmt::Debug,
     ) -> Result<FileMetadata, std::io::Error> {
-        let m = tokio::fs::metadata(path).await?;
+        let m = fs_err::tokio::metadata(path).await?;
         Ok(FileMetadata {
             is_regular: m.is_file(),
             size: m.size(),
@@ -105,9 +105,9 @@ impl FsOperations for FilesystemOperations {
     #[tracing::instrument(skip(self), err)]
     async fn get_file_hash(
         &self,
-        path: impl AsRef<std::path::Path> + std::fmt::Debug,
+        path: impl Into<std::path::PathBuf> + std::fmt::Debug,
     ) -> tokio::io::Result<String> {
-        let file = tokio::fs::File::open(path).await?;
+        let file = fs_err::tokio::File::open(path).await?;
         let mut reader = BufReader::new(file);
 
         let mut hasher = Sha256::new();
@@ -238,7 +238,7 @@ pub async fn parse_nix_support_from_outputs(
     for output in &outputs {
         let output_full_path = store.print_store_path(output);
         let file_path = std::path::Path::new(&output_full_path).join("nix-support/hydra-metrics");
-        let Ok(file) = tokio::fs::File::open(&file_path).await else {
+        let Ok(file) = fs_err::tokio::File::open(&file_path).await else {
             continue;
         };
 
@@ -255,7 +255,10 @@ pub async fn parse_nix_support_from_outputs(
     for output in &outputs {
         let file_path =
             std::path::Path::new(&store.print_store_path(output)).join("nix-support/failed");
-        if tokio::fs::try_exists(file_path).await.unwrap_or_default() {
+        if fs_err::tokio::try_exists(file_path)
+            .await
+            .unwrap_or_default()
+        {
             failed = true;
             break;
         }
@@ -264,7 +267,7 @@ pub async fn parse_nix_support_from_outputs(
     for output in &outputs {
         let file_path = std::path::Path::new(&store.print_store_path(output))
             .join("nix-support/hydra-release-name");
-        if let Ok(v) = tokio::fs::read_to_string(file_path).await
+        if let Ok(v) = fs_err::tokio::read_to_string(file_path).await
             && let Some(v) = parse_release_name(&v)
         {
             hydra_release_name = Some(v.clone());
@@ -278,7 +281,7 @@ pub async fn parse_nix_support_from_outputs(
         let output_full_path = store.print_store_path(output);
         let file_path =
             std::path::Path::new(&output_full_path).join("nix-support/hydra-build-products");
-        let Ok(file) = tokio::fs::File::open(&file_path).await else {
+        let Ok(file) = fs_err::tokio::File::open(&file_path).await else {
             continue;
         };
 
@@ -300,7 +303,7 @@ pub async fn parse_nix_support_from_outputs(
                 continue;
             };
             let full_path = store.print_store_path(path);
-            let Ok(metadata) = tokio::fs::metadata(&full_path).await else {
+            let Ok(metadata) = fs_err::tokio::metadata(&full_path).await else {
                 continue;
             };
             if metadata.is_dir() {
@@ -356,7 +359,7 @@ mod tests {
 
         async fn get_file_hash(
             &self,
-            _: impl AsRef<std::path::Path> + std::fmt::Debug,
+            _: impl Into<std::path::PathBuf> + std::fmt::Debug,
         ) -> Result<String, std::io::Error> {
             Ok(self.file_hash.clone())
         }

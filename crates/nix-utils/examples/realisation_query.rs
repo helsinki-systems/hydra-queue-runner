@@ -1,5 +1,5 @@
+use fs_err::tokio::read_to_string;
 use nix_utils::RealisationOperations as _;
-use tokio::fs::read_to_string;
 
 #[tokio::main]
 async fn main() {

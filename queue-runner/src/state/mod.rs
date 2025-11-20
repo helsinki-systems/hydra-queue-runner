@@ -92,7 +92,7 @@ impl State {
         )
         .await?;
 
-        let _ = tokio::fs::create_dir_all(&log_dir).await;
+        let _ = fs_err::tokio::create_dir_all(&log_dir).await;
 
         let mut remote_stores = vec![];
         for uri in config.get_remote_store_addrs() {
@@ -366,7 +366,7 @@ impl State {
         let mut log_file = self.log_dir.clone();
         let (dir, file) = drv.base_name().split_at(2);
         log_file.push(format!("{dir}/"));
-        let _ = tokio::fs::create_dir_all(&log_file).await; // create dir
+        let _ = fs_err::tokio::create_dir_all(&log_file).await; // create dir
         log_file.push(file);
         Ok(log_file)
     }
@@ -375,11 +375,11 @@ impl State {
     pub async fn new_log_file(
         &self,
         drv: &nix_utils::StorePath,
-    ) -> anyhow::Result<tokio::fs::File> {
+    ) -> anyhow::Result<fs_err::tokio::File> {
         let log_file = self.construct_log_file_path(drv).await?;
         tracing::debug!("opening {log_file:?}");
 
-        Ok(tokio::fs::File::options()
+        Ok(fs_err::tokio::File::options()
             .create(true)
             .truncate(true)
             .write(true)

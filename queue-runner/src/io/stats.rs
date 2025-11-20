@@ -37,24 +37,22 @@ pub struct MemoryStats {
 impl MemoryStats {
     fn new(cgroups_path: &std::path::Path) -> anyhow::Result<Self> {
         Ok(Self {
-            current_bytes: std::fs::read_to_string(cgroups_path.join("memory.current"))?
+            current_bytes: fs_err::read_to_string(cgroups_path.join("memory.current"))?
                 .trim()
                 .parse()
                 .context("memory current parsing failed")?,
-            peak_bytes: std::fs::read_to_string(cgroups_path.join("memory.peak"))?
+            peak_bytes: fs_err::read_to_string(cgroups_path.join("memory.peak"))?
                 .trim()
                 .parse()
                 .context("memory peak parsing failed")?,
-            swap_current_bytes: std::fs::read_to_string(cgroups_path.join("memory.swap.current"))?
+            swap_current_bytes: fs_err::read_to_string(cgroups_path.join("memory.swap.current"))?
                 .trim()
                 .parse()
                 .context("swap parsing failed")?,
-            zswap_current_bytes: std::fs::read_to_string(
-                cgroups_path.join("memory.zswap.current"),
-            )?
-            .trim()
-            .parse()
-            .context("zswap parsing failed")?,
+            zswap_current_bytes: fs_err::read_to_string(cgroups_path.join("memory.zswap.current"))?
+                .trim()
+                .parse()
+                .context("zswap parsing failed")?,
         })
     }
 }
@@ -71,7 +69,7 @@ impl IoStats {
         let mut total_read_bytes: u64 = 0;
         let mut total_write_bytes: u64 = 0;
 
-        let contents = std::fs::read_to_string(cgroups_path.join("io.stat"))?;
+        let contents = fs_err::read_to_string(cgroups_path.join("io.stat"))?;
         for line in contents.lines() {
             for part in line.split_whitespace() {
                 if part.starts_with("rbytes=") {
@@ -108,7 +106,7 @@ pub struct CpuStats {
 
 impl CpuStats {
     fn new(cgroups_path: &std::path::Path) -> anyhow::Result<Self> {
-        let contents = std::fs::read_to_string(cgroups_path.join("cpu.stat"))?;
+        let contents = fs_err::read_to_string(cgroups_path.join("cpu.stat"))?;
 
         let mut usage_usec: u128 = 0;
         let mut user_usec: u128 = 0;

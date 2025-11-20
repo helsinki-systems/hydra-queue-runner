@@ -15,6 +15,7 @@ object_store = { workspace = true, features = ["aws"] }
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true, features = ["io-util"] }
 tokio-util = { workspace = true, features = ["io", "io-util"] }
+fs-err = { workspace = true, features = ["tokio"] }
 futures.workspace = true
 async-compression = { workspace = true, features = [
   "tokio",

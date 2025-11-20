@@ -25,6 +25,7 @@ backon.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
 uuid = { workspace = true, features = ["v4", "serde"] }
 atomic_float.workspace = true
+fs-err = { workspace = true, features = ["tokio"] }
 
 tokio = { workspace = true, features = ["full"] }
 futures.workspace = true
@@ -63,6 +64,7 @@ tikv-jemallocator.workspace = true
 [build-dependencies]
 tonic-prost-build.workspace = true
 sha2.workspace = true
+fs-err = { workspace = true }
 
 [features]
 otel = ["hydra-tracing/otel"]

@@ -100,11 +100,11 @@ impl Cli {
             .client_ca_cert_path
             .as_deref()
             .ok_or(anyhow::anyhow!("client_ca_cert_path not provided"))?;
-        let client_ca_cert = tokio::fs::read_to_string(client_ca_cert_path).await?;
+        let client_ca_cert = fs_err::tokio::read_to_string(client_ca_cert_path).await?;
         let client_ca_cert = tonic::transport::Certificate::from_pem(client_ca_cert);
 
-        let server_cert = tokio::fs::read_to_string(server_cert_path).await?;
-        let server_key = tokio::fs::read_to_string(server_key_path).await?;
+        let server_cert = fs_err::tokio::read_to_string(server_cert_path).await?;
+        let server_key = fs_err::tokio::read_to_string(server_key_path).await?;
         let server_identity = tonic::transport::Identity::from_pem(server_cert, server_key);
         Ok((client_ca_cert, server_identity))
     }
@@ -304,12 +304,12 @@ impl TryFrom<AppConfig> for PreparedApp {
                 .join(logname)
                 .join("hydra-roots")
         };
-        std::fs::create_dir_all(&roots_dir)?;
+        fs_err::create_dir_all(&roots_dir)?;
 
         let hydra_log_dir = val.hydra_data_dir.join("build-logs");
         let lockfile = val.hydra_data_dir.join("queue-runner/lock");
         let token_list = if let Some(p) = val.token_list_path {
-            std::fs::read_to_string(p)
+            fs_err::read_to_string(p)
                 .map(|s| s.lines().map(|t| t.trim().to_string()).collect())
                 .ok()
         } else {
@@ -369,7 +369,7 @@ impl TryFrom<AppConfig> for PreparedApp {
 /// Loads the config from specified path
 fn load_config(filepath: &str) -> anyhow::Result<PreparedApp> {
     tracing::info!("Trying to loading file: {filepath}");
-    let toml: AppConfig = if let Ok(content) = std::fs::read_to_string(filepath) {
+    let toml: AppConfig = if let Ok(content) = fs_err::read_to_string(filepath) {
         toml::from_str(&content).map_err(|e| anyhow::anyhow!("Failed to load '{filepath}': {e}"))?
     } else {
         tracing::warn!("no config file found! Using default config");

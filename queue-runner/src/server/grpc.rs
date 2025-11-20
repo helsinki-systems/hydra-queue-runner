@@ -358,7 +358,7 @@ impl RunnerService for Server {
         let mut stream = req.into_inner();
         let state = self.state.clone();
 
-        let mut out_file: Option<tokio::fs::File> = None;
+        let mut out_file: Option<fs_err::tokio::File> = None;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
 
