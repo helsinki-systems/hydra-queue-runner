@@ -1,5 +1,7 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
 #![allow(clippy::match_wildcard_for_single_variants)]
 
 mod config;

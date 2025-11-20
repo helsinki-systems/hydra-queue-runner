@@ -126,6 +126,8 @@ pub(crate) trait DebugInfoClient {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use super::*;
 
     struct MockClient {

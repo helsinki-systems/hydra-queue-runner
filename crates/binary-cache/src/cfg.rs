@@ -430,8 +430,10 @@ fn parse_aws_credentials_file(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use super::{ConfigReadError, S3CacheConfig, UrlParseError, parse_aws_credentials_file};
-    use std::str::FromStr;
+    use std::str::FromStr as _;
 
     #[test]
     fn test_parsing_default_profile_works() {

@@ -1,5 +1,7 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
 #![allow(clippy::missing_errors_doc)]
 
 use std::sync::Arc;
@@ -182,8 +184,10 @@ async fn run_multipart_upload(
     let mut file_size = 0;
 
     loop {
-        let chunk = if part_number == 1 {
-            first_chunk_opt.take().unwrap()
+        let chunk = if part_number == 1
+            && let Some(first_chunk) = first_chunk_opt.take()
+        {
+            first_chunk
         } else {
             let buf = bytes::BytesMut::with_capacity(buffer_size);
             read_chunk_async(&mut stream, buf).await?

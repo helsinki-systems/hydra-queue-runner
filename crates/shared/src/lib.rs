@@ -1,5 +1,7 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
 #![allow(clippy::missing_errors_doc)]
 
 use std::{os::unix::fs::MetadataExt as _, sync::LazyLock};
@@ -9,14 +11,19 @@ use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, BufReader};
 
 use nix_utils::StorePath;
 
+#[allow(clippy::expect_used)]
 static VALIDATE_METRICS_NAME: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new("[a-zA-Z0-9._-]+").expect("Failed to compile regex"));
+#[allow(clippy::expect_used)]
 static VALIDATE_METRICS_UNIT: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new("[a-zA-Z0-9._%-]+").expect("Failed to compile regex"));
+#[allow(clippy::expect_used)]
 static VALIDATE_RELEASE_NAME: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new("[a-zA-Z0-9.@:_-]+").expect("Failed to compile regex"));
+#[allow(clippy::expect_used)]
 static VALIDATE_PRODUCT_NAME: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new("[a-zA-Z0-9.@:_ -]*").expect("Failed to compile regex"));
+#[allow(clippy::expect_used)]
 static BUILD_PRODUCT_PARSER: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
         r#"([a-zA-Z0-9_-]+)\s+([a-zA-Z0-9_-]+)\s+(\"[^\"]+\"|[^\"\s<>]+)(\s+([^\"\s<>]+))?"#,
@@ -335,7 +342,7 @@ pub async fn parse_nix_support_from_outputs(
 
 #[cfg(test)]
 mod tests {
-    use std::f64;
+    #![allow(clippy::unwrap_used)]
 
     use super::*;
 

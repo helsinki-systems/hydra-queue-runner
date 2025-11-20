@@ -1,5 +1,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
+use anyhow::Context as _;
 use clap::Parser;
 
 #[derive(Debug, Clone)]
@@ -302,7 +303,7 @@ impl TryFrom<AppConfig> for PreparedApp {
             })
             .collect();
 
-        let logname = std::env::var("LOGNAME").expect("LOGNAME not set");
+        let logname = std::env::var("LOGNAME").context("LOGNAME env var missing")?;
         let nix_state_dir = std::env::var("NIX_STATE_DIR").unwrap_or("/nix/var/nix/".to_owned());
         let roots_dir = if let Some(roots_dir) = val.roots_dir {
             roots_dir

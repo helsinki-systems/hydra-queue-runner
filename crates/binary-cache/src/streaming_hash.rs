@@ -89,6 +89,8 @@ impl<R: AsyncRead + Unpin + Send> AsyncRead for HashingReader<R> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use super::*;
     use bytes::Bytes;
     use sha2::{Digest, Sha256};

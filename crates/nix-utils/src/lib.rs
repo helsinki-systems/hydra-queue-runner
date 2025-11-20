@@ -1,5 +1,7 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
 #![allow(clippy::missing_errors_doc)]
 
 mod drv;
@@ -754,7 +756,7 @@ impl BaseStoreImpl {
         callback: F,
         reader: Box<tokio_util::io::StreamReader<S, bytes::Bytes>>,
         check_sigs: bool,
-    ) -> Result<(), cxx::Exception>
+    ) -> Result<(), Error>
     where
         F: FnMut(
             &tokio::runtime::Runtime,
@@ -764,7 +766,7 @@ impl BaseStoreImpl {
         S: futures::stream::Stream<Item = Result<bytes::Bytes, E>>,
         E: Into<std::io::Error>,
     {
-        let runtime = Box::new(tokio::runtime::Runtime::new().unwrap());
+        let runtime = Box::new(tokio::runtime::Runtime::new()?);
         ffi::import_paths(
             &self.wrapper,
             check_sigs,

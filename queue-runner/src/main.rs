@@ -1,5 +1,7 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
 #![allow(clippy::missing_errors_doc)]
 #![recursion_limit = "256"]
 
@@ -40,13 +42,17 @@ fn spawn_config_reloader(
     let filepath = filepath.to_owned();
     let task = tokio::spawn(async move {
         loop {
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
-                .unwrap()
-                .recv()
-                .await
-                .unwrap();
-            tracing::info!("Reloading...");
-            config::reload(&current_config, &filepath, &state).await;
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()) {
+                Ok(mut s) => {
+                    let _ = s.recv().await;
+                    tracing::info!("Reloading...");
+                    config::reload(&current_config, &filepath, &state).await;
+                }
+                Err(e) => {
+                    tracing::error!("Failed to create signal listener for SIGHUP: {e}");
+                    break;
+                }
+            }
         }
     });
     task.abort_handle()

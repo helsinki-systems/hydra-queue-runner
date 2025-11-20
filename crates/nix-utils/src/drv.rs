@@ -169,6 +169,8 @@ pub async fn query_drv(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use crate::{StorePath, drv::parse_drv};
 
     #[test]

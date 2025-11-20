@@ -159,9 +159,10 @@ impl FodChecker {
 
 #[cfg(test)]
 mod tests {
-    use nix_utils::BaseStore;
+    #![allow(clippy::unwrap_used)]
 
     use crate::state::fod_checker::FodChecker;
+    use nix_utils::BaseStore as _;
 
     #[tokio::test]
     async fn test_traverse() {
