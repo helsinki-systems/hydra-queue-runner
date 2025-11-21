@@ -12,6 +12,7 @@ use runner_v1::{
 pub mod runner_v1 {
     // We need to allow pedantic here because of generated code
     #![allow(clippy::pedantic)]
+    #![allow(clippy::enum_variant_names)]
 
     tonic::include_proto!("runner.v1");
 }
@@ -154,6 +155,9 @@ async fn handle_request(
         runner_request::Message::Ping(_) => (),
         runner_request::Message::Build(m) => {
             state.schedule_build(m)?;
+        }
+        runner_request::Message::Fod(m) => {
+            state.schedule_fod_check(m)?;
         }
         runner_request::Message::Abort(m) => {
             state.abort_build(&m)?;
