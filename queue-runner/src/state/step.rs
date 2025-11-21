@@ -124,6 +124,24 @@ impl Step {
         })
     }
 
+    #[cfg(test)]
+    #[must_use]
+    pub fn dummy(drv_path: nix_utils::StorePath, system: &str, features: &[String]) -> Arc<Self> {
+        let step = Self::new(drv_path.clone());
+        step.set_drv(nix_utils::Derivation {
+            env: nix_utils::DerivationEnv::new(
+                [("requiredSystemFeatures".into(), features.join(" "))].into(),
+            ),
+            input_drvs: vec![].into(),
+            outputs: vec![].into(),
+            name: drv_path,
+            system: system.into(),
+        });
+
+        step.atomic_state.set_created(true);
+        step
+    }
+
     #[inline]
     pub const fn get_drv_path(&self) -> &nix_utils::StorePath {
         &self.drv_path

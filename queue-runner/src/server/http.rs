@@ -143,15 +143,26 @@ async fn router(
             (&hyper::Method::GET, "/status/runnable" | "/status/runnable/") => {
                 handler::status::runnable(state)
             }
-            (&hyper::Method::GET, "/status/queues" | "/status/queues/") => {
-                handler::status::queues(state).await
+            (&hyper::Method::GET, "/status/queues/main" | "/status/queues/main/") => {
+                handler::status::main_queues(state).await
             }
-            (&hyper::Method::GET, "/status/queues/jobs" | "/status/queues/jobs/") => {
-                handler::status::queue_jobs(state).await
+            (&hyper::Method::GET, "/status/queues/main/jobs" | "/status/queues/main/jobs/") => {
+                handler::status::main_queue_jobs(state).await
             }
-            (&hyper::Method::GET, "/status/queues/scheduled" | "/status/queues/scheduled/") => {
-                handler::status::queue_scheduled(state).await
+            (
+                &hyper::Method::GET,
+                "/status/queues/main/scheduled" | "/status/queues/main/scheduled/",
+            ) => handler::status::main_queue_scheduled(state).await,
+            (&hyper::Method::GET, "/status/queues/fod" | "/status/queues/fod/") => {
+                handler::status::fod_queues(state).await
             }
+            (&hyper::Method::GET, "/status/queues/fod/jobs" | "/status/queues/fod/jobs/") => {
+                handler::status::fod_queue_jobs(state).await
+            }
+            (
+                &hyper::Method::GET,
+                "/status/queues/fod/scheduled" | "/status/queues/fod/scheduled/",
+            ) => handler::status::fod_queue_scheduled(state).await,
             (&hyper::Method::GET, "/status/uploads" | "/status/uploads/") => {
                 handler::status::queued_uploads(state).await
             }
@@ -175,7 +186,8 @@ async fn router(
 mod handler {
     pub mod status {
         use super::super::{Error, Response, construct_json_ok_response};
-        use crate::{io, state::State};
+        use crate::io;
+        use crate::state::{QueueType, State};
 
         #[tracing::instrument(skip(state), err)]
         pub async fn get(state: std::sync::Arc<State>) -> Result<Response, Error> {
@@ -250,10 +262,10 @@ mod handler {
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub async fn queues(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub async fn main_queues(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let queues = state
                 .queues
-                .clone_inner()
+                .clone_inner(QueueType::Main)
                 .await
                 .into_iter()
                 .map(|(s, q)| {
@@ -270,10 +282,10 @@ mod handler {
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub async fn queue_jobs(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub async fn main_queue_jobs(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let stepinfos = state
                 .queues
-                .get_jobs()
+                .get_jobs(QueueType::Main)
                 .await
                 .into_iter()
                 .map(Into::into)
@@ -282,10 +294,54 @@ mod handler {
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub async fn queue_scheduled(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub async fn main_queue_scheduled(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let stepinfos = state
                 .queues
-                .get_scheduled()
+                .get_scheduled(QueueType::Main)
+                .await
+                .into_iter()
+                .map(Into::into)
+                .collect();
+            construct_json_ok_response(&io::StepInfoResponse::new(stepinfos))
+        }
+
+        #[tracing::instrument(skip(state), err)]
+        pub async fn fod_queues(state: std::sync::Arc<State>) -> Result<Response, Error> {
+            let queues = state
+                .queues
+                .clone_inner(QueueType::Fod)
+                .await
+                .into_iter()
+                .map(|(s, q)| {
+                    (
+                        s,
+                        q.clone_inner()
+                            .into_iter()
+                            .filter_map(|v| v.upgrade().map(Into::into))
+                            .collect(),
+                    )
+                })
+                .collect();
+            construct_json_ok_response(&io::QueueResponse::new(queues))
+        }
+
+        #[tracing::instrument(skip(state), err)]
+        pub async fn fod_queue_jobs(state: std::sync::Arc<State>) -> Result<Response, Error> {
+            let stepinfos = state
+                .queues
+                .get_jobs(QueueType::Fod)
+                .await
+                .into_iter()
+                .map(Into::into)
+                .collect();
+            construct_json_ok_response(&io::StepInfoResponse::new(stepinfos))
+        }
+
+        #[tracing::instrument(skip(state), err)]
+        pub async fn fod_queue_scheduled(state: std::sync::Arc<State>) -> Result<Response, Error> {
+            let stepinfos = state
+                .queues
+                .get_scheduled(QueueType::Fod)
                 .await
                 .into_iter()
                 .map(Into::into)

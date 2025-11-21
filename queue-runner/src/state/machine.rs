@@ -402,6 +402,16 @@ impl Machines {
         inner.by_uuid.get(&machine_id).cloned()
     }
 
+    #[tracing::instrument(skip(self, hostname))]
+    pub fn get_machine_by_hostname(&self, hostname: &str) -> Option<Arc<Machine>> {
+        let inner = self.inner.read();
+        inner
+            .by_uuid
+            .values()
+            .find(|m| m.hostname.as_str() == hostname)
+            .cloned()
+    }
+
     pub fn support_step(&self, s: &Arc<super::Step>) -> bool {
         let Some(system) = s.get_system() else {
             return false;
@@ -488,6 +498,7 @@ impl Machines {
 #[derive(Debug, Clone)]
 pub struct Job {
     pub internal_build_id: uuid::Uuid,
+    pub queue_type: super::queue::QueueType,
     pub path: nix_utils::StorePath,
     pub resolved_drv: Option<nix_utils::StorePath>,
     pub build_id: BuildID,
@@ -499,10 +510,12 @@ impl Job {
     pub fn new(
         build_id: BuildID,
         path: nix_utils::StorePath,
+        queue_type: super::queue::QueueType,
         resolved_drv: Option<nix_utils::StorePath>,
     ) -> Self {
         Self {
             internal_build_id: uuid::Uuid::new_v4(),
+            queue_type,
             path,
             resolved_drv,
             build_id,
@@ -682,6 +695,43 @@ impl Machine {
         })
     }
 
+    #[cfg(test)]
+    pub fn dummy(
+        hostname: String,
+        systems: &[String],
+        supported_features: &[String],
+        mandatory_features: &[String],
+        tx: mpsc::Sender<Message>,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            id: uuid::Uuid::new_v4(),
+            systems: systems.into(),
+            hostname,
+            cpu_count: 0,
+            bogomips: 0.0,
+            speed_factor: 1.0,
+            max_jobs: 1000,
+            build_dir_avail_threshold: 0.0,
+            store_avail_threshold: 0.0,
+            load1_threshold: 100.0,
+            cpu_psi_threshold: 100.0,
+            mem_psi_threshold: 100.0,
+            io_psi_threshold: Some(100.0),
+            total_mem: 1_000_000,
+            supported_features: supported_features.into(),
+            mandatory_features: mandatory_features.into(),
+            cgroups: false,
+            substituters: vec![].into(),
+            use_substitutes: false,
+            nix_version: "2.31".into(),
+
+            msg_queue: tx,
+            joined_at: jiff::Timestamp::now(),
+            stats: Arc::new(Stats::new()),
+            jobs: Arc::new(parking_lot::RwLock::new(Vec::new())),
+        })
+    }
+
     #[tracing::instrument(
         skip(self, job, opts, presigned_url_opts),
         fields(build_id=job.build_id, step_nr=job.step_nr),
@@ -851,11 +901,14 @@ impl Machine {
     }
 
     #[tracing::instrument(skip(self), fields(%build_id))]
-    pub fn get_job_drv_for_build_id(&self, build_id: uuid::Uuid) -> Option<nix_utils::StorePath> {
+    pub fn get_job_drv_for_build_id(
+        &self,
+        build_id: uuid::Uuid,
+    ) -> Option<(nix_utils::StorePath, super::queue::QueueType)> {
         let jobs = self.jobs.read();
         jobs.iter()
             .find(|j| j.internal_build_id == build_id)
-            .map(|v| v.path.clone())
+            .map(|v| (v.path.clone(), v.queue_type))
     }
 
     #[tracing::instrument(skip(self), fields(%drv))]
@@ -871,6 +924,11 @@ impl Machine {
         let mut jobs = self.jobs.write();
         jobs.push(job);
         self.stats.store_current_jobs(jobs.len() as u64);
+    }
+
+    #[cfg(test)]
+    pub fn insert_job2(&self, job: Job) {
+        self.insert_job(job);
     }
 
     #[tracing::instrument(skip(self), fields(%drv))]
