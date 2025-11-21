@@ -27,6 +27,7 @@ tonic-prost.workspace = true
 tower.workspace = true
 hyper-util.workspace = true
 async-stream.workspace = true
+regex.workspace = true
 
 gethostname.workspace = true
 procfs-core.workspace = true
