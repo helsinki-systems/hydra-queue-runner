@@ -38,7 +38,7 @@ pub enum Error {
 }
 
 use ahash::AHashMap;
-pub use drv::{Derivation, Output as DerivationOutput, query_drv};
+pub use drv::{Derivation, DerivationEnv, Output as DerivationOutput, query_drv};
 pub use hash::{HashAlgorithm, HashFormat, convert_hash};
 pub use realisation::{DrvOutput, Realisation, RealisationOperations};
 pub use realise::{BuildOptions, realise_drv, realise_drvs};

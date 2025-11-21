@@ -35,7 +35,8 @@ pub struct DerivationEnv {
 }
 
 impl DerivationEnv {
-    fn new(v: AHashMap<String, String>) -> Self {
+    #[must_use]
+    pub fn new(v: AHashMap<String, String>) -> Self {
         Self { inner: v }
     }
 

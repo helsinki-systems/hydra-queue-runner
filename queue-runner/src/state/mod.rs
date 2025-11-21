@@ -13,7 +13,7 @@ pub use atomic::AtomicDateTime;
 pub use build::{Build, BuildOutput, BuildResultState, RemoteBuild};
 pub use jobset::{Jobset, JobsetID};
 pub use machine::{Machine, Message as MachineMessage, Pressure, Stats as MachineStats};
-pub use queue::BuildQueueStats;
+pub use queue::{BuildQueueStats, QueueType, Queues};
 pub use step::Step;
 pub use step_info::StepInfo;
 
@@ -64,7 +64,7 @@ pub struct State {
     // Projectname, Jobsetname
     pub jobsets: parking_lot::RwLock<AHashMap<(String, String), Arc<Jobset>>>,
     pub steps: parking_lot::RwLock<AHashMap<nix_utils::StorePath, Weak<Step>>>,
-    pub queues: queue::Queues,
+    pub queues: Queues,
 
     pub fod_checker: Option<Arc<FodChecker>>,
 
@@ -109,7 +109,7 @@ impl State {
             builds: parking_lot::RwLock::new(AHashMap::new()),
             jobsets: parking_lot::RwLock::new(AHashMap::new()),
             steps: parking_lot::RwLock::new(AHashMap::new()),
-            queues: queue::Queues::new(),
+            queues: Queues::new(),
             fod_checker: if config.get_enable_fod_checker() {
                 Some(Arc::new(FodChecker::new(None)))
             } else {
@@ -214,6 +214,7 @@ impl State {
                     .fail_step(
                         machine_id,
                         &job.path,
+                        job.queue_type,
                         // we fail this with preparing because we kinda want to restart all jobs if
                         // a machine is removed
                         BuildResultState::PreparingFailure,
@@ -247,11 +248,12 @@ impl State {
     #[allow(clippy::too_many_lines)]
     async fn realise_drv_on_valid_machine(
         self: Arc<Self>,
-        constraint: queue::JobConstraint,
+        constraint: queue::JobConstraint<'_>,
     ) -> anyhow::Result<RealiseStepResult> {
         let free_fn = self.config.get_machine_free_fn();
 
-        let Some((machine, step_info)) = constraint.resolve(&self.machines, free_fn) else {
+        let Some((machine, step_info, queue_type)) = constraint.resolve(&self.machines, free_fn)
+        else {
             return Ok(RealiseStepResult::None);
         };
         let drv = step_info.step.get_drv_path();
@@ -296,6 +298,7 @@ impl State {
         let mut job = machine::Job::new(
             build_id,
             drv.to_owned(),
+            queue_type,
             step_info.resolved_drv_path.clone(),
         );
         job.result.start_time = Some(jiff::Timestamp::now());
@@ -525,11 +528,12 @@ impl State {
         }
 
         let cancelled_steps = self.queues.kill_active_steps().await;
-        for (drv_path, machine_id) in cancelled_steps {
+        for (drv_path, machine_id, queue_type) in cancelled_steps {
             if let Err(e) = self
                 .fail_step(
                     machine_id,
                     &drv_path,
+                    queue_type,
                     BuildResultState::Cancelled,
                     std::time::Duration::from_secs(0),
                     std::time::Duration::from_secs(0),
@@ -931,7 +935,7 @@ impl State {
 
         for (system, jobs) in new_queues {
             self.queues
-                .insert_new_jobs(
+                .insert_new_jobs_into_main(
                     system,
                     jobs,
                     &now,
@@ -998,16 +1002,17 @@ impl State {
 
     #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self, output), fields(%machine_id, %drv_path), err)]
-    pub async fn succeed_step(
+    async fn succeed_step(
         &self,
         machine_id: uuid::Uuid,
         drv_path: &nix_utils::StorePath,
+        queue_type: QueueType,
         output: BuildOutput,
     ) -> anyhow::Result<()> {
         tracing::info!("marking job as done: drv_path={drv_path}");
         let (step_info, queue, machine) = self
             .queues
-            .remove_job_from_scheduled(drv_path)
+            .remove_job_from_scheduled(drv_path, queue_type)
             .await
             .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?;
 
@@ -1019,7 +1024,7 @@ impl State {
         let mut job = machine.remove_job(drv_path).ok_or(anyhow::anyhow!(
             "Job is missing in machine.jobs m={machine}",
         ))?;
-        self.queues.remove_job(&step_info, &queue).await;
+        self.queues.remove_job(&step_info, queue_type, &queue).await;
 
         job.result.step_status = BuildStatus::Success;
         job.result.stop_time = Some(jiff::Timestamp::now());
@@ -1162,10 +1167,11 @@ impl State {
 
     #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self), fields(%machine_id, %drv_path), err)]
-    pub async fn fail_step(
+    async fn fail_step(
         &self,
         machine_id: uuid::Uuid,
         drv_path: &nix_utils::StorePath,
+        queue_type: QueueType,
         state: BuildResultState,
         import_elapsed: std::time::Duration,
         build_elapsed: std::time::Duration,
@@ -1173,7 +1179,7 @@ impl State {
         tracing::info!("removing job from running in system queue: drv_path={drv_path}");
         let (step_info, queue, machine) = self
             .queues
-            .remove_job_from_scheduled(drv_path)
+            .remove_job_from_scheduled(drv_path, queue_type)
             .await
             .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?;
 
@@ -1259,7 +1265,7 @@ impl State {
         }
 
         // remove job from queues, aka actually fail the job
-        self.queues.remove_job(&step_info, &queue).await;
+        self.queues.remove_job(&step_info, queue_type, &queue).await;
 
         self.inner_fail_job(drv_path, Some(machine), job, step_info.step.clone())
             .await
@@ -1276,11 +1282,12 @@ impl State {
             .machines
             .get_machine_by_id(machine_id)
             .ok_or(anyhow::anyhow!("Machine with machine_id not found"))?;
-        let drv_path = machine
+        let (drv_path, queue_type) = machine
             .get_job_drv_for_build_id(build_id)
             .ok_or(anyhow::anyhow!("Job with build_id not found"))?;
 
-        self.succeed_step(machine_id, &drv_path, output).await
+        self.succeed_step(machine_id, &drv_path, queue_type, output)
+            .await
     }
 
     #[tracing::instrument(skip(self), fields(%machine_id, build_id=%build_id), err)]
@@ -1296,12 +1303,19 @@ impl State {
             .machines
             .get_machine_by_id(machine_id)
             .ok_or(anyhow::anyhow!("Machine with machine_id not found"))?;
-        let drv_path = machine
+        let (drv_path, queue_type) = machine
             .get_job_drv_for_build_id(build_id)
             .ok_or(anyhow::anyhow!("Job with build_id not found"))?;
 
-        self.fail_step(machine_id, &drv_path, state, import_elapsed, build_elapsed)
-            .await
+        self.fail_step(
+            machine_id,
+            &drv_path,
+            queue_type,
+            state,
+            import_elapsed,
+            build_elapsed,
+        )
+        .await
     }
 
     #[allow(clippy::too_many_lines)]
@@ -2166,7 +2180,8 @@ impl State {
                 continue;
             };
 
-            let mut job = machine::Job::new(build.id, drv.to_owned(), None);
+            // this is a core hydra thing. so QueueType::Main
+            let mut job = machine::Job::new(build.id, drv.to_owned(), QueueType::Main, None);
             job.result.start_time = Some(now);
             job.result.stop_time = Some(now);
             job.result.step_status = BuildStatus::Unsupported;
@@ -2180,8 +2195,11 @@ impl State {
         }
 
         {
+            // this is a core hydra thing. so QueueType::Main
             for step in &aborted {
-                self.queues.remove_job_by_path(step.get_drv_path()).await;
+                self.queues
+                    .remove_job_by_path(step.get_drv_path(), QueueType::Main)
+                    .await;
             }
             self.queues.remove_all_weak_pointer().await;
         }

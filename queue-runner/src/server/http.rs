@@ -135,12 +135,23 @@ async fn router(
             (&hyper::Method::GET, "/status/builds") => handler::status::builds(req, state),
             (&hyper::Method::GET, "/status/steps") => handler::status::steps(req, state),
             (&hyper::Method::GET, "/status/runnable") => handler::status::runnable(req, state),
-            (&hyper::Method::GET, "/status/queues") => handler::status::queues(req, state).await,
-            (&hyper::Method::GET, "/status/queues/jobs") => {
-                handler::status::queue_jobs(req, state).await
+            (&hyper::Method::GET, "/status/queues/main") => {
+                handler::status::main_queues(req, state).await
             }
-            (&hyper::Method::GET, "/status/queues/scheduled") => {
-                handler::status::queue_scheduled(req, state).await
+            (&hyper::Method::GET, "/status/queues/main/jobs") => {
+                handler::status::main_queue_jobs(req, state).await
+            }
+            (&hyper::Method::GET, "/status/queues/main/scheduled") => {
+                handler::status::main_queue_scheduled(req, state).await
+            }
+            (&hyper::Method::GET, "/status/queues/fod") => {
+                handler::status::fod_queues(req, state).await
+            }
+            (&hyper::Method::GET, "/status/queues/fod/jobs") => {
+                handler::status::fod_queue_jobs(req, state).await
+            }
+            (&hyper::Method::GET, "/status/queues/fod/scheduled") => {
+                handler::status::fod_queue_scheduled(req, state).await
             }
             (&hyper::Method::POST, "/dump_status") => handler::dump_status::post(req, state).await,
             (&hyper::Method::PUT, "/build") => handler::build::put(req, state).await,
@@ -163,7 +174,10 @@ mod handler {
         use http_body_util::combinators::BoxBody;
 
         use super::super::{Error, construct_json_ok_response};
-        use crate::{io, state::State};
+        use crate::{
+            io,
+            state::{QueueType, State},
+        };
 
         #[allow(clippy::no_effect_underscore_binding)]
         #[tracing::instrument(skip(_req, state), err)]
@@ -299,13 +313,13 @@ mod handler {
 
         #[allow(clippy::no_effect_underscore_binding)]
         #[tracing::instrument(skip(_req, state), err)]
-        pub async fn queues(
+        pub async fn main_queues(
             _req: hyper::Request<hyper::body::Incoming>,
             state: std::sync::Arc<State>,
         ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
             let queues = state
                 .queues
-                .clone_inner()
+                .clone_inner(QueueType::Main)
                 .await
                 .into_iter()
                 .map(|(s, q)| {
@@ -323,13 +337,13 @@ mod handler {
 
         #[allow(clippy::no_effect_underscore_binding)]
         #[tracing::instrument(skip(_req, state), err)]
-        pub async fn queue_jobs(
+        pub async fn main_queue_jobs(
             _req: hyper::Request<hyper::body::Incoming>,
             state: std::sync::Arc<State>,
         ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
             let stepinfos = state
                 .queues
-                .get_jobs()
+                .get_jobs(QueueType::Main)
                 .await
                 .into_iter()
                 .map(Into::into)
@@ -339,13 +353,69 @@ mod handler {
 
         #[allow(clippy::no_effect_underscore_binding)]
         #[tracing::instrument(skip(_req, state), err)]
-        pub async fn queue_scheduled(
+        pub async fn main_queue_scheduled(
             _req: hyper::Request<hyper::body::Incoming>,
             state: std::sync::Arc<State>,
         ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
             let stepinfos = state
                 .queues
-                .get_scheduled()
+                .get_scheduled(QueueType::Main)
+                .await
+                .into_iter()
+                .map(Into::into)
+                .collect();
+            construct_json_ok_response(&io::StepInfoResponse::new(stepinfos))
+        }
+
+        #[allow(clippy::no_effect_underscore_binding)]
+        #[tracing::instrument(skip(_req, state), err)]
+        pub async fn fod_queues(
+            _req: hyper::Request<hyper::body::Incoming>,
+            state: std::sync::Arc<State>,
+        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+            let queues = state
+                .queues
+                .clone_inner(QueueType::Fod)
+                .await
+                .into_iter()
+                .map(|(s, q)| {
+                    (
+                        s,
+                        q.clone_inner()
+                            .into_iter()
+                            .filter_map(|v| v.upgrade().map(Into::into))
+                            .collect(),
+                    )
+                })
+                .collect();
+            construct_json_ok_response(&io::QueueResponse::new(queues))
+        }
+
+        #[allow(clippy::no_effect_underscore_binding)]
+        #[tracing::instrument(skip(_req, state), err)]
+        pub async fn fod_queue_jobs(
+            _req: hyper::Request<hyper::body::Incoming>,
+            state: std::sync::Arc<State>,
+        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+            let stepinfos = state
+                .queues
+                .get_jobs(QueueType::Fod)
+                .await
+                .into_iter()
+                .map(Into::into)
+                .collect();
+            construct_json_ok_response(&io::StepInfoResponse::new(stepinfos))
+        }
+
+        #[allow(clippy::no_effect_underscore_binding)]
+        #[tracing::instrument(skip(_req, state), err)]
+        pub async fn fod_queue_scheduled(
+            _req: hyper::Request<hyper::body::Incoming>,
+            state: std::sync::Arc<State>,
+        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+            let stepinfos = state
+                .queues
+                .get_scheduled(QueueType::Fod)
                 .await
                 .into_iter()
                 .map(Into::into)
