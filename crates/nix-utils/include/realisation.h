@@ -3,18 +3,21 @@
 #include "rust/cxx.h"
 #include <memory>
 
+#include <nlohmann/json.hpp>
 #include "nix-utils/include/nix.h"
 #include "nix/store/realisation.hh"
 
 namespace nix_utils {
-struct Realisation;
+struct SharedRealisation;
+struct DrvOutput;
 
 class InternalRealisation {
 public:
   InternalRealisation(nix::ref<nix::Realisation> _realisation);
 
   rust::String as_json() const;
-  Realisation to_rust(const nix_utils::StoreWrapper &wrapper) const;
+  SharedRealisation to_rust(const nix_utils::StoreWrapper &wrapper) const;
+  DrvOutput get_drv_output() const;
 
   rust::String fingerprint() const;
   void sign(rust::Str secret_key);
@@ -32,4 +35,5 @@ namespace nix_utils {
 std::unique_ptr<InternalRealisation>
 query_raw_realisation(const nix_utils::StoreWrapper &wrapper,
                       rust::Str output_id);
+std::unique_ptr<InternalRealisation> parse_realisation(rust::Str json_string);
 } // namespace nix_utils

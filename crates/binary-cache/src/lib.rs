@@ -669,6 +669,32 @@ impl S3BinaryCacheClient {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, realisation), err)]
+    pub async fn upload_realisation(
+        &self,
+        mut realisation: nix_utils::FfiRealisation,
+        repair: bool,
+    ) -> Result<(), CacheError> {
+        let id = realisation.get_id();
+        if !repair && self.has_realisation(&id).await? {
+            return Ok(());
+        }
+
+        if !self.signing_keys.is_empty() {
+            for s in &self.signing_keys {
+                realisation.sign(s.expose_secret())?;
+            }
+        }
+
+        self.upsert_file(
+            &format!("realisations/{id}.doi"),
+            realisation.as_json(),
+            "application/json",
+        )
+        .await?;
+        Ok(())
+    }
+
     #[tracing::instrument(skip(self), err)]
     pub async fn download_narinfo(
         &self,

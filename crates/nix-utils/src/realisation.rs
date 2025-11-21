@@ -13,7 +13,7 @@ mod ffi {
     }
 
     #[derive(Debug)]
-    struct Realisation {
+    struct SharedRealisation {
         id: DrvOutput,
         out_path: String,
         signatures: Vec<String>,
@@ -27,7 +27,8 @@ mod ffi {
         type InternalRealisation;
 
         fn as_json(self: &InternalRealisation) -> String;
-        fn to_rust(self: &InternalRealisation, store: &StoreWrapper) -> Result<Realisation>;
+        fn to_rust(self: &InternalRealisation, store: &StoreWrapper) -> Result<SharedRealisation>;
+        fn get_drv_output(self: &InternalRealisation) -> DrvOutput;
 
         fn fingerprint(self: &InternalRealisation) -> String;
         fn sign(self: Pin<&mut InternalRealisation>, secret_key: &str) -> Result<()>;
@@ -38,6 +39,8 @@ mod ffi {
             store: &StoreWrapper,
             output_id: &str,
         ) -> Result<UniquePtr<InternalRealisation>>;
+
+        fn parse_realisation(json_string: &str) -> Result<UniquePtr<InternalRealisation>>;
     }
 }
 
@@ -46,6 +49,7 @@ pub struct FfiRealisation {
 }
 
 impl FfiRealisation {
+    #[must_use]
     pub fn as_json(&self) -> String {
         self.inner.as_json()
     }
@@ -54,6 +58,12 @@ impl FfiRealisation {
         Ok(self.inner.to_rust(&store.wrapper)?.into())
     }
 
+    #[must_use]
+    pub fn get_id(&self) -> DrvOutput {
+        self.inner.get_drv_output().into()
+    }
+
+    #[must_use]
     pub fn fingerprint(&self) -> String {
         self.inner.fingerprint()
     }
@@ -98,8 +108,8 @@ pub struct Realisation {
     pub dependent_realisations: ahash::HashMap<DrvOutput, crate::StorePath>,
 }
 
-impl From<ffi::Realisation> for Realisation {
-    fn from(value: ffi::Realisation) -> Self {
+impl From<ffi::SharedRealisation> for Realisation {
+    fn from(value: ffi::SharedRealisation) -> Self {
         Self {
             id: value.id.into(),
             out_path: crate::StorePath::new(&value.out_path),
@@ -119,6 +129,8 @@ pub trait RealisationOperations {
         output_hash: &str,
         output_name: &str,
     ) -> Result<FfiRealisation, crate::Error>;
+
+    fn parse_realisation(&self, json_string: &str) -> Result<FfiRealisation, crate::Error>;
 }
 
 impl RealisationOperations for crate::BaseStoreImpl {
@@ -134,6 +146,12 @@ impl RealisationOperations for crate::BaseStoreImpl {
             )?,
         })
     }
+
+    fn parse_realisation(&self, json_string: &str) -> Result<FfiRealisation, crate::Error> {
+        Ok(FfiRealisation {
+            inner: ffi::parse_realisation(json_string)?,
+        })
+    }
 }
 
 impl RealisationOperations for crate::LocalStore {
@@ -143,5 +161,9 @@ impl RealisationOperations for crate::LocalStore {
         output_name: &str,
     ) -> Result<FfiRealisation, crate::Error> {
         self.base.query_raw_realisation(output_hash, output_name)
+    }
+
+    fn parse_realisation(&self, json_string: &str) -> Result<FfiRealisation, crate::Error> {
+        self.base.parse_realisation(json_string)
     }
 }

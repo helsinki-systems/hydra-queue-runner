@@ -3,8 +3,7 @@
 
 #include "nix/store/nar-info-disk-cache.hh"
 #include "nix/store/store-api.hh"
-
-#include <nlohmann/json.hpp>
+#include "nix/util/json-utils.hh"
 
 namespace nix_utils {
 InternalRealisation::InternalRealisation(
@@ -15,7 +14,7 @@ rust::String InternalRealisation::as_json() const {
   return nlohmann::json(*_realisation).dump();
 }
 
-Realisation
+SharedRealisation
 InternalRealisation::to_rust(const nix_utils::StoreWrapper &wrapper) const {
   auto store = wrapper._store;
 
@@ -38,7 +37,7 @@ InternalRealisation::to_rust(const nix_utils::StoreWrapper &wrapper) const {
     });
   }
 
-  return Realisation{
+  return SharedRealisation{
       DrvOutput{
           _realisation->id.strHash(),
           _realisation->id.outputName,
@@ -47,6 +46,10 @@ InternalRealisation::to_rust(const nix_utils::StoreWrapper &wrapper) const {
       signatures,
       dependent,
   };
+}
+
+DrvOutput InternalRealisation::get_drv_output() const {
+  return DrvOutput{_realisation->id.strHash(), _realisation->id.outputName};
 }
 
 rust::String InternalRealisation::fingerprint() const {
@@ -82,5 +85,13 @@ query_raw_realisation(const nix_utils::StoreWrapper &wrapper,
 
   return std::make_unique<InternalRealisation>(
       nix::make_ref<nix::Realisation>((nix::Realisation &)*realisation));
+}
+
+std::unique_ptr<InternalRealisation> parse_realisation(rust::Str json_string) {
+  nlohmann::json encoded = nlohmann::json::parse(json_string);
+  nix::Realisation realisation =
+      nlohmann::adl_serializer<nix::Realisation>::from_json(encoded);
+  return std::make_unique<InternalRealisation>(
+      nix::make_ref<nix::Realisation>(realisation));
 }
 } // namespace nix_utils
