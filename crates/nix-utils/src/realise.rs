@@ -1,6 +1,7 @@
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tokio_stream::wrappers::LinesStream;
 
+use crate::BaseStore as _;
 use crate::StorePath;
 
 #[derive(Debug, Clone)]

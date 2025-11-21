@@ -9,7 +9,7 @@ use std::{os::unix::fs::MetadataExt as _, sync::LazyLock};
 use sha2::{Digest as _, Sha256};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, BufReader};
 
-use nix_utils::StorePath;
+use nix_utils::{BaseStore as _, StorePath};
 
 #[allow(clippy::expect_used)]
 static VALIDATE_METRICS_NAME: LazyLock<regex::Regex> =

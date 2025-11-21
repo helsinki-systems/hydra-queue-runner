@@ -4,6 +4,8 @@ use secrecy::ExposeSecret as _;
 
 use crate::Compression;
 
+use nix_utils::BaseStore as _;
+
 #[derive(Debug, Clone)]
 pub struct NarInfo {
     pub store_path: nix_utils::StorePath,

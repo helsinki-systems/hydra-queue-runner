@@ -825,11 +825,6 @@ impl LocalStore {
     }
 
     #[must_use]
-    pub fn print_store_path(&self, path: &StorePath) -> String {
-        self.base.print_store_path(path)
-    }
-
-    #[must_use]
     pub fn get_store_path_prefix(&self) -> &str {
         self.base.store_path_prefix.as_str()
     }
@@ -970,7 +965,7 @@ impl BaseStore for LocalStore {
     }
 
     fn print_store_path(&self, path: &StorePath) -> String {
-        self.print_store_path(path)
+        self.base.print_store_path(path)
     }
 }
 

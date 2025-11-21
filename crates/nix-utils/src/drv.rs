@@ -1,5 +1,6 @@
 use ahash::AHashMap;
 
+use crate::BaseStore as _;
 use crate::StorePath;
 
 #[derive(Debug, Clone)]

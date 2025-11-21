@@ -4,6 +4,8 @@
 //! from NIX store paths that contain debug symbols in the standard
 //! `lib/debug/.build-id` directory structure.
 
+use nix_utils::BaseStore as _;
+
 use crate::CacheError;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
