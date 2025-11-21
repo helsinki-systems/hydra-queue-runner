@@ -148,7 +148,7 @@ impl BuildQueue {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ScheduledItem {
     pub step_info: Arc<StepInfo>,
     pub build_queue: Arc<BuildQueue>,

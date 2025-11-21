@@ -19,6 +19,9 @@ service RunnerService {
   rpc StreamFiles(StorePaths) returns (stream NarData) {}
   rpc RequestPresignedUrl(PresignedUrlRequest) returns (PresignedUrlResponse) {}
   rpc NotifyPresignedUploadComplete(PresignedUploadComplete) returns (Empty) {}
+
+  rpc UploadFodResult(FodResult) returns (Empty) {}
+  rpc UploadRealisation(Realisation) returns (Empty) {}
 }
 
 message Empty {}
@@ -105,6 +108,7 @@ message RunnerRequest {
     SimplePingMessage ping = 3;
     BuildMessage build = 4;
     AbortMessage abort = 5;
+    RebuildFodMessage fod = 6;
   }
 }
 
@@ -133,12 +137,18 @@ message BuildMessage {
   // bool enforce_determinism = 6;
 }
 
-message DrvRequisitesMessage {
-  repeated string requisites = 1;
-}
-
 message AbortMessage {
   string build_id = 1; // UUIDv4
+}
+
+message RebuildFodMessage {
+  string build_id = 1; // UUIDv4
+  string drv = 2;
+  optional string resolved_drv = 3;
+}
+
+message DrvRequisitesMessage {
+  repeated string requisites = 1;
 }
 
 message LogChunk {
@@ -295,4 +305,27 @@ message PresignedUploadComplete {
   repeated string references = 10;
   optional string deriver = 11;
   optional string ca = 12;
+}
+
+enum FodResultState {
+  FodSuccess = 0;
+  FodHashMissmatch = 1;
+  FodBuildFailure = 2;
+}
+
+message FodResult {
+  string build_id = 1; // UUIDv4
+  string machine_id = 2; // UUIDv4
+  uint64 import_time_ms = 3;
+  uint64 build_time_ms = 4;
+  FodResultState result_state = 5;
+  string expected_hash = 6;
+  optional string actual_hash = 7;
+  string output = 8;
+}
+
+message Realisation {
+  string build_id = 1; // UUIDv4
+  string machine_id = 2; // UUIDv4
+  string serialized_realiation = 3;
 }

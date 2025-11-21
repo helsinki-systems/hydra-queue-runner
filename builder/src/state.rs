@@ -15,8 +15,9 @@ use binary_cache::{Compression, PresignedUpload, PresignedUploadClient};
 use nix_utils::BaseStore as _;
 use runner_v1::{
     AbortMessage, BuildMessage, BuildMetric, BuildProduct, BuildResultInfo, BuildResultState,
-    FetchRequisitesRequest, JoinMessage, LogChunk, NarData, NixSupport, Output, OutputNameOnly,
-    OutputWithPath, PingMessage, PressureState, StepStatus, StepUpdate, StorePaths, output,
+    FetchRequisitesRequest, FodResult, FodResultState, JoinMessage, LogChunk, NarData, NixSupport,
+    Output, OutputNameOnly, OutputWithPath, PingMessage, PressureState, RebuildFodMessage,
+    StepStatus, StepUpdate, StorePaths, output,
 };
 
 include!(concat!(env!("OUT_DIR"), "/proto_version.rs"));
@@ -336,6 +337,88 @@ impl State {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, m), fields(drv=%m.drv), err)]
+    pub fn schedule_fod_check(self: Arc<Self>, m: RebuildFodMessage) -> anyhow::Result<()> {
+        // TODO: deduplicate with schedule_build
+        if self.halt.load(Ordering::SeqCst) {
+            tracing::warn!("State is set to halt, will no longer accept new builds!");
+            return Err(anyhow::anyhow!("State set to halt."));
+        }
+
+        let drv = nix_utils::StorePath::new(&m.drv);
+        if self.contains_build(&drv) {
+            return Ok(());
+        }
+        tracing::info!("Checking {drv}");
+        let build_id = uuid::Uuid::parse_str(&m.build_id)?;
+
+        let was_cancelled = Arc::new(AtomicBool::new(false));
+        let task_handle = tokio::spawn({
+            let self_ = self.clone();
+            let drv = drv.clone();
+            let was_cancelled = was_cancelled.clone();
+            async move {
+                let mut timings = BuildTimings::default();
+                match Box::pin(self_.process_fod_check(m, &mut timings)).await {
+                    Ok(()) => {
+                        tracing::info!("Successfully completed check fod process for {drv}");
+                        self_.remove_build(build_id);
+                    }
+                    Err(e) => {
+                        if was_cancelled.load(Ordering::SeqCst) {
+                            tracing::error!(
+                                "Build of {drv} was cancelled {e}, not reporting Error"
+                            );
+                            return;
+                        }
+
+                        tracing::error!("Check Fod of {drv} failed with {e}");
+                        self_.remove_build(build_id);
+                        let failed_build = BuildResultInfo {
+                            build_id: build_id.to_string(),
+                            machine_id: self_.id.to_string(),
+                            import_time_ms: u64::try_from(timings.import_elapsed.as_millis())
+                                .unwrap_or_default(),
+                            build_time_ms: u64::try_from(timings.build_elapsed.as_millis())
+                                .unwrap_or_default(),
+                            upload_time_ms: u64::try_from(timings.upload_elapsed.as_millis())
+                                .unwrap_or_default(),
+                            result_state: BuildResultState::from(e) as i32,
+                            outputs: vec![],
+                            nix_support: None,
+                        };
+
+                        if let (_, Err(e)) = (|tuple: (BuilderClient, BuildResultInfo)| async {
+                            let (mut client, body) = tuple;
+                            let res = client.complete_build(body.clone()).await;
+                            ((client, body), res)
+                        })
+                        .retry(retry_strategy())
+                        .sleep(tokio::time::sleep)
+                        .context((self_.client.clone(), failed_build))
+                        .notify(|err: &tonic::Status, dur: core::time::Duration| {
+                            tracing::error!("Failed to submit build failure info: err={err}, retrying in={dur:?}");
+                        })
+                        .await
+                        {
+                            tracing::error!("Failed to submit build failure info: {e}");
+                        }
+                    }
+                }
+            }
+        });
+
+        self.insert_new_build(
+            build_id,
+            BuildInfo {
+                drv_path: drv,
+                handle: task_handle,
+                was_cancelled,
+            },
+        );
+        Ok(())
+    }
+
     fn contains_build(&self, drv: &nix_utils::StorePath) -> bool {
         let active = self.active_builds.read();
         active.values().any(|b| b.drv_path == *drv)
@@ -544,6 +627,141 @@ impl State {
         .retry(retry_strategy())
         .sleep(tokio::time::sleep)
         .context((client.clone(), build_results))
+        .notify(|err: &tonic::Status, dur: core::time::Duration| {
+            tracing::error!("Failed to submit build success info: err={err}, retrying in={dur:?}");
+        })
+        .await
+        .1
+        .map_err(|e| {
+            tracing::error!("Failed to submit build success info. Will fail build: err={e}");
+            JobFailure::PostProcessing(e.into())
+        })?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, m), fields(drv=%m.drv), err)]
+    #[allow(clippy::too_many_lines)]
+    async fn process_fod_check(
+        &self,
+        m: RebuildFodMessage,
+        timings: &mut BuildTimings,
+    ) -> Result<(), JobFailure> {
+        // we dont use anyhow here because we manually need to write the correct build status
+        // to the queue runner.
+        let store = nix_utils::LocalStore::init();
+
+        let machine_id = self.id;
+        let drv = nix_utils::StorePath::new(&m.drv);
+        let resolved_drv = m
+            .resolved_drv
+            .as_ref()
+            .map(|v| nix_utils::StorePath::new(v));
+
+        let before_import = Instant::now();
+        let gcroot_prefix = uuid::Uuid::new_v4().to_string();
+        let gcroot = self
+            .get_gcroot(&gcroot_prefix)
+            .map_err(|e| JobFailure::Preparing(e.into()))?;
+
+        let mut client = self.client.clone();
+        let _ = client // we ignore the error here, as this step status has no prio
+            .build_step_update(StepUpdate {
+                build_id: m.build_id.clone(),
+                machine_id: machine_id.to_string(),
+                step_status: StepStatus::SeningInputs as i32,
+            })
+            .await;
+        let requisites = client
+            .fetch_drv_requisites(FetchRequisitesRequest {
+                path: resolved_drv.as_ref().unwrap_or(&drv).base_name().to_owned(),
+                include_outputs: false,
+            })
+            .await
+            .map_err(|e| JobFailure::Import(e.into()))?
+            .into_inner()
+            .requisites;
+
+        import_requisites(
+            &mut client,
+            store.clone(),
+            self.metrics.clone(),
+            &gcroot,
+            resolved_drv.as_ref().unwrap_or(&drv),
+            requisites
+                .into_iter()
+                .map(|s| nix_utils::StorePath::new(&s)),
+            usize::try_from(self.max_concurrent_downloads.load(Ordering::Relaxed)).unwrap_or(5),
+            self.config.use_substitutes,
+        )
+        .await
+        .map_err(JobFailure::Import)?;
+        timings.import_elapsed = before_import.elapsed();
+
+        // Resolved drv and drv output paths are the same
+        let drv_info = nix_utils::query_drv(&store, &drv)
+            .await
+            .map_err(|e| JobFailure::Import(e.into()))?
+            .ok_or(JobFailure::Import(anyhow::anyhow!("drv not found")))?;
+
+        let _ = client // we ignore the error here, as this step status has no prio
+            .build_step_update(StepUpdate {
+                build_id: m.build_id.clone(),
+                machine_id: machine_id.to_string(),
+                step_status: StepStatus::Building as i32,
+            })
+            .await;
+        let before_build = Instant::now();
+        let fod_result = crate::utils::rebuild_fod(&store, &drv_info)
+            .await
+            .map_err(JobFailure::Build)?;
+        timings.build_elapsed = before_build.elapsed();
+
+        let (result_state, expected_hash, actual_hash, output) = match fod_result {
+            crate::utils::FodResult::Ok { actual_sri, output } => (
+                FodResultState::FodSuccess,
+                actual_sri.clone(),
+                Some(actual_sri),
+                output,
+            ),
+            crate::utils::FodResult::HashMismatch {
+                expected_sri,
+                actual_sri,
+                output,
+            } => (
+                FodResultState::FodHashMissmatch,
+                expected_sri,
+                Some(actual_sri),
+                output,
+            ),
+            crate::utils::FodResult::BuildFailure {
+                expected_sri,
+                output,
+            } => (FodResultState::FodBuildFailure, expected_sri, None, output),
+        };
+
+        let fod_result = FodResult {
+            build_id: m.build_id.clone(),
+            machine_id: machine_id.to_string(),
+            import_time_ms: u64::try_from(timings.import_elapsed.as_millis())
+                .map_err(|e| JobFailure::PostProcessing(anyhow::Error::from(e)))?,
+            build_time_ms: u64::try_from(timings.build_elapsed.as_millis())
+                .map_err(|e| JobFailure::PostProcessing(anyhow::Error::from(e)))?,
+            result_state: result_state as i32,
+            expected_hash,
+            actual_hash,
+            output,
+        };
+
+        // This part is stupid, if writing doesnt work, we try to write a failure, maybe that works.
+        // We retry to ensure that this almost never happens.
+        (|tuple: (BuilderClient, FodResult)| async {
+            let (mut client, body) = tuple;
+            let res = client.upload_fod_result(body.clone()).await;
+            ((client, body), res)
+        })
+        .retry(retry_strategy())
+        .sleep(tokio::time::sleep)
+        .context((client.clone(), fod_result))
         .notify(|err: &tonic::Status, dur: core::time::Duration| {
             tracing::error!("Failed to submit build success info: err={err}, retrying in={dur:?}");
         })
