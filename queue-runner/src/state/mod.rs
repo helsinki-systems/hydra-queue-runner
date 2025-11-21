@@ -26,7 +26,7 @@ use hashbrown::{HashMap, HashSet};
 use secrecy::ExposeSecret as _;
 
 use db::models::{BuildID, BuildStatus};
-use nix_utils::BaseStore as _;
+use nix_utils::{BaseStore as _, RealisationOperations as _};
 
 use crate::config::{App, Cli};
 use crate::state::build::get_mark_build_sccuess_data;
@@ -1002,7 +1002,7 @@ impl State {
                     .collect::<Vec<_>>()
             };
 
-            if let Err(e) = self.uploader.schedule_upload(
+            if let Err(e) = self.uploader.schedule_build_upload(
                 outputs_to_upload,
                 format!("log/{}", job.path.base_name()),
                 job.result.log_file.clone(),
@@ -1653,7 +1653,7 @@ impl State {
                 if let Ok(log_file) = self.construct_log_file_path(&drv_path).await {
                     let missing_paths: Vec<nix_utils::StorePath> =
                         missing.iter().filter_map(|v| v.path.clone()).collect();
-                    if let Err(e) = self.uploader.schedule_upload(
+                    if let Err(e) = self.uploader.schedule_build_upload(
                         missing_paths,
                         format!("log/{}", drv_path.base_name()),
                         log_file.to_string_lossy().to_string(),
@@ -1969,5 +1969,20 @@ impl State {
         self.metrics
             .nr_unsupported_steps_aborted
             .inc_by(aborted.len() as u64);
+    }
+
+    pub fn upload_realisation(&self, serialized_realisation: &str) -> anyhow::Result<()> {
+        if let Err(e) = self
+            .uploader
+            .schedule_realisation_upload(serialized_realisation.to_owned())
+        {
+            let realisation = self.store.parse_realisation(serialized_realisation)?;
+            tracing::error!(
+                "Failed to schedule upload for realisation {}: {e}",
+                realisation.get_id()
+            );
+        }
+
+        Ok(())
     }
 }
