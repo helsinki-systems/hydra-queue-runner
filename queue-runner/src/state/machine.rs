@@ -315,8 +315,8 @@ impl Machines {
     pub fn new() -> Self {
         Self {
             inner: parking_lot::RwLock::new(MachinesInner {
-                by_uuid: HashMap::new(),
-                by_system: HashMap::new(),
+                by_uuid: HashMap::with_capacity(10),
+                by_system: HashMap::with_capacity(10),
             }),
             supported_features: parking_lot::RwLock::new(HashSet::new()),
         }

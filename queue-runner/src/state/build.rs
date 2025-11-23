@@ -50,7 +50,7 @@ impl Build {
         Arc::new(Self {
             id: BuildID::MAX,
             drv_path: drv_path.to_owned(),
-            outputs: HashMap::new(),
+            outputs: HashMap::with_capacity(6),
             jobset_id: JobsetID::MAX,
             name: "debug".into(),
             timestamp: jiff::Timestamp::now(),
@@ -69,7 +69,7 @@ impl Build {
         Ok(Arc::new(Self {
             id: v.id,
             drv_path: nix_utils::StorePath::new(&v.drvpath),
-            outputs: HashMap::new(),
+            outputs: HashMap::with_capacity(6),
             jobset_id: v.jobset_id,
             name: v.job,
             timestamp: jiff::Timestamp::from_second(v.timestamp)?,
@@ -370,15 +370,15 @@ impl TryFrom<db::models::BuildOutput> for BuildOutput {
             #[allow(clippy::cast_sign_loss)]
             size: v.size.unwrap_or_default() as u64,
             products: vec![],
-            outputs: HashMap::new(),
-            metrics: HashMap::new(),
+            outputs: HashMap::with_capacity(6),
+            metrics: HashMap::with_capacity(10),
         })
     }
 }
 
 impl From<crate::server::grpc::runner_v1::BuildResultInfo> for BuildOutput {
     fn from(v: crate::server::grpc::runner_v1::BuildResultInfo) -> Self {
-        let mut outputs = HashMap::new();
+        let mut outputs = HashMap::with_capacity(6);
         let mut closure_size = 0;
         let mut nar_size = 0;
 
@@ -445,7 +445,7 @@ impl BuildOutput {
         let pathinfos = store.query_path_infos(&flat_outputs).await;
         let nix_support = Box::pin(shared::parse_nix_support_from_outputs(store, &outputs)).await?;
 
-        let mut outputs_map = HashMap::new();
+        let mut outputs_map = HashMap::with_capacity(outputs.len());
         let mut closure_size = 0;
         let mut nar_size = 0;
 

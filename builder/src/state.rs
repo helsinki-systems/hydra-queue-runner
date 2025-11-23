@@ -147,7 +147,7 @@ impl State {
             hostname: gethostname::gethostname()
                 .into_string()
                 .map_err(|_| anyhow::anyhow!("Couldn't convert hostname to string"))?,
-            active_builds: parking_lot::RwLock::new(HashMap::new()),
+            active_builds: parking_lot::RwLock::new(HashMap::with_capacity(10)),
             config: Config {
                 ping_interval: cli.ping_interval,
                 speed_factor: cli.speed_factor,

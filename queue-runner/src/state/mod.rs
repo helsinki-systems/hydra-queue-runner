@@ -107,9 +107,9 @@ impl State {
             db,
             machines: Machines::new(),
             log_dir,
-            builds: parking_lot::RwLock::new(HashMap::new()),
-            jobsets: parking_lot::RwLock::new(HashMap::new()),
-            steps: parking_lot::RwLock::new(HashMap::new()),
+            builds: parking_lot::RwLock::new(HashMap::with_capacity(1000)),
+            jobsets: parking_lot::RwLock::new(HashMap::with_capacity(10)),
+            steps: parking_lot::RwLock::new(HashMap::with_capacity(10000)),
             queues: queue::Queues::new(),
             fod_checker: if config.get_enable_fod_checker() {
                 Some(Arc::new(FodChecker::new(None)))
@@ -499,12 +499,12 @@ impl State {
     #[tracing::instrument(skip(self), err)]
     async fn process_queue_change(&self) -> anyhow::Result<()> {
         let mut db = self.db.get().await?;
-        let curr_ids = db
+        let curr_ids: HashMap<_, _> = db
             .get_not_finished_builds_fast()
             .await?
             .into_iter()
             .map(|b| (b.id, b.globalpriority))
-            .collect::<HashMap<_, _>>();
+            .collect();
 
         {
             let mut builds = self.builds.write();
@@ -572,9 +572,10 @@ impl State {
     pub async fn get_queued_builds(&self) -> anyhow::Result<()> {
         self.metrics.queue_checks_started.inc();
 
-        let mut new_ids = Vec::<BuildID>::new();
-        let mut new_builds_by_id = HashMap::<BuildID, Arc<Build>>::new();
-        let mut new_builds_by_path = HashMap::<nix_utils::StorePath, HashSet<BuildID>>::default();
+        let mut new_ids = Vec::<BuildID>::with_capacity(1000);
+        let mut new_builds_by_id = HashMap::<BuildID, Arc<Build>>::with_capacity(1000);
+        let mut new_builds_by_path =
+            HashMap::<nix_utils::StorePath, HashSet<BuildID>>::with_capacity(1000);
 
         {
             let mut conn = self.db.get().await?;
@@ -899,7 +900,7 @@ impl State {
             }
         }
 
-        let mut new_runnable = Vec::new();
+        let mut new_runnable = Vec::with_capacity(100);
         {
             let mut steps = self.steps.write();
             steps.retain(|_, r| {
@@ -914,7 +915,7 @@ impl State {
         }
 
         let now = jiff::Timestamp::now();
-        let mut new_queues = HashMap::<System, Vec<StepInfo>>::default();
+        let mut new_queues = HashMap::<System, Vec<StepInfo>>::with_capacity(10);
         for r in new_runnable {
             let Some(system) = r.get_system() else {
                 continue;
@@ -926,7 +927,7 @@ impl State {
 
             new_queues
                 .entry(system)
-                .or_insert_with(Vec::new)
+                .or_insert_with(|| Vec::with_capacity(100))
                 .push(step_info);
         }
 

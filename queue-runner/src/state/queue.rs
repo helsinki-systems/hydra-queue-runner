@@ -162,9 +162,9 @@ impl Default for InnerQueues {
 impl InnerQueues {
     fn new() -> Self {
         Self {
-            jobs: HashMap::new(),
-            inner: HashMap::new(),
-            scheduled: parking_lot::RwLock::new(HashMap::new()),
+            jobs: HashMap::with_capacity(1000),
+            inner: HashMap::with_capacity(4),
+            scheduled: parking_lot::RwLock::new(HashMap::with_capacity(100)),
         }
     }
 

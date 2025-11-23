@@ -60,7 +60,7 @@ impl FodChecker {
     #[must_use]
     pub fn new(traverse_done_notifier: Option<tokio::sync::mpsc::Sender<()>>) -> Self {
         Self {
-            ca_derivations: parking_lot::RwLock::new(HashMap::new()),
+            ca_derivations: parking_lot::RwLock::new(HashMap::with_capacity(1000)),
             to_traverse: parking_lot::RwLock::new(HashSet::new()),
 
             notify_traverse: tokio::sync::Notify::new(),

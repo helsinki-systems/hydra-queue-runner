@@ -539,7 +539,7 @@ impl BaseStore for BaseStoreImpl {
         asyncify({
             let self_ = self.clone();
             move || {
-                let mut res = HashMap::new();
+                let mut res = HashMap::with_capacity(paths.len());
                 for p in paths {
                     let full_path = self_.print_store_path(&p);
                     if let Some(info) = ffi::query_path_info(&self_.wrapper, &full_path)
