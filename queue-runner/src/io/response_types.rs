@@ -1,4 +1,4 @@
-use ahash::AHashMap;
+use hashbrown::HashMap;
 
 use nix_utils::BaseStore as _;
 
@@ -9,13 +9,13 @@ use super::{
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MachinesResponse {
-    machines: AHashMap<String, Machine>,
+    machines: HashMap<String, Machine>,
     machines_count: usize,
 }
 
 impl MachinesResponse {
     #[must_use]
-    pub fn new(machines: AHashMap<String, Machine>) -> Self {
+    pub fn new(machines: HashMap<String, Machine>) -> Self {
         Self {
             machines_count: machines.len(),
             machines,
@@ -27,18 +27,18 @@ impl MachinesResponse {
 #[serde(rename_all = "camelCase")]
 pub struct DumpResponse {
     queue_runner: QueueRunnerStats,
-    machines: AHashMap<String, Machine>,
-    jobsets: AHashMap<String, Jobset>,
+    machines: HashMap<String, Machine>,
+    jobsets: HashMap<String, Jobset>,
     store: Option<StoreStats>,
-    s3: AHashMap<String, S3Stats>,
+    s3: HashMap<String, S3Stats>,
 }
 
 impl DumpResponse {
     #[must_use]
     pub fn new(
         queue_runner: QueueRunnerStats,
-        machines: AHashMap<String, Machine>,
-        jobsets: AHashMap<String, Jobset>,
+        machines: HashMap<String, Machine>,
+        jobsets: HashMap<String, Jobset>,
         local_store: &nix_utils::LocalStore,
         remote_stores: &[binary_cache::S3BinaryCacheClient],
     ) -> Self {
@@ -69,13 +69,13 @@ impl DumpResponse {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JobsetsResponse {
-    jobsets: AHashMap<String, Jobset>,
+    jobsets: HashMap<String, Jobset>,
     jobset_count: usize,
 }
 
 impl JobsetsResponse {
     #[must_use]
-    pub fn new(jobsets: AHashMap<String, Jobset>) -> Self {
+    pub fn new(jobsets: HashMap<String, Jobset>) -> Self {
         Self {
             jobset_count: jobsets.len(),
             jobsets,
@@ -120,12 +120,12 @@ impl StepsResponse {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueResponse {
-    queues: AHashMap<String, Vec<StepInfo>>,
+    queues: HashMap<String, Vec<StepInfo>>,
 }
 
 impl QueueResponse {
     #[must_use]
-    pub fn new(queues: AHashMap<String, Vec<StepInfo>>) -> Self {
+    pub fn new(queues: HashMap<String, Vec<StepInfo>>) -> Self {
         Self { queues }
     }
 }

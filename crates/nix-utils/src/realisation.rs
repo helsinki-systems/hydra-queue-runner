@@ -1,3 +1,5 @@
+use hashbrown::HashMap;
+
 #[cxx::bridge(namespace = "nix_utils")]
 mod ffi {
     #[derive(Debug)]
@@ -105,7 +107,7 @@ pub struct Realisation {
     pub id: DrvOutput,
     pub out_path: crate::StorePath,
     pub signatures: Vec<String>,
-    pub dependent_realisations: ahash::HashMap<DrvOutput, crate::StorePath>,
+    pub dependent_realisations: HashMap<DrvOutput, crate::StorePath>,
 }
 
 impl From<ffi::SharedRealisation> for Realisation {

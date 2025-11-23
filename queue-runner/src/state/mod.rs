@@ -21,18 +21,19 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Instant;
 use std::{sync::Arc, sync::Weak};
 
-use ahash::{AHashMap, AHashSet};
-use db::models::{BuildID, BuildStatus};
 use futures::TryStreamExt as _;
-use nix_utils::BaseStore as _;
+use hashbrown::{HashMap, HashSet};
 use secrecy::ExposeSecret as _;
+
+use db::models::{BuildID, BuildStatus};
+use nix_utils::BaseStore as _;
 
 use crate::config::{App, Cli};
 use crate::state::build::get_mark_build_sccuess_data;
 pub use crate::state::fod_checker::FodChecker;
 use crate::state::jobset::SCHEDULING_WINDOW;
+use crate::state::machine::Machines;
 use crate::utils::finish_build_step;
-use machine::Machines;
 
 pub type System = String;
 
@@ -60,10 +61,10 @@ pub struct State {
 
     pub log_dir: std::path::PathBuf,
 
-    pub builds: parking_lot::RwLock<AHashMap<BuildID, Arc<Build>>>,
+    pub builds: parking_lot::RwLock<HashMap<BuildID, Arc<Build>>>,
     // Projectname, Jobsetname
-    pub jobsets: parking_lot::RwLock<AHashMap<(String, String), Arc<Jobset>>>,
-    pub steps: parking_lot::RwLock<AHashMap<nix_utils::StorePath, Weak<Step>>>,
+    pub jobsets: parking_lot::RwLock<HashMap<(String, String), Arc<Jobset>>>,
+    pub steps: parking_lot::RwLock<HashMap<nix_utils::StorePath, Weak<Step>>>,
     pub queues: queue::Queues,
 
     pub fod_checker: Option<Arc<FodChecker>>,
@@ -106,9 +107,9 @@ impl State {
             db,
             machines: Machines::new(),
             log_dir,
-            builds: parking_lot::RwLock::new(AHashMap::new()),
-            jobsets: parking_lot::RwLock::new(AHashMap::new()),
-            steps: parking_lot::RwLock::new(AHashMap::new()),
+            builds: parking_lot::RwLock::new(HashMap::new()),
+            jobsets: parking_lot::RwLock::new(HashMap::new()),
+            steps: parking_lot::RwLock::new(HashMap::new()),
             queues: queue::Queues::new(),
             fod_checker: if config.get_enable_fod_checker() {
                 Some(Arc::new(FodChecker::new(None)))
@@ -258,8 +259,8 @@ impl State {
         let mut build_options = nix_utils::BuildOptions::new(None);
 
         let build_id = {
-            let mut dependents = AHashSet::new();
-            let mut steps = AHashSet::new();
+            let mut dependents = HashSet::new();
+            let mut steps = HashSet::new();
             step_info.step.get_dependents(&mut dependents, &mut steps);
 
             if dependents.is_empty() {
@@ -410,11 +411,11 @@ impl State {
     async fn process_new_builds(
         &self,
         new_ids: Vec<BuildID>,
-        new_builds_by_id: Arc<parking_lot::RwLock<AHashMap<BuildID, Arc<Build>>>>,
-        new_builds_by_path: AHashMap<nix_utils::StorePath, AHashSet<BuildID>>,
+        new_builds_by_id: Arc<parking_lot::RwLock<HashMap<BuildID, Arc<Build>>>>,
+        new_builds_by_path: HashMap<nix_utils::StorePath, HashSet<BuildID>>,
     ) {
         let finished_drvs = Arc::new(parking_lot::RwLock::new(
-            AHashSet::<nix_utils::StorePath>::new(),
+            HashSet::<nix_utils::StorePath>::new(),
         ));
 
         let starttime = jiff::Timestamp::now();
@@ -427,7 +428,7 @@ impl State {
                 build
             };
 
-            let new_runnable = Arc::new(parking_lot::RwLock::new(AHashSet::<Arc<Step>>::new()));
+            let new_runnable = Arc::new(parking_lot::RwLock::new(HashSet::<Arc<Step>>::new()));
             let nr_added: Arc<AtomicI64> = Arc::new(0.into());
             let now = Instant::now();
 
@@ -503,7 +504,7 @@ impl State {
             .await?
             .into_iter()
             .map(|b| (b.id, b.globalpriority))
-            .collect::<AHashMap<_, _>>();
+            .collect::<HashMap<_, _>>();
 
         {
             let mut builds = self.builds.write();
@@ -572,8 +573,8 @@ impl State {
         self.metrics.queue_checks_started.inc();
 
         let mut new_ids = Vec::<BuildID>::new();
-        let mut new_builds_by_id = AHashMap::<BuildID, Arc<Build>>::new();
-        let mut new_builds_by_path = AHashMap::<nix_utils::StorePath, AHashSet<BuildID>>::default();
+        let mut new_builds_by_id = HashMap::<BuildID, Arc<Build>>::new();
+        let mut new_builds_by_path = HashMap::<nix_utils::StorePath, HashSet<BuildID>>::default();
 
         {
             let mut conn = self.db.get().await?;
@@ -586,7 +587,7 @@ impl State {
                 new_builds_by_id.insert(build.id, build.clone());
                 new_builds_by_path
                     .entry(build.drv_path.clone())
-                    .or_insert_with(AHashSet::new)
+                    .or_insert_with(HashSet::new)
                     .insert(build.id);
             }
         }
@@ -913,7 +914,7 @@ impl State {
         }
 
         let now = jiff::Timestamp::now();
-        let mut new_queues = AHashMap::<System, Vec<StepInfo>>::default();
+        let mut new_queues = HashMap::<System, Vec<StepInfo>>::default();
         for r in new_runnable {
             let Some(system) = r.get_system() else {
                 continue;
@@ -1464,9 +1465,9 @@ impl State {
     }
 
     #[tracing::instrument(skip(self, step))]
-    fn get_all_indirect_builds(&self, step: &Arc<Step>) -> AHashSet<Arc<Build>> {
-        let mut indirect = AHashSet::new();
-        let mut steps = AHashSet::new();
+    fn get_all_indirect_builds(&self, step: &Arc<Step>) -> HashSet<Arc<Build>> {
+        let mut indirect = HashSet::new();
+        let mut steps = HashSet::new();
         step.get_dependents(&mut indirect, &mut steps);
 
         // If there are no builds left, delete all referring
@@ -1629,10 +1630,10 @@ impl State {
         &self,
         build: Arc<Build>,
         nr_added: Arc<AtomicI64>,
-        new_builds_by_id: Arc<parking_lot::RwLock<AHashMap<BuildID, Arc<Build>>>>,
-        new_builds_by_path: &AHashMap<nix_utils::StorePath, AHashSet<BuildID>>,
-        finished_drvs: Arc<parking_lot::RwLock<AHashSet<nix_utils::StorePath>>>,
-        new_runnable: Arc<parking_lot::RwLock<AHashSet<Arc<Step>>>>,
+        new_builds_by_id: Arc<parking_lot::RwLock<HashMap<BuildID, Arc<Build>>>>,
+        new_builds_by_path: &HashMap<nix_utils::StorePath, HashSet<BuildID>>,
+        finished_drvs: Arc<parking_lot::RwLock<HashSet<nix_utils::StorePath>>>,
+        new_runnable: Arc<parking_lot::RwLock<HashSet<Arc<Step>>>>,
     ) {
         self.metrics.queue_build_loads.inc();
         tracing::info!("loading build {} ({})", build.id, build.full_job_name());
@@ -1665,7 +1666,7 @@ impl State {
         }
 
         // Create steps for this derivation and its dependencies.
-        let new_steps = Arc::new(parking_lot::RwLock::new(AHashSet::<Arc<Step>>::new()));
+        let new_steps = Arc::new(parking_lot::RwLock::new(HashSet::<Arc<Step>>::new()));
         let step = match self
             .create_step(
                 // conn,
@@ -1771,9 +1772,9 @@ impl State {
         drv_path: nix_utils::StorePath,
         referring_build: Option<Arc<Build>>,
         referring_step: Option<Arc<Step>>,
-        finished_drvs: Arc<parking_lot::RwLock<AHashSet<nix_utils::StorePath>>>,
-        new_steps: Arc<parking_lot::RwLock<AHashSet<Arc<Step>>>>,
-        new_runnable: Arc<parking_lot::RwLock<AHashSet<Arc<Step>>>>,
+        finished_drvs: Arc<parking_lot::RwLock<HashSet<nix_utils::StorePath>>>,
+        new_steps: Arc<parking_lot::RwLock<HashSet<Arc<Step>>>>,
+        new_runnable: Arc<parking_lot::RwLock<HashSet<Arc<Step>>>>,
     ) -> CreateStepResult {
         use futures::stream::StreamExt as _;
 
@@ -2122,7 +2123,7 @@ impl State {
 
         let now = jiff::Timestamp::now();
 
-        let mut aborted = AHashSet::new();
+        let mut aborted = HashSet::new();
         let mut count = 0;
 
         let max_unsupported_time = self.config.get_max_unsupported_time();
@@ -2148,8 +2149,8 @@ impl State {
 
             aborted.insert(step.clone());
 
-            let mut dependents = AHashSet::new();
-            let mut steps = AHashSet::new();
+            let mut dependents = HashSet::new();
+            let mut steps = HashSet::new();
             step.get_dependents(&mut dependents, &mut steps);
             // Maybe the step got cancelled.
             if dependents.is_empty() {

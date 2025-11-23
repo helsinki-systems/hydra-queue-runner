@@ -8,7 +8,6 @@ version = "0.1.0"
 rust-version = "1.88.0"
 
 [workspace.dependencies]
-ahash = "0.8.11"
 anyhow = "1.0.98"
 arc-swap = "1.7"
 async-compression = { version = "0.4", default-features = false }
@@ -22,11 +21,13 @@ configparser = "3.1"
 cxx = "1"
 cxx-build = "1"
 digest = "0.10.7"
+foldhash = "0.2"
 fs-err = "3.0"
 futures = "0.3"
 futures-util = "0.3"
 gethostname = "1"
 h2 = "0.4"
+hashbrown = "0.16"
 http = "1.1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }

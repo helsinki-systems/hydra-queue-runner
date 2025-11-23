@@ -1,4 +1,4 @@
-use ahash::AHashMap;
+use hashbrown::HashMap;
 
 use crate::BaseStore as _;
 use crate::StorePath;
@@ -32,11 +32,11 @@ impl CAOutput {
 
 #[derive(Debug, Clone)]
 pub struct DerivationEnv {
-    inner: AHashMap<String, String>,
+    inner: HashMap<String, String>,
 }
 
 impl DerivationEnv {
-    fn new(v: AHashMap<String, String>) -> Self {
+    fn new(v: HashMap<String, String>) -> Self {
         Self { inner: v }
     }
 

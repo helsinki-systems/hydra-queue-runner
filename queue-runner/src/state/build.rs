@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
-use ahash::{AHashMap, AHashSet};
+use hashbrown::{HashMap, HashSet};
 
 use super::{Jobset, JobsetID, Step};
 use db::models::{BuildID, BuildStatus};
@@ -13,7 +13,7 @@ pub type AtomicBuildID = AtomicI32;
 pub struct Build {
     pub id: BuildID,
     pub drv_path: nix_utils::StorePath,
-    pub outputs: AHashMap<String, nix_utils::StorePath>,
+    pub outputs: HashMap<String, nix_utils::StorePath>,
     pub jobset_id: JobsetID,
     pub name: String,
     pub timestamp: jiff::Timestamp,
@@ -50,7 +50,7 @@ impl Build {
         Arc::new(Self {
             id: BuildID::MAX,
             drv_path: drv_path.to_owned(),
-            outputs: AHashMap::new(),
+            outputs: HashMap::new(),
             jobset_id: JobsetID::MAX,
             name: "debug".into(),
             timestamp: jiff::Timestamp::now(),
@@ -69,7 +69,7 @@ impl Build {
         Ok(Arc::new(Self {
             id: v.id,
             drv_path: nix_utils::StorePath::new(&v.drvpath),
-            outputs: AHashMap::new(),
+            outputs: HashMap::new(),
             jobset_id: v.jobset_id,
             name: v.job,
             timestamp: jiff::Timestamp::from_second(v.timestamp)?,
@@ -107,7 +107,7 @@ impl Build {
     }
 
     pub fn propagate_priorities(&self) {
-        let mut queued = AHashSet::new();
+        let mut queued = HashSet::new();
         let mut todo = std::collections::VecDeque::new();
         {
             let toplevel = self.toplevel.load();
@@ -347,8 +347,8 @@ pub struct BuildOutput {
     pub size: u64,
 
     pub products: Vec<BuildProduct>,
-    pub outputs: AHashMap<String, nix_utils::StorePath>,
-    pub metrics: AHashMap<String, BuildMetric>,
+    pub outputs: HashMap<String, nix_utils::StorePath>,
+    pub metrics: HashMap<String, BuildMetric>,
 }
 
 impl TryFrom<db::models::BuildOutput> for BuildOutput {
@@ -370,15 +370,15 @@ impl TryFrom<db::models::BuildOutput> for BuildOutput {
             #[allow(clippy::cast_sign_loss)]
             size: v.size.unwrap_or_default() as u64,
             products: vec![],
-            outputs: AHashMap::new(),
-            metrics: AHashMap::new(),
+            outputs: HashMap::new(),
+            metrics: HashMap::new(),
         })
     }
 }
 
 impl From<crate::server::grpc::runner_v1::BuildResultInfo> for BuildOutput {
     fn from(v: crate::server::grpc::runner_v1::BuildResultInfo) -> Self {
-        let mut outputs = AHashMap::new();
+        let mut outputs = HashMap::new();
         let mut closure_size = 0;
         let mut nar_size = 0;
 
@@ -445,7 +445,7 @@ impl BuildOutput {
         let pathinfos = store.query_path_infos(&flat_outputs).await;
         let nix_support = Box::pin(shared::parse_nix_support_from_outputs(store, &outputs)).await?;
 
-        let mut outputs_map = AHashMap::new();
+        let mut outputs_map = HashMap::new();
         let mut closure_size = 0;
         let mut nar_size = 0;
 

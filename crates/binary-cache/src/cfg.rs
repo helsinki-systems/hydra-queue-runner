@@ -1,3 +1,5 @@
+use hashbrown::HashMap;
+
 use crate::Compression;
 
 const MIN_PRESIGNED_URL_EXPIRY_SECS: u64 = 60;
@@ -181,10 +183,7 @@ impl std::str::FromStr for S3CacheConfig {
         if bucket.is_empty() {
             return Err(UrlParseError::NoBucket);
         }
-        let query = uri
-            .query_pairs()
-            .into_owned()
-            .collect::<std::collections::HashMap<_, _>>();
+        let query = uri.query_pairs().into_owned().collect::<HashMap<_, _>>();
         let cfg = S3ClientConfig::new(bucket.to_owned())
             .with_region(query.get("region").map(std::string::String::as_str))
             .with_scheme(

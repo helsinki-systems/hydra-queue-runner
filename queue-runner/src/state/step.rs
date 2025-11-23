@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
-use ahash::AHashSet;
+use hashbrown::HashSet;
 
 use super::{Build, Jobset};
 use db::models::BuildID;
@@ -56,10 +56,10 @@ impl StepAtomicState {
 
 #[derive(Debug)]
 pub struct StepState {
-    deps: AHashSet<Arc<Step>>, // The build steps on which this step depends.
-    rdeps: Vec<Weak<Step>>,    // The build steps that depend on this step.
-    builds: Vec<Weak<Build>>,  // Builds that have this step as the top-level derivation.
-    jobsets: AHashSet<Arc<Jobset>>, // Jobsets to which this step belongs. Used for determining scheduling priority.
+    deps: HashSet<Arc<Step>>,      // The build steps on which this step depends.
+    rdeps: Vec<Weak<Step>>,        // The build steps that depend on this step.
+    builds: Vec<Weak<Build>>,      // Builds that have this step as the top-level derivation.
+    jobsets: HashSet<Arc<Jobset>>, // Jobsets to which this step belongs. Used for determining scheduling priority.
 }
 
 impl Default for StepState {
@@ -71,10 +71,10 @@ impl Default for StepState {
 impl StepState {
     pub fn new() -> Self {
         Self {
-            deps: AHashSet::new(),
+            deps: HashSet::new(),
             rdeps: Vec::new(),
             builds: Vec::new(),
-            jobsets: AHashSet::new(),
+            jobsets: HashSet::new(),
         }
     }
 }
@@ -211,8 +211,8 @@ impl Step {
     #[tracing::instrument(skip(self, builds, steps))]
     pub fn get_dependents(
         self: &Arc<Self>,
-        builds: &mut AHashSet<Arc<Build>>,
-        steps: &mut AHashSet<Arc<Step>>,
+        builds: &mut HashSet<Arc<Build>>,
+        steps: &mut HashSet<Arc<Step>>,
     ) {
         if steps.contains(self) {
             return;
@@ -360,7 +360,7 @@ impl Step {
         direct
     }
 
-    pub fn get_all_deps_not_queued(&self, queued: &AHashSet<Arc<Step>>) -> Vec<Arc<Step>> {
+    pub fn get_all_deps_not_queued(&self, queued: &HashSet<Arc<Step>>) -> Vec<Arc<Step>> {
         let state = self.state.read();
         state
             .deps

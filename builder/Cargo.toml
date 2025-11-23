@@ -15,7 +15,7 @@ anyhow.workspace = true
 thiserror.workspace = true
 clap = { workspace = true, features = ["derive"] }
 uuid = { workspace = true, features = ["v4"] }
-ahash.workspace = true
+hashbrown.workspace = true
 parking_lot.workspace = true
 fs-err = { workspace = true, features = ["tokio"] }
 

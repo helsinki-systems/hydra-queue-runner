@@ -10,6 +10,8 @@ mod realisation;
 mod realise;
 mod store_path;
 
+use hashbrown::HashMap;
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("std io error: `{0}`")]
@@ -37,7 +39,6 @@ pub enum Error {
     HashParseError(#[from] hash::ParseError),
 }
 
-use ahash::AHashMap;
 pub use drv::{Derivation, Output as DerivationOutput, query_drv};
 pub use hash::{HashAlgorithm, HashFormat, convert_hash};
 pub use realisation::{DrvOutput, FfiRealisation, Realisation, RealisationOperations};
@@ -384,7 +385,7 @@ pub trait BaseStore {
     fn query_path_infos(
         &self,
         paths: &[&StorePath],
-    ) -> impl std::future::Future<Output = AHashMap<StorePath, PathInfo>>;
+    ) -> impl std::future::Future<Output = HashMap<StorePath, PathInfo>>;
     fn compute_closure_size(&self, path: &StorePath) -> impl std::future::Future<Output = u64>;
 
     fn clear_path_info_cache(&self);
@@ -532,13 +533,13 @@ impl BaseStore for BaseStoreImpl {
     }
 
     #[inline]
-    async fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo> {
+    async fn query_path_infos(&self, paths: &[&StorePath]) -> HashMap<StorePath, PathInfo> {
         let paths = paths.iter().map(|v| (*v).to_owned()).collect::<Vec<_>>();
 
         asyncify({
             let self_ = self.clone();
             move || {
-                let mut res = AHashMap::new();
+                let mut res = HashMap::new();
                 for p in paths {
                     let full_path = self_.print_store_path(&p);
                     if let Some(info) = ffi::query_path_info(&self_.wrapper, &full_path)
@@ -846,7 +847,7 @@ impl BaseStore for LocalStore {
     }
 
     #[inline]
-    async fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo> {
+    async fn query_path_infos(&self, paths: &[&StorePath]) -> HashMap<StorePath, PathInfo> {
         self.base.query_path_infos(paths).await
     }
 
@@ -1076,7 +1077,7 @@ impl BaseStore for RemoteStore {
     }
 
     #[inline]
-    async fn query_path_infos(&self, paths: &[&StorePath]) -> AHashMap<StorePath, PathInfo> {
+    async fn query_path_infos(&self, paths: &[&StorePath]) -> HashMap<StorePath, PathInfo> {
         self.base.query_path_infos(paths).await
     }
 

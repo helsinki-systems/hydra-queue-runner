@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use ahash::{AHashMap, AHashSet};
+use hashbrown::{HashMap, HashSet};
 use nix_utils::{Derivation, LocalStore, StorePath};
 
 pub struct FodChecker {
-    ca_derivations: parking_lot::RwLock<AHashMap<StorePath, nix_utils::Derivation>>,
-    to_traverse: parking_lot::RwLock<AHashSet<StorePath>>,
+    ca_derivations: parking_lot::RwLock<HashMap<StorePath, nix_utils::Derivation>>,
+    to_traverse: parking_lot::RwLock<HashSet<StorePath>>,
 
     notify_traverse: tokio::sync::Notify,
     traverse_done_notifier: Option<tokio::sync::mpsc::Sender<()>>,
@@ -14,14 +14,14 @@ pub struct FodChecker {
 async fn collect_ca_derivations(
     store: &LocalStore,
     drv: &StorePath,
-    processed: Arc<parking_lot::RwLock<AHashSet<StorePath>>>,
-) -> AHashMap<StorePath, nix_utils::Derivation> {
+    processed: Arc<parking_lot::RwLock<HashSet<StorePath>>>,
+) -> HashMap<StorePath, nix_utils::Derivation> {
     use futures::StreamExt as _;
 
     {
         let p = processed.read();
         if p.contains(drv) {
-            return AHashMap::new();
+            return HashMap::new();
         }
     }
     {
@@ -30,12 +30,12 @@ async fn collect_ca_derivations(
     }
 
     let Some(parsed) = nix_utils::query_drv(store, drv).await.ok().flatten() else {
-        return AHashMap::new();
+        return HashMap::new();
     };
 
     let is_ca = parsed.is_ca();
     let mut out = if parsed.input_drvs.is_empty() {
-        AHashMap::new()
+        HashMap::new()
     } else {
         futures::StreamExt::map(tokio_stream::iter(parsed.input_drvs.clone()), |i| {
             let processed = processed.clone();
@@ -46,7 +46,7 @@ async fn collect_ca_derivations(
         })
         .buffered(10)
         .flat_map(futures::stream::iter)
-        .collect::<AHashMap<_, _>>()
+        .collect::<HashMap<_, _>>()
         .await
     };
     if is_ca {
@@ -60,8 +60,8 @@ impl FodChecker {
     #[must_use]
     pub fn new(traverse_done_notifier: Option<tokio::sync::mpsc::Sender<()>>) -> Self {
         Self {
-            ca_derivations: parking_lot::RwLock::new(AHashMap::new()),
-            to_traverse: parking_lot::RwLock::new(AHashSet::new()),
+            ca_derivations: parking_lot::RwLock::new(HashMap::new()),
+            to_traverse: parking_lot::RwLock::new(HashSet::new()),
 
             notify_traverse: tokio::sync::Notify::new(),
             traverse_done_notifier,
@@ -90,14 +90,14 @@ impl FodChecker {
             v
         };
 
-        let processed = Arc::new(parking_lot::RwLock::new(AHashSet::<StorePath>::new()));
+        let processed = Arc::new(parking_lot::RwLock::new(HashSet::<StorePath>::new()));
         let out = futures::StreamExt::map(tokio_stream::iter(drvs), |i| {
             let processed = processed.clone();
             async move { Box::pin(collect_ca_derivations(store, &i, processed)).await }
         })
         .buffered(10)
         .flat_map(futures::stream::iter)
-        .collect::<AHashMap<_, _>>()
+        .collect::<HashMap<_, _>>()
         .await;
 
         {

@@ -15,7 +15,7 @@ tokio-stream = { workspace = true, features = ["io-util"] }
 tokio-util = { workspace = true, features = ["io", "io-util"] }
 fs-err = { workspace = true, features = ["tokio"] }
 futures.workspace = true
-ahash = { workspace = true, features = ["serde"] }
+hashbrown.workspace = true
 url.workspace = true
 bytes.workspace = true
 

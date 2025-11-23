@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
-use ahash::{AHashMap, AHashSet};
+use hashbrown::{HashMap, HashSet};
 
 use super::{StepInfo, System};
 use crate::config::StepSortFn;
@@ -145,11 +145,11 @@ impl BuildQueue {
 
 pub struct InnerQueues {
     // flat list of all step infos in queues, owning those steps inner queue dont own them
-    jobs: AHashMap<nix_utils::StorePath, Arc<StepInfo>>,
-    inner: AHashMap<System, Arc<BuildQueue>>,
+    jobs: HashMap<nix_utils::StorePath, Arc<StepInfo>>,
+    inner: HashMap<System, Arc<BuildQueue>>,
     #[allow(clippy::type_complexity)]
     scheduled: parking_lot::RwLock<
-        AHashMap<nix_utils::StorePath, (Arc<StepInfo>, Arc<BuildQueue>, Arc<super::Machine>)>,
+        HashMap<nix_utils::StorePath, (Arc<StepInfo>, Arc<BuildQueue>, Arc<super::Machine>)>,
     >,
 }
 
@@ -162,9 +162,9 @@ impl Default for InnerQueues {
 impl InnerQueues {
     fn new() -> Self {
         Self {
-            jobs: AHashMap::new(),
-            inner: AHashMap::new(),
-            scheduled: parking_lot::RwLock::new(AHashMap::new()),
+            jobs: HashMap::new(),
+            inner: HashMap::new(),
+            scheduled: parking_lot::RwLock::new(HashMap::new()),
         }
     }
 
@@ -215,7 +215,7 @@ impl InnerQueues {
         }
     }
 
-    fn clone_inner(&self) -> AHashMap<System, Arc<BuildQueue>> {
+    fn clone_inner(&self) -> HashMap<System, Arc<BuildQueue>> {
         self.inner.clone()
     }
 
@@ -279,8 +279,8 @@ impl InnerQueues {
                 continue;
             }
 
-            let mut dependents = AHashSet::new();
-            let mut steps = AHashSet::new();
+            let mut dependents = HashSet::new();
+            let mut steps = HashSet::new();
             step_info.step.get_dependents(&mut dependents, &mut steps);
             if !dependents.is_empty() {
                 continue;
@@ -309,7 +309,7 @@ impl InnerQueues {
     }
 
     #[tracing::instrument(skip(self))]
-    fn get_stats_per_queue(&self) -> AHashMap<System, BuildQueueStats> {
+    fn get_stats_per_queue(&self) -> HashMap<System, BuildQueueStats> {
         self.inner
             .iter()
             .map(|(k, v)| (k.clone(), v.get_stats()))
@@ -497,7 +497,7 @@ impl Queues {
         nr_steps_waiting_all_queues
     }
 
-    pub async fn clone_inner(&self) -> AHashMap<System, Arc<BuildQueue>> {
+    pub async fn clone_inner(&self) -> HashMap<System, Arc<BuildQueue>> {
         self.inner.read().await.clone_inner()
     }
 
@@ -539,7 +539,7 @@ impl Queues {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_stats_per_queue(&self) -> AHashMap<System, BuildQueueStats> {
+    pub async fn get_stats_per_queue(&self) -> HashMap<System, BuildQueueStats> {
         self.inner.read().await.get_stats_per_queue()
     }
 

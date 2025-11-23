@@ -1,3 +1,5 @@
+use hashbrown::HashMap;
+
 pub type BuildID = i32;
 
 #[repr(i32)]
@@ -214,7 +216,7 @@ pub struct MarkBuildSuccessData<'a> {
     pub closure_size: u64,
     pub size: u64,
     pub release_name: Option<&'a str>,
-    pub outputs: ahash::AHashMap<String, String>,
+    pub outputs: HashMap<String, String>,
     pub products: Vec<BuildProduct<'a>>,
-    pub metrics: ahash::AHashMap<&'a str, BuildMetric<'a>>,
+    pub metrics: HashMap<&'a str, BuildMetric<'a>>,
 }

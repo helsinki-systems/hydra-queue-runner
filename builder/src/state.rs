@@ -2,10 +2,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Instant;
 
-use ahash::AHashMap;
 use anyhow::Context as _;
 use backon::RetryableWithContext as _;
 use futures::TryFutureExt as _;
+use hashbrown::HashMap;
 use tonic::Request;
 use tracing::Instrument as _;
 
@@ -97,7 +97,7 @@ pub struct State {
     pub config: Config,
     pub max_concurrent_downloads: AtomicU32,
 
-    active_builds: parking_lot::RwLock<AHashMap<uuid::Uuid, Arc<BuildInfo>>>,
+    active_builds: parking_lot::RwLock<HashMap<uuid::Uuid, Arc<BuildInfo>>>,
     pub client: BuilderClient,
     pub halt: AtomicBool,
     pub metrics: Arc<crate::metrics::Metrics>,
@@ -147,7 +147,7 @@ impl State {
             hostname: gethostname::gethostname()
                 .into_string()
                 .map_err(|_| anyhow::anyhow!("Couldn't convert hostname to string"))?,
-            active_builds: parking_lot::RwLock::new(AHashMap::new()),
+            active_builds: parking_lot::RwLock::new(HashMap::new()),
             config: Config {
                 ping_interval: cli.ping_interval,
                 speed_factor: cli.speed_factor,

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ahash::AHashMap;
+use hashbrown::HashMap;
 
 use super::{BuildQueueStats, Process};
 
@@ -17,7 +17,7 @@ pub struct QueueRunnerStats {
     jobset_count: usize,
     step_count: usize,
     runnable_count: usize,
-    queue_stats: AHashMap<crate::state::System, BuildQueueStats>,
+    queue_stats: HashMap<crate::state::System, BuildQueueStats>,
 
     queue_checks_started: u64,
     queue_build_loads: u64,

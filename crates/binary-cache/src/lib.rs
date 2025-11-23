@@ -151,7 +151,7 @@ pub struct S3BinaryCacheClient {
     pub cfg: cfg::S3CacheConfig,
     s3_stats: Arc<AtomicS3Stats>,
     signing_keys: Vec<secrecy::SecretString>,
-    narinfo_cache: Cache<nix_utils::StorePath, NarInfo, ahash::RandomState>,
+    narinfo_cache: Cache<nix_utils::StorePath, NarInfo, foldhash::fast::RandomState>,
 }
 
 #[tracing::instrument(skip(stream, chunk), err)]
@@ -273,7 +273,7 @@ impl S3BinaryCacheClient {
             narinfo_cache: Cache::builder()
                 .initial_capacity(1000)
                 .max_capacity(65536)
-                .build_with_hasher(ahash::RandomState::default()),
+                .build_with_hasher(foldhash::fast::RandomState::default()),
         })
     }
 

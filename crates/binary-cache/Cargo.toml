@@ -27,11 +27,11 @@ async-compression = { workspace = true, features = [
   "zstd",
 ] }
 backon.workspace = true
-digest.workspace = true
 sha2.workspace = true
 secrecy.workspace = true
 configparser.workspace = true
-ahash.workspace = true
+foldhash.workspace = true
+hashbrown.workspace = true
 moka.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -15,7 +15,7 @@ toml.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
-ahash.workspace = true
+hashbrown = { workspace = true, features = ["serde"] }
 arc-swap.workspace = true
 parking_lot.workspace = true
 
@@ -44,7 +44,6 @@ h2.workspace = true
 hyper = { workspace = true, features = ["full"] }
 tower = { workspace = true, features = ["util"] }
 tower-http = { workspace = true, features = ["trace"] }
-http.workspace = true
 http-body-util.workspace = true
 hyper-util.workspace = true
 bytes.workspace = true

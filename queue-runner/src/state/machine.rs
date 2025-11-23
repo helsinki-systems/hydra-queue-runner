@@ -1,6 +1,6 @@
 use std::sync::{Arc, atomic::Ordering};
 
-use ahash::{AHashMap, AHashSet};
+use hashbrown::{HashMap, HashSet};
 use tokio::sync::mpsc;
 
 use db::models::BuildID;
@@ -279,9 +279,9 @@ impl Stats {
 }
 
 struct MachinesInner {
-    by_uuid: AHashMap<uuid::Uuid, Arc<Machine>>,
+    by_uuid: HashMap<uuid::Uuid, Arc<Machine>>,
     // by_system is always sorted, as we insert sorted based on cpu score
-    by_system: AHashMap<System, Vec<Arc<Machine>>>,
+    by_system: HashMap<System, Vec<Arc<Machine>>>,
 }
 
 impl MachinesInner {
@@ -302,7 +302,7 @@ impl MachinesInner {
 
 pub struct Machines {
     inner: parking_lot::RwLock<MachinesInner>,
-    supported_features: parking_lot::RwLock<AHashSet<String>>,
+    supported_features: parking_lot::RwLock<HashSet<String>>,
 }
 
 impl Default for Machines {
@@ -315,10 +315,10 @@ impl Machines {
     pub fn new() -> Self {
         Self {
             inner: parking_lot::RwLock::new(MachinesInner {
-                by_uuid: AHashMap::new(),
-                by_system: AHashMap::new(),
+                by_uuid: HashMap::new(),
+                by_system: HashMap::new(),
             }),
-            supported_features: parking_lot::RwLock::new(AHashSet::new()),
+            supported_features: parking_lot::RwLock::new(HashSet::new()),
         }
     }
 
@@ -339,7 +339,7 @@ impl Machines {
                 .by_uuid
                 .values()
                 .flat_map(|m| m.supported_features.clone())
-                .collect::<AHashSet<_>>()
+                .collect::<HashSet<_>>()
         };
 
         {
