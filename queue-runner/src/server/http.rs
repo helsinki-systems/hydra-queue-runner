@@ -163,6 +163,12 @@ async fn router(
                 &hyper::Method::GET,
                 "/status/queues/fod/scheduled" | "/status/queues/fod/scheduled/",
             ) => handler::status::fod_queue_scheduled(state).await,
+            (&hyper::Method::GET, "/status/fod/to_traverse" | "/status/fod/to_traverse/") => {
+                handler::status::fod_to_traverse(state).await
+            }
+            (&hyper::Method::GET, "/status/fod/drvs" | "/status/fod/drvs/") => {
+                handler::status::fod_drvs(state).await
+            }
             (&hyper::Method::GET, "/status/uploads" | "/status/uploads/") => {
                 handler::status::queued_uploads(state).await
             }
@@ -307,6 +313,10 @@ mod handler {
 
         #[tracing::instrument(skip(state), err)]
         pub async fn fod_queues(state: std::sync::Arc<State>) -> Result<Response, Error> {
+            if state.fod_checker.is_none() {
+                return Err(Error::NotFound);
+            }
+
             let queues = state
                 .queues
                 .clone_inner(QueueType::Fod)
@@ -327,6 +337,9 @@ mod handler {
 
         #[tracing::instrument(skip(state), err)]
         pub async fn fod_queue_jobs(state: std::sync::Arc<State>) -> Result<Response, Error> {
+            if state.fod_checker.is_none() {
+                return Err(Error::NotFound);
+            }
             let stepinfos = state
                 .queues
                 .get_jobs(QueueType::Fod)
@@ -339,6 +352,9 @@ mod handler {
 
         #[tracing::instrument(skip(state), err)]
         pub async fn fod_queue_scheduled(state: std::sync::Arc<State>) -> Result<Response, Error> {
+            if state.fod_checker.is_none() {
+                return Err(Error::NotFound);
+            }
             let stepinfos = state
                 .queues
                 .get_scheduled(QueueType::Fod)
@@ -347,6 +363,26 @@ mod handler {
                 .map(Into::into)
                 .collect();
             construct_json_ok_response(&io::StepInfoResponse::new(stepinfos))
+        }
+
+        #[tracing::instrument(skip(state), err)]
+        pub async fn fod_to_traverse(state: std::sync::Arc<State>) -> Result<Response, Error> {
+            let Some(fod_checker) = state.fod_checker.as_ref() else {
+                return Err(Error::NotFound);
+            };
+
+            let drvs = fod_checker.clone_to_traverse();
+            construct_json_ok_response(&io::StorePathResponse::new(drvs))
+        }
+
+        #[tracing::instrument(skip(state), err)]
+        pub async fn fod_drvs(state: std::sync::Arc<State>) -> Result<Response, Error> {
+            let Some(fod_checker) = state.fod_checker.as_ref() else {
+                return Err(Error::NotFound);
+            };
+
+            let drvs = fod_checker.clone_ca_derivations();
+            construct_json_ok_response(&io::StorePathResponse::new(drvs))
         }
 
         #[tracing::instrument(skip(state), err)]

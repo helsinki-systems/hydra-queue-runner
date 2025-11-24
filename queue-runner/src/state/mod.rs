@@ -100,7 +100,7 @@ impl State {
         }
 
         Ok(Arc::new(Self {
-            store,
+            store: store.clone(),
             remote_stores: parking_lot::RwLock::new(remote_stores),
             cli,
             db,
@@ -111,7 +111,7 @@ impl State {
             steps: Steps::new(),
             queues: Queues::new(),
             fod_checker: if config.get_enable_fod_checker() {
-                Some(Arc::new(FodChecker::new(None)))
+                Some(Arc::new(FodChecker::new(store, None)))
             } else {
                 None
             },
@@ -675,7 +675,7 @@ impl State {
                     } else {
                         self.notify_dispatch.notified().await;
                     }
-                    tracing::info!("starting dispatch");
+                    tracing::info!("starting main dispatch");
 
                     #[allow(clippy::cast_possible_truncation)]
                     self.metrics
