@@ -49,6 +49,8 @@ mod ffi {
 pub struct FfiRealisation {
     inner: cxx::UniquePtr<ffi::InternalRealisation>,
 }
+unsafe impl Send for FfiRealisation {}
+unsafe impl Sync for FfiRealisation {}
 
 impl FfiRealisation {
     #[must_use]
