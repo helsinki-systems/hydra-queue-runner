@@ -21,6 +21,7 @@ public:
 
   rust::String fingerprint() const;
   void sign(rust::Str secret_key);
+  void clear_signatures();
 
   void write_to_disk_cache(const nix_utils::StoreWrapper &wrapper) const;
 
@@ -32,8 +33,8 @@ private:
 #include "nix-utils/src/realisation.rs.h"
 
 namespace nix_utils {
-std::unique_ptr<InternalRealisation>
+std::shared_ptr<InternalRealisation>
 query_raw_realisation(const nix_utils::StoreWrapper &wrapper,
                       rust::Str output_id);
-std::unique_ptr<InternalRealisation> parse_realisation(rust::Str json_string);
+std::shared_ptr<InternalRealisation> parse_realisation(rust::Str json_string);
 } // namespace nix_utils

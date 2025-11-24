@@ -34,20 +34,22 @@ mod ffi {
 
         fn fingerprint(self: &InternalRealisation) -> String;
         fn sign(self: Pin<&mut InternalRealisation>, secret_key: &str) -> Result<()>;
+        fn clear_signatures(self: Pin<&mut InternalRealisation>);
 
         fn write_to_disk_cache(self: &InternalRealisation, store: &StoreWrapper) -> Result<()>;
 
         fn query_raw_realisation(
             store: &StoreWrapper,
             output_id: &str,
-        ) -> Result<UniquePtr<InternalRealisation>>;
+        ) -> Result<SharedPtr<InternalRealisation>>;
 
-        fn parse_realisation(json_string: &str) -> Result<UniquePtr<InternalRealisation>>;
+        fn parse_realisation(json_string: &str) -> Result<SharedPtr<InternalRealisation>>;
     }
 }
 
+#[derive(Clone)]
 pub struct FfiRealisation {
-    inner: cxx::UniquePtr<ffi::InternalRealisation>,
+    inner: cxx::SharedPtr<ffi::InternalRealisation>,
 }
 unsafe impl Send for FfiRealisation {}
 unsafe impl Sync for FfiRealisation {}
@@ -73,8 +75,12 @@ impl FfiRealisation {
     }
 
     pub fn sign(&mut self, secret_key: &str) -> Result<(), crate::Error> {
-        self.inner.pin_mut().sign(secret_key)?;
+        unsafe { self.inner.pin_mut_unchecked() }.sign(secret_key)?;
         Ok(())
+    }
+
+    pub fn clear_signatures(&mut self) {
+        unsafe { self.inner.pin_mut_unchecked() }.clear_signatures();
     }
 
     pub fn write_to_disk_cache(&self, store: &crate::BaseStoreImpl) -> Result<(), crate::Error> {

@@ -680,6 +680,7 @@ impl S3BinaryCacheClient {
             return Ok(());
         }
 
+        realisation.clear_signatures();
         if !self.signing_keys.is_empty() {
             for s in &self.signing_keys {
                 realisation.sign(s.expose_secret())?;

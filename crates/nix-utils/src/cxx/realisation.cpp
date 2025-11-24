@@ -62,6 +62,10 @@ void InternalRealisation::sign(rust::Str secret_key) {
   _realisation->sign(signer);
 }
 
+void InternalRealisation::clear_signatures() {
+  _realisation->signatures.clear();
+}
+
 void InternalRealisation::write_to_disk_cache(
     const nix_utils::StoreWrapper &wrapper) const {
   auto disk_cache = nix::getNarInfoDiskCache();
@@ -73,7 +77,7 @@ void InternalRealisation::write_to_disk_cache(
   }
 }
 
-std::unique_ptr<InternalRealisation>
+std::shared_ptr<InternalRealisation>
 query_raw_realisation(const nix_utils::StoreWrapper &wrapper,
                       rust::Str output_id) {
   auto store = wrapper._store;
@@ -87,7 +91,7 @@ query_raw_realisation(const nix_utils::StoreWrapper &wrapper,
       nix::make_ref<nix::Realisation>((nix::Realisation &)*realisation));
 }
 
-std::unique_ptr<InternalRealisation> parse_realisation(rust::Str json_string) {
+std::shared_ptr<InternalRealisation> parse_realisation(rust::Str json_string) {
   nlohmann::json encoded = nlohmann::json::parse(json_string);
   nix::Realisation realisation =
       nlohmann::adl_serializer<nix::Realisation>::from_json(encoded);
