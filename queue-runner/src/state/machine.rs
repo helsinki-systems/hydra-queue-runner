@@ -1,6 +1,7 @@
 use std::sync::{Arc, atomic::Ordering};
 
 use hashbrown::{HashMap, HashSet};
+use smallvec::SmallVec;
 use tokio::sync::mpsc;
 
 use db::models::BuildID;
@@ -554,7 +555,7 @@ impl Message {
 #[derive(Debug, Clone)]
 pub struct Machine {
     pub id: uuid::Uuid,
-    pub systems: Vec<System>,
+    pub systems: SmallVec<[System; 4]>,
     pub hostname: String,
     pub cpu_count: u32,
     pub bogomips: f32,
@@ -567,10 +568,10 @@ pub struct Machine {
     pub mem_psi_threshold: f32,        // If None, dont consider this value
     pub io_psi_threshold: Option<f32>, // If None, dont consider this value
     pub total_mem: u64,
-    pub supported_features: Vec<String>,
-    pub mandatory_features: Vec<String>,
+    pub supported_features: SmallVec<[String; 8]>,
+    pub mandatory_features: SmallVec<[String; 4]>,
     pub cgroups: bool,
-    pub substituters: Vec<String>,
+    pub substituters: SmallVec<[String; 4]>,
     pub use_substitutes: bool,
     pub nix_version: String,
     pub joined_at: jiff::Timestamp,
@@ -627,7 +628,7 @@ impl Machine {
 
         Ok(Self {
             id: msg.machine_id.parse()?,
-            systems: msg.systems,
+            systems: msg.systems.into(),
             hostname: msg.hostname,
             cpu_count: msg.cpu_count,
             bogomips: msg.bogomips,
@@ -640,10 +641,10 @@ impl Machine {
             mem_psi_threshold: msg.mem_psi_threshold,
             io_psi_threshold: msg.io_psi_threshold,
             total_mem: msg.total_mem,
-            supported_features: msg.supported_features,
-            mandatory_features: msg.mandatory_features,
+            supported_features: msg.supported_features.into(),
+            mandatory_features: msg.mandatory_features.into(),
             cgroups: msg.cgroups,
-            substituters: msg.substituters,
+            substituters: msg.substituters.into(),
             use_substitutes: msg.use_substitutes,
             nix_version: msg.nix_version,
 

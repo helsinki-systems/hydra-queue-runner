@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
 use hashbrown::{HashMap, HashSet};
+use smallvec::SmallVec;
 
 use super::{StepInfo, System};
 use crate::config::StepSortFn;
@@ -335,11 +336,11 @@ impl InnerQueues {
 pub struct JobConstraint {
     job: Arc<StepInfo>,
     system: System,
-    queue_features: Vec<String>,
+    queue_features: SmallVec<[String; 4]>,
 }
 
 impl JobConstraint {
-    pub fn new(job: Arc<StepInfo>, system: System, queue_features: Vec<String>) -> Self {
+    pub fn new(job: Arc<StepInfo>, system: System, queue_features: SmallVec<[String; 4]>) -> Self {
         Self {
             job,
             system,
@@ -454,7 +455,7 @@ impl Queues {
                     );
                     continue;
                 }
-                let constraint = JobConstraint::new(job.clone(), system.clone(), vec![]);
+                let constraint = JobConstraint::new(job.clone(), system.clone(), SmallVec::new());
                 match processor(constraint).await {
                     Ok(crate::state::RealiseStepResult::Valid(m)) => {
                         let wait_seconds = now.duration_since(job.runnable_since).as_secs_f64();

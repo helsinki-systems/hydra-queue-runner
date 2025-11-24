@@ -1,4 +1,5 @@
 use hashbrown::HashMap;
+use smallvec::SmallVec;
 
 use crate::BaseStore as _;
 use crate::StorePath;
@@ -70,8 +71,8 @@ impl DerivationEnv {
 #[derive(Debug, Clone)]
 pub struct Derivation {
     pub env: DerivationEnv,
-    pub input_drvs: Vec<String>,
-    pub outputs: Vec<Output>,
+    pub input_drvs: SmallVec<[String; 8]>,
+    pub outputs: SmallVec<[Output; 6]>,
     pub name: StorePath,
     pub system: String,
 }

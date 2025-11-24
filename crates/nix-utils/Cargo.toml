@@ -18,6 +18,7 @@ futures.workspace = true
 hashbrown.workspace = true
 url.workspace = true
 bytes.workspace = true
+smallvec.workspace = true
 
 cxx.workspace = true
 

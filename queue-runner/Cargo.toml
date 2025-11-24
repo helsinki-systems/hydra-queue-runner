@@ -15,6 +15,7 @@ toml.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
+smallvec = { workspace = true, features = ["serde"] }
 hashbrown = { workspace = true, features = ["serde"] }
 arc-swap.workspace = true
 parking_lot.workspace = true

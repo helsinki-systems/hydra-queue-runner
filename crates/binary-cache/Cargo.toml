@@ -30,6 +30,7 @@ backon.workspace = true
 sha2.workspace = true
 secrecy.workspace = true
 configparser.workspace = true
+smallvec.workspace = true
 foldhash.workspace = true
 hashbrown.workspace = true
 moka.workspace = true

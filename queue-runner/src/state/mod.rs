@@ -1837,12 +1837,12 @@ impl State {
         };
         let missing_outputs = if let Some(ref remote_store) = remote_store {
             let mut missing = remote_store
-                .query_missing_remote_outputs(drv.outputs.clone())
+                .query_missing_remote_outputs(drv.outputs.to_vec())
                 .await;
             if !missing.is_empty()
                 && self
                     .store
-                    .query_missing_outputs(drv.outputs.clone())
+                    .query_missing_outputs(drv.outputs.to_vec())
                     .await
                     .is_empty()
             {
@@ -1863,7 +1863,7 @@ impl State {
             }
             missing
         } else {
-            self.store.query_missing_outputs(drv.outputs.clone()).await
+            self.store.query_missing_outputs(drv.outputs.to_vec()).await
         };
 
         step.set_drv(drv);
@@ -2097,7 +2097,7 @@ impl State {
             }
         }
 
-        let build_output = BuildOutput::new(&self.store, drv.outputs).await?;
+        let build_output = BuildOutput::new(&self.store, drv.outputs.to_vec()).await?;
 
         #[allow(clippy::cast_precision_loss)]
         self.metrics

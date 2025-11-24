@@ -165,7 +165,7 @@ impl Step {
 
     pub fn get_input_drvs(&self) -> Option<Vec<String>> {
         let drv = self.drv.load_full();
-        drv.as_ref().map(|drv| drv.input_drvs.clone())
+        drv.as_ref().map(|drv| drv.input_drvs.to_vec())
     }
 
     pub fn get_after(&self) -> jiff::Timestamp {
@@ -192,7 +192,7 @@ impl Step {
 
     pub fn get_outputs(&self) -> Option<Vec<nix_utils::DerivationOutput>> {
         let drv = self.drv.load_full();
-        drv.as_ref().map(|drv| drv.outputs.clone())
+        drv.as_ref().map(|drv| drv.outputs.to_vec())
     }
 
     pub fn get_required_features(&self) -> Vec<String> {

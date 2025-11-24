@@ -1,5 +1,7 @@
 use std::sync::{Arc, atomic::Ordering};
 
+use smallvec::SmallVec;
+
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Pressure {
@@ -129,7 +131,7 @@ impl MachineStats {
 #[serde(rename_all = "camelCase")]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Machine {
-    systems: Vec<crate::state::System>,
+    systems: SmallVec<[crate::state::System; 4]>,
     hostname: String,
     uptime: f64,
     cpu_count: u32,
@@ -144,10 +146,10 @@ pub struct Machine {
     io_psi_threshold: Option<f32>,
     score: f32,
     total_mem: u64,
-    supported_features: Vec<String>,
-    mandatory_features: Vec<String>,
+    supported_features: SmallVec<[String; 8]>,
+    mandatory_features: SmallVec<[String; 4]>,
     cgroups: bool,
-    substituters: Vec<String>,
+    substituters: SmallVec<[String; 4]>,
     use_substitutes: bool,
     nix_version: String,
     stats: MachineStats,

@@ -13,6 +13,7 @@ use moka::future::Cache;
 use object_store::ObjectStore as _;
 use object_store::signer::Signer as _;
 use secrecy::ExposeSecret;
+use smallvec::SmallVec;
 
 use nix_utils::BaseStore as _;
 use nix_utils::RealisationOperations as _;
@@ -150,7 +151,7 @@ pub struct S3BinaryCacheClient {
     s3: object_store::aws::AmazonS3,
     pub cfg: cfg::S3CacheConfig,
     s3_stats: Arc<AtomicS3Stats>,
-    signing_keys: Vec<secrecy::SecretString>,
+    signing_keys: SmallVec<[secrecy::SecretString; 4]>,
     narinfo_cache: Cache<nix_utils::StorePath, NarInfo, foldhash::fast::RandomState>,
 }
 
@@ -258,7 +259,7 @@ impl S3BinaryCacheClient {
 
     #[tracing::instrument(skip(cfg), err)]
     pub async fn new(cfg: cfg::S3CacheConfig) -> Result<Self, CacheError> {
-        let mut signing_keys = vec![];
+        let mut signing_keys = SmallVec::default();
         for p in &cfg.secret_key_files {
             signing_keys.push(secrecy::SecretString::new(
                 fs_err::tokio::read_to_string(p).await?.into(),

@@ -1,4 +1,5 @@
 use hashbrown::HashMap;
+use smallvec::SmallVec;
 
 use crate::Compression;
 
@@ -12,7 +13,7 @@ pub struct S3CacheConfig {
     pub compression: Compression,
     pub write_nar_listing: bool,
     pub write_debug_info: bool,
-    pub secret_key_files: Vec<std::path::PathBuf>,
+    pub secret_key_files: SmallVec<[std::path::PathBuf; 4]>,
     pub parallel_compression: bool,
     pub compression_level: Option<i32>,
 
@@ -32,7 +33,7 @@ impl S3CacheConfig {
             compression: Compression::Xz,
             write_nar_listing: false,
             write_debug_info: false,
-            secret_key_files: Vec::default(),
+            secret_key_files: SmallVec::default(),
             parallel_compression: false,
             compression_level: Option::default(),
             narinfo_compression: Compression::None,
@@ -71,7 +72,9 @@ impl S3CacheConfig {
 
     #[must_use]
     pub fn add_secret_key_files(mut self, secret_keys: &[std::path::PathBuf]) -> Self {
-        self.secret_key_files.extend_from_slice(secret_keys);
+        for sk in secret_keys {
+            self.secret_key_files.push(sk.into());
+        }
         self
     }
 
