@@ -6,6 +6,7 @@ use nix_utils::BaseStore as _;
 
 use super::Step;
 
+#[derive(Debug)]
 pub struct StepInfo {
     pub step: Arc<Step>,
     pub resolved_drv_path: Option<nix_utils::StorePath>,

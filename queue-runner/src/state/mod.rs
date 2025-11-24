@@ -876,7 +876,7 @@ impl State {
                 )
                 .await;
         }
-        self.queues.remove_all_weak_pointer().await;
+        self.queues.remove_all_weak_pointer(None).await;
 
         let nr_steps_waiting_all_queues = self
             .queues
@@ -1951,7 +1951,9 @@ impl State {
                     .remove_job_by_path(step.get_drv_path(), QueueType::Main)
                     .await;
             }
-            self.queues.remove_all_weak_pointer().await;
+            self.queues
+                .remove_all_weak_pointer(Some(QueueType::Main))
+                .await;
         }
         self.metrics.nr_unsupported_steps.set(count);
         self.metrics
