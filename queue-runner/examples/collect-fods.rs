@@ -4,8 +4,8 @@ async fn main() -> anyhow::Result<()> {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(4);
 
     let store = nix_utils::LocalStore::init();
-    let fod = std::sync::Arc::new(queue_runner::state::FodChecker::new(Some(tx)));
-    fod.clone().start_traverse_loop(store);
+    let fod = std::sync::Arc::new(queue_runner::state::FodChecker::new(store, Some(tx)));
+    fod.clone().start_traverse_loop();
     fod.to_traverse(&p);
     fod.trigger_traverse();
     let _ = rx.recv().await;
