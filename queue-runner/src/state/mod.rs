@@ -1328,7 +1328,7 @@ impl State {
             }
         }
 
-        {
+        if job.step_nr != 0 {
             let mut db = self.db.get().await?;
             let mut tx = db.begin_transaction().await?;
             finish_build_step(
@@ -1343,12 +1343,11 @@ impl State {
             tx.commit().await?;
         }
 
-        // TODO: builder:415
         let mut dependent_ids = Vec::new();
+        let mut step_finished = false;
         loop {
             let indirect = self.get_all_indirect_builds(&step);
-            // TODO: stepFinished ?
-            if indirect.is_empty() {
+            if indirect.is_empty() && step_finished {
                 break;
             }
 
@@ -1429,7 +1428,7 @@ impl State {
                 }
 
                 // Remember failed paths in the database so that they won't be built again.
-                if job.result.step_status == BuildStatus::CachedFailure && job.result.can_cache {
+                if job.result.step_status != BuildStatus::CachedFailure && job.result.can_cache {
                     for o in step.get_outputs().unwrap_or_default() {
                         let Some(p) = o.path else { continue };
                         tx.insert_failed_paths(&self.store.print_store_path(&p))
@@ -1439,6 +1438,8 @@ impl State {
 
                 tx.commit().await?;
             }
+
+            step_finished = true;
 
             {
                 // Remove the indirect dependencies from 'builds'. This will cause them to be
