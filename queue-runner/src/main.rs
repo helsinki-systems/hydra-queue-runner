@@ -61,8 +61,19 @@ fn spawn_config_reloader(
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let tracing_guard = hydra_tracing::init()?;
-    nix_utils::init_nix();
 
+    #[cfg(debug_assertions)]
+    {
+        // If we have a debug build we want to crash on a panic, because we use some debug_asserts,
+        // and that helps validating those!
+        let default_panic = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            default_panic(info);
+            std::process::exit(1);
+        }));
+    }
+
+    nix_utils::init_nix();
     let state = State::new(&tracing_guard).await?;
     if state.cli.status {
         state.get_status_from_main_process().await?;
