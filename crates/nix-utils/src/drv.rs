@@ -37,20 +37,24 @@ pub struct DerivationEnv {
 }
 
 impl DerivationEnv {
-    fn new(v: HashMap<String, String>) -> Self {
+    #[must_use]
+    pub fn new(v: HashMap<String, String>) -> Self {
         Self { inner: v }
     }
 
+    #[must_use]
     pub fn get(&self, k: &str) -> Option<&str> {
         self.inner
             .get(k)
             .and_then(|v| if v.is_empty() { None } else { Some(v.as_str()) })
     }
 
+    #[must_use]
     pub fn get_name(&self) -> Option<&str> {
         self.get("name")
     }
 
+    #[must_use]
     pub fn get_required_system_features(&self) -> Vec<&str> {
         self.get("requiredSystemFeatures")
             .unwrap_or_default()
@@ -59,14 +63,17 @@ impl DerivationEnv {
             .collect()
     }
 
+    #[must_use]
     pub fn get_output_hash(&self) -> Option<&str> {
         self.get("outputHash")
     }
 
+    #[must_use]
     pub fn get_output_hash_algo(&self) -> Option<&str> {
         self.get("outputHashAlgo")
     }
 
+    #[must_use]
     pub fn get_output_hash_mode(&self) -> Option<&str> {
         self.get("outputHashMode")
     }

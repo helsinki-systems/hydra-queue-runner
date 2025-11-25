@@ -39,7 +39,7 @@ pub enum Error {
     HashParseError(#[from] hash::ParseError),
 }
 
-pub use drv::{Derivation, Output as DerivationOutput, query_drv};
+pub use drv::{Derivation, DerivationEnv, Output as DerivationOutput, query_drv};
 pub use hash::{HashAlgorithm, HashFormat, convert_hash};
 pub use realisation::{DrvOutput, FfiRealisation, Realisation, RealisationOperations};
 pub use realise::{BuildOptions, realise_drv, realise_drvs};
