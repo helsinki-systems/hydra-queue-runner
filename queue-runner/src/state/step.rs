@@ -90,7 +90,7 @@ pub struct Step {
     pub atomic_state: StepAtomicState,
     state: parking_lot::RwLock<StepState>,
 
-    build_id_hint: Option<i32>,
+    pub build_id_hint: Option<i32>,
 }
 
 impl PartialEq for Step {

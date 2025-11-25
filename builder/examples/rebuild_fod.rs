@@ -10,7 +10,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?
     .unwrap();
-    match builder::utils::rebuild_fod(&store, &p).await? {
+    match builder::utils::rebuild_fod(&store, &p, None).await? {
         builder::utils::FodResult::Ok {
             actual_sri,
             output: _,

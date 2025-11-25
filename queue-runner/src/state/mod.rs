@@ -241,17 +241,24 @@ impl State {
     ) -> anyhow::Result<RealiseStepResult> {
         let free_fn = self.config.get_machine_free_fn();
 
-        let Some((machine, step_info, queue_type)) = constraint.resolve(&self.machines, free_fn)
-        else {
+        let Some(resolved) = constraint.resolve(&self.machines, free_fn) else {
             return Ok(RealiseStepResult::None);
         };
-        let drv = step_info.step.get_drv_path();
+        let drv = resolved.step_info.step.get_drv_path();
         let mut build_options = nix_utils::BuildOptions::new(None);
 
-        let build_id = {
+        let build_id = if let Some(build_id) = resolved.step_info.step.build_id_hint {
+            // TODO: get build from db
+            build_options.set_max_silent_time(3600); // default values for build
+            build_options.set_build_timeout(36000); // default values for build
+            build_id
+        } else {
             let mut dependents = HashSet::new();
             let mut steps = HashSet::new();
-            step_info.step.get_dependents(&mut dependents, &mut steps);
+            resolved
+                .step_info
+                .step
+                .get_dependents(&mut dependents, &mut steps);
 
             if dependents.is_empty() {
                 // Apparently all builds that depend on this derivation are gone (e.g. cancelled). So
@@ -287,13 +294,16 @@ impl State {
         let mut job = machine::Job::new(
             build_id,
             drv.to_owned(),
-            queue_type,
-            step_info.resolved_drv_path.clone(),
+            resolved.queue_type,
+            resolved.step_info.resolved_drv_path.clone(),
         );
         job.result.set_start_time_now();
-        if self.check_cached_failure(step_info.step.clone()).await {
+        if self
+            .check_cached_failure(resolved.step_info.step.clone())
+            .await
+        {
             job.result.step_status = BuildStatus::CachedFailure;
-            self.inner_fail_job(drv, None, job, step_info.step.clone())
+            self.inner_fail_job(drv, None, job, resolved.step_info.step.clone())
                 .await?;
             return Ok(RealiseStepResult::CachedFailure);
         }
@@ -311,13 +321,16 @@ impl State {
                 .create_build_step(
                     Some(job.result.get_start_time_as_i32()?),
                     build_id,
-                    &self.store.print_store_path(step_info.step.get_drv_path()),
-                    step_info.step.get_system().as_deref(),
-                    machine.hostname.clone(),
+                    &self
+                        .store
+                        .print_store_path(resolved.step_info.step.get_drv_path()),
+                    resolved.step_info.step.get_system().as_deref(),
+                    resolved.machine.hostname.clone(),
                     BuildStatus::Busy,
                     None,
                     None,
-                    step_info
+                    resolved
+                        .step_info
                         .step
                         .get_outputs()
                         .unwrap_or_default()
@@ -333,8 +346,8 @@ impl State {
 
         tracing::info!(
             "Submitting build drv={drv} on machine={} hostname={} build_id={build_id} step_nr={step_nr}",
-            machine.id,
-            machine.hostname
+            resolved.machine.id,
+            resolved.machine.hostname
         );
         self.db
             .get()
@@ -345,8 +358,10 @@ impl State {
                 status: db::models::StepStatus::Connecting,
             })
             .await?;
-        machine
+        resolved
+            .machine
             .build_drv(
+                resolved.build_message_generator,
                 job,
                 &build_options,
                 // TODO: cleanup
@@ -364,7 +379,7 @@ impl State {
             .await?;
         self.metrics.nr_steps_started.inc();
         self.metrics.nr_steps_building.add(1);
-        Ok(RealiseStepResult::Valid(machine))
+        Ok(RealiseStepResult::Valid(resolved.machine))
     }
 
     #[tracing::instrument(skip(self), fields(%drv), err)]
