@@ -42,13 +42,17 @@ impl DerivationEnv {
     }
 
     pub fn get(&self, k: &str) -> Option<&str> {
-        self.inner.get(k).map(std::string::String::as_str)
+        self.inner
+            .get(k)
+            .and_then(|v| if v.is_empty() { None } else { Some(v.as_str()) })
+    }
+
+    pub fn get_name(&self) -> Option<&str> {
+        self.get("name")
     }
 
     pub fn get_required_system_features(&self) -> Vec<&str> {
-        self.inner
-            .get("requiredSystemFeatures")
-            .map(std::string::String::as_str)
+        self.get("requiredSystemFeatures")
             .unwrap_or_default()
             .split(' ')
             .filter(|v| !v.is_empty())
@@ -56,15 +60,15 @@ impl DerivationEnv {
     }
 
     pub fn get_output_hash(&self) -> Option<&str> {
-        self.inner
-            .get("outputHash")
-            .map(std::string::String::as_str)
+        self.get("outputHash")
+    }
+
+    pub fn get_output_hash_algo(&self) -> Option<&str> {
+        self.get("outputHashAlgo")
     }
 
     pub fn get_output_hash_mode(&self) -> Option<&str> {
-        self.inner
-            .get("outputHash")
-            .map(std::string::String::as_str)
+        self.get("outputHashMode")
     }
 }
 
@@ -182,6 +186,13 @@ mod tests {
             StorePath::new("/nix/store/awmdz2lkxkdqnhdhk09zy9w7kzpl8jhc-linux-6.16.tar.xz.drv");
         let drv = parse_drv(&drv_path, drv_str).unwrap();
         assert_eq!(drv.name, drv_path);
+        assert_eq!(drv.env.get_name(), Some("linux-6.16.tar.xz"));
+        assert_eq!(
+            drv.env.get_output_hash(),
+            Some("sha256-Gkvi/mtSRqpKyJh6ikrzTEKo3X0ItGq0hRa8wb77zYM=")
+        );
+        assert_eq!(drv.env.get_output_hash_algo(), None);
+        assert_eq!(drv.env.get_output_hash_mode(), Some("flat"));
         assert!(drv.is_ca());
         let o = drv.get_ca_output().unwrap();
         assert_eq!(
