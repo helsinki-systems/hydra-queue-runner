@@ -83,24 +83,26 @@ where
     Ok((output, missmatch))
 }
 
-#[tracing::instrument(skip(store, drv), fields(drv=%drv.name), err)]
+#[tracing::instrument(skip(store, drv, build_opts), fields(drv=%drv.name), err)]
 pub async fn rebuild_fod(
     store: &nix_utils::LocalStore,
     drv: &nix_utils::Derivation,
+    build_opts: Option<nix_utils::BuildOptions>,
 ) -> anyhow::Result<FodResult> {
     let Some(o) = drv.get_ca_output() else {
         return Err(anyhow::anyhow!("Not a FOD"));
     };
     let sri_hash = o.get_sri_hash()?;
 
+    let build_opts = if let Some(build_opts) = build_opts {
+        build_opts
+    } else {
+        nix_utils::BuildOptions::complete(MAX_LOG_SIZE, MAX_SILENT_TIME, MAX_BUILD_TIMEOUT)
+    };
+
     if !std::path::Path::new(&store.print_store_path(&o.path)).exists() {
-        let (mut child, log_output) = nix_utils::realise_drv(
-            store,
-            &drv.name,
-            &nix_utils::BuildOptions::complete(MAX_LOG_SIZE, MAX_SILENT_TIME, MAX_BUILD_TIMEOUT),
-            true,
-        )
-        .await?;
+        let (mut child, log_output) =
+            nix_utils::realise_drv(store, &drv.name, &build_opts, true).await?;
         let status = child.wait().await?;
         if !status.success() {
             let (output, hash) = detect_hash_mismatch(log_output).await?;
@@ -118,14 +120,8 @@ pub async fn rebuild_fod(
         }
     }
 
-    let (mut child, log_output) = nix_utils::realise_drv(
-        store,
-        &drv.name,
-        &nix_utils::BuildOptions::complete(MAX_LOG_SIZE, MAX_SILENT_TIME, MAX_BUILD_TIMEOUT)
-            .enable_check_build(),
-        true,
-    )
-    .await?;
+    let (mut child, log_output) =
+        nix_utils::realise_drv(store, &drv.name, &build_opts.enable_check_build(), true).await?;
     let status = child.wait().await?;
     if !status.success() {
         let (output, hash) = detect_hash_mismatch(log_output).await?;
