@@ -24,7 +24,7 @@
         unstable = import nixpkgs-unstable { inherit system; };
         treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
 
-        rustPackages = pkgs.rustPackages_1_88;
+        rustPackages = pkgs.rustPackages_1_89;
         inherit (pkgs) lib;
 
         nativeBuildInputs = with pkgs; [

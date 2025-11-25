@@ -74,10 +74,10 @@ impl<R: AsyncRead + Unpin + Send> AsyncRead for HashingReader<R> {
                     self.size += new_data.len();
                 }
 
-                if new_data.is_empty() {
-                    if let Some(hasher) = self.hasher.take() {
-                        let _ = self.hash_result.inner.set((hasher.finalize(), self.size));
-                    }
+                if new_data.is_empty()
+                    && let Some(hasher) = self.hasher.take()
+                {
+                    let _ = self.hash_result.inner.set((hasher.finalize(), self.size));
                 }
                 Poll::Ready(Ok(()))
             }
