@@ -6,10 +6,9 @@ license = "GPL-3.0"
 rust-version.workspace = true
 
 [dependencies]
-
 tracing.workspace = true
-
 sd-notify.workspace = true
+
 toml.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

@@ -117,6 +117,7 @@ pub struct PromMetrics {
 
 impl PromMetrics {
     #[allow(clippy::too_many_lines)]
+    #[tracing::instrument(err)]
     pub fn new() -> anyhow::Result<Self> {
         let queue_checks_started = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_queue_checks_started_total",
@@ -1097,6 +1098,7 @@ impl PromMetrics {
         );
     }
 
+    #[tracing::instrument(skip(self, state), err)]
     pub async fn gather_metrics(&self, state: &Arc<super::State>) -> anyhow::Result<Vec<u8>> {
         self.refresh_dynamic_metrics(state).await;
 

@@ -35,6 +35,7 @@ pub struct MemoryStats {
 }
 
 impl MemoryStats {
+    #[tracing::instrument(err)]
     fn new(cgroups_path: &std::path::Path) -> anyhow::Result<Self> {
         Ok(Self {
             current_bytes: fs_err::read_to_string(cgroups_path.join("memory.current"))?
@@ -65,6 +66,7 @@ pub struct IoStats {
 }
 
 impl IoStats {
+    #[tracing::instrument(err)]
     fn new(cgroups_path: &std::path::Path) -> anyhow::Result<Self> {
         let mut total_read_bytes: u64 = 0;
         let mut total_write_bytes: u64 = 0;
@@ -105,6 +107,7 @@ pub struct CpuStats {
 }
 
 impl CpuStats {
+    #[tracing::instrument(err)]
     fn new(cgroups_path: &std::path::Path) -> anyhow::Result<Self> {
         let contents = fs_err::read_to_string(cgroups_path.join("cpu.stat"))?;
 
@@ -150,6 +153,7 @@ pub struct CgroupStats {
 }
 
 impl CgroupStats {
+    #[tracing::instrument(err)]
     fn new(me: &procfs::process::Process) -> anyhow::Result<Self> {
         let cgroups_pathname = format!(
             "/sys/fs/cgroup/{}",

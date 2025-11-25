@@ -32,6 +32,7 @@ impl Database {
         Ok(Connection::new(conn))
     }
 
+    #[tracing::instrument(skip(self, url), err)]
     pub fn reconfigure_pool(&self, url: &str) -> anyhow::Result<()> {
         // TODO: ability to change max_connections by dropping the pool and recreating it
         self.pool

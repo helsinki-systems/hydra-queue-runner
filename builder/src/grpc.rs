@@ -40,6 +40,7 @@ impl tonic::service::Interceptor for BuilderInterceptor {
 pub type BuilderClient = RunnerServiceClient<InterceptedService<Channel, BuilderInterceptor>>;
 
 impl BuilderClient {
+    #[tracing::instrument(skip(self, store_paths), err)]
     pub async fn request_presigned_urls(
         &mut self,
         build_id: &str,
@@ -64,12 +65,13 @@ impl BuilderClient {
                 request,
             })
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to request presigned URLs: {e}"))?;
+            .context("Failed to request presigned URLs")?;
 
         Ok(response.into_inner().inner)
     }
 }
 
+#[tracing::instrument(err)]
 pub async fn init_client(cli: &crate::config::Cli) -> anyhow::Result<BuilderClient> {
     if !cli.mtls_configured_correctly() {
         tracing::error!(

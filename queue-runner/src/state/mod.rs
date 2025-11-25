@@ -77,6 +77,7 @@ pub struct State {
 }
 
 impl State {
+    #[tracing::instrument(skip(tracing_guard), err)]
     pub async fn new(tracing_guard: &hydra_tracing::TracingGuard) -> anyhow::Result<Arc<Self>> {
         let store = nix_utils::LocalStore::init();
         nix_utils::set_verbosity(1);
@@ -124,6 +125,7 @@ impl State {
         }))
     }
 
+    #[tracing::instrument(skip(self, new_config), err)]
     pub async fn reload_config_callback(
         &self,
         new_config: &crate::config::PreparedApp,
@@ -238,6 +240,7 @@ impl State {
         }
     }
 
+    #[tracing::instrument(skip(self), err)]
     pub async fn clear_busy(&self) -> anyhow::Result<()> {
         let mut db = self.db.get().await?;
         db.clear_busy(0).await?;

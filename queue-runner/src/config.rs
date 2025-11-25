@@ -85,6 +85,7 @@ impl Cli {
                 && self.client_ca_cert_path.is_none())
     }
 
+    #[tracing::instrument(skip(self), err)]
     pub async fn get_mtls(
         &self,
     ) -> anyhow::Result<(tonic::transport::Certificate, tonic::transport::Identity)> {
@@ -378,18 +379,19 @@ impl TryFrom<AppConfig> for PreparedApp {
 }
 
 /// Loads the config from specified path
+#[tracing::instrument(err)]
 fn load_config(filepath: &str) -> anyhow::Result<PreparedApp> {
     tracing::info!("Trying to loading file: {filepath}");
     let toml: AppConfig = if let Ok(content) = fs_err::read_to_string(filepath) {
-        toml::from_str(&content).map_err(|e| anyhow::anyhow!("Failed to load '{filepath}': {e}"))?
+        toml::from_str(&content)
+            .with_context(|| format!("Failed to toml load from '{filepath}'"))?
     } else {
         tracing::warn!("no config file found! Using default config");
-        toml::from_str("").map_err(|e| anyhow::anyhow!("Failed to parse \"\": {e}"))?
+        toml::from_str("").context("Failed to parse empty string as config")?
     };
     tracing::info!("Loaded config: {toml:?}");
 
-    toml.try_into()
-        .map_err(|e| anyhow::anyhow!("Failed to prepare configuration: {e}"))
+    toml.try_into().context("Failed to prepare configuration")
 }
 
 #[derive(Debug, Clone)]
@@ -398,6 +400,7 @@ pub struct App {
 }
 
 impl App {
+    #[tracing::instrument(err)]
     pub fn init(filepath: &str) -> anyhow::Result<Self> {
         Ok(Self {
             inner: Arc::new(arc_swap::ArcSwap::from(Arc::new(load_config(filepath)?))),

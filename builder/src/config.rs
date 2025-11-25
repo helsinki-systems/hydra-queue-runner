@@ -114,6 +114,7 @@ impl Cli {
                 && self.domain_name.is_none())
     }
 
+    #[tracing::instrument(skip(self), err)]
     pub async fn get_mtls(
         &self,
     ) -> anyhow::Result<(
@@ -148,6 +149,7 @@ impl Cli {
         Ok((server_root_ca_cert, client_identity, domain_name.to_owned()))
     }
 
+    #[tracing::instrument(skip(self), err)]
     pub async fn get_authorization_token(&self) -> anyhow::Result<Option<String>> {
         if let Some(path) = &self.authorization_file {
             Ok(Some(

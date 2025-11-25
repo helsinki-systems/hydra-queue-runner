@@ -9,6 +9,7 @@ pub struct BaseSystemInfo {
 
 impl BaseSystemInfo {
     #[cfg(target_os = "linux")]
+    #[tracing::instrument(err)]
     pub fn new() -> anyhow::Result<Self> {
         let cpuinfo = procfs_core::CpuInfo::from_file("/proc/cpuinfo")?;
         let meminfo = procfs_core::Meminfo::from_file("/proc/meminfo")?;
@@ -26,6 +27,7 @@ impl BaseSystemInfo {
     }
 
     #[cfg(target_os = "macos")]
+    #[tracing::instrument(err)]
     pub fn new() -> anyhow::Result<Self> {
         let mut sys = sysinfo::System::new_all();
         sys.refresh_memory();
@@ -167,6 +169,7 @@ pub struct SystemLoad {
     pub store_free_percent: f64,
 }
 
+#[tracing::instrument(err)]
 pub fn get_mount_free_percent(dest: &str) -> anyhow::Result<f64> {
     let stat = nix::sys::statvfs::statvfs(dest)?;
 
@@ -178,6 +181,7 @@ pub fn get_mount_free_percent(dest: &str) -> anyhow::Result<f64> {
 
 impl SystemLoad {
     #[cfg(target_os = "linux")]
+    #[tracing::instrument(err)]
     pub fn new() -> anyhow::Result<Self> {
         let meminfo = procfs_core::Meminfo::from_file("/proc/meminfo")?;
         let load = procfs_core::LoadAverage::from_file("/proc/loadavg")?;
@@ -197,6 +201,7 @@ impl SystemLoad {
     }
 
     #[cfg(target_os = "macos")]
+    #[tracing::instrument(err)]
     pub fn new() -> anyhow::Result<Self> {
         let mut sys = sysinfo::System::new_all();
         sys.refresh_memory();

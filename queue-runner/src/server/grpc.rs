@@ -127,6 +127,7 @@ pub struct Server {
 }
 
 impl Server {
+    #[tracing::instrument(skip(state), err)]
     pub async fn run(addr: BindSocket, state: Arc<State>) -> anyhow::Result<()> {
         let service = RunnerServiceServer::new(Self {
             state: state.clone(),

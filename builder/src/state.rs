@@ -131,6 +131,7 @@ impl Drop for Gcroot {
 }
 
 impl State {
+    #[tracing::instrument(err)]
     pub async fn new(cli: &super::config::Cli) -> anyhow::Result<Arc<Self>> {
         nix_utils::set_verbosity(1);
 
@@ -144,9 +145,12 @@ impl State {
 
         let state = Arc::new(Self {
             id: uuid::Uuid::new_v4(),
-            hostname: gethostname::gethostname()
-                .into_string()
-                .map_err(|_| anyhow::anyhow!("Couldn't convert hostname to string"))?,
+            hostname: gethostname::gethostname().into_string().map_err(|v| {
+                anyhow::anyhow!(
+                    "Couldn't convert hostname to string! OsString={}",
+                    v.display()
+                )
+            })?,
             active_builds: parking_lot::RwLock::new(HashMap::with_capacity(10)),
             config: Config {
                 ping_interval: cli.ping_interval,
@@ -579,6 +583,7 @@ impl State {
         );
     }
 
+    #[tracing::instrument(skip(self), err)]
     pub async fn clear_gcroots(&self) -> std::io::Result<()> {
         fs_err::tokio::remove_dir_all(&self.config.gcroots).await?;
         fs_err::tokio::create_dir_all(&self.config.gcroots).await?;
