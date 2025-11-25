@@ -89,6 +89,8 @@ pub struct Step {
     previous_failure: AtomicBool,
     pub atomic_state: StepAtomicState,
     state: parking_lot::RwLock<StepState>,
+
+    build_id_hint: Option<i32>,
 }
 
 impl PartialEq for Step {
@@ -121,6 +123,26 @@ impl Step {
                 jiff::Timestamp::UNIX_EPOCH,
             ),
             state: parking_lot::RwLock::new(StepState::new()),
+
+            build_id_hint: None,
+        })
+    }
+
+    #[must_use]
+    pub fn with_build_id(drv_path: nix_utils::StorePath, build_id: i32) -> Arc<Self> {
+        Arc::new(Self {
+            drv_path,
+            drv: arc_swap::ArcSwapOption::from(None),
+            runnable: false.into(),
+            finished: false.into(),
+            previous_failure: false.into(),
+            atomic_state: StepAtomicState::new(
+                jiff::Timestamp::UNIX_EPOCH,
+                jiff::Timestamp::UNIX_EPOCH,
+            ),
+            state: parking_lot::RwLock::new(StepState::new()),
+
+            build_id_hint: Some(build_id),
         })
     }
 

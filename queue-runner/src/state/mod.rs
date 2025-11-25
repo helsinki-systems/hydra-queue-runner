@@ -103,18 +103,22 @@ impl State {
             store: store.clone(),
             remote_stores: parking_lot::RwLock::new(remote_stores),
             cli,
-            db,
+            db: db.clone(),
             machines: Machines::new(),
             log_dir,
             builds: Builds::new(),
             jobsets: Jobsets::new(),
             steps: Steps::new(),
             queues: Queues::new(),
-            fod_checker: if config.get_enable_fod_checker() {
-                Some(Arc::new(FodChecker::new(store, None)))
-            } else {
-                None
-            },
+            fod_checker: config.get_fod_checker_config().map(|fod_config| {
+                Arc::new(FodChecker::new(
+                    Some(db),
+                    store,
+                    // TODO: we need reload for this here
+                    fod_config,
+                    None,
+                ))
+            }),
             started_at: jiff::Timestamp::now(),
             metrics: metrics::PromMetrics::new()?,
             notify_dispatch: tokio::sync::Notify::new(),
@@ -136,7 +140,7 @@ impl State {
         let curr_machine_sort_fn = self.config.get_machine_sort_fn();
         let curr_step_sort_fn = self.config.get_step_sort_fn();
         let curr_remote_stores = self.config.get_remote_store_addrs();
-        let curr_enable_fod_checker = self.config.get_enable_fod_checker();
+        let curr_enable_fod_checker = self.config.get_fod_checker_config();
         let mut new_remote_stores = vec![];
         if curr_remote_stores != new_config.remote_store_addr {
             for uri in &new_config.remote_store_addr {
@@ -159,10 +163,8 @@ impl State {
             *remote_stores = new_remote_stores;
         }
 
-        if curr_enable_fod_checker != new_config.enable_fod_checker {
-            tracing::warn!(
-                "Changing the value of enable_fod_checker currently requires a restart!"
-            );
+        if curr_enable_fod_checker != new_config.fod_checker {
+            tracing::warn!("Changing the value of fod currently requires a restart!");
         }
 
         self.machines

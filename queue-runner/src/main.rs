@@ -20,7 +20,7 @@ use state::State;
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
-fn start_task_loops(state: &std::sync::Arc<State>) -> Vec<tokio::task::AbortHandle> {
+async fn start_task_loops(state: &std::sync::Arc<State>) -> Vec<tokio::task::AbortHandle> {
     tracing::info!("QueueRunner starting task loops");
 
     let mut service_list = vec![
@@ -31,12 +31,13 @@ fn start_task_loops(state: &std::sync::Arc<State>) -> Vec<tokio::task::AbortHand
         state.clone().start_uploader_queue(),
     ];
     if let Some(fod_checker) = &state.fod_checker {
-        service_list.push(fod_checker.clone().start_traverse_loop());
         service_list.push(
             fod_checker
                 .clone()
-                .start_dispatch_loop(state.queues.clone(), state.config.clone()),
+                .start_dispatch_loop(state.queues.clone(), state.config.clone())
+                .await,
         );
+        service_list.push(fod_checker.clone().start_traverse_loop());
     }
 
     service_list
@@ -99,7 +100,7 @@ async fn main() -> anyhow::Result<()> {
         return Err(anyhow::anyhow!("Configuration issue"));
     }
 
-    let task_abort_handles = start_task_loops(&state);
+    let task_abort_handles = start_task_loops(&state).await;
     tracing::info!(
         "QueueRunner listening on grpc: {:?} and rest: {}",
         state.cli.grpc_bind,
