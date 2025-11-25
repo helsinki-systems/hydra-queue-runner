@@ -278,7 +278,6 @@ impl Step {
 
     #[tracing::instrument(skip(self))]
     pub fn make_runnable(&self) {
-        tracing::info!("step '{}' is now runnable", self.get_drv_path());
         debug_assert!(self.atomic_state.created.load(Ordering::SeqCst));
         debug_assert!(!self.get_finished());
 
@@ -290,6 +289,8 @@ impl Step {
 
         // only ever mark as runnable once
         if !self.runnable.load(Ordering::SeqCst) {
+            tracing::info!("step '{}' is now runnable", self.get_drv_path());
+
             self.runnable.store(true, Ordering::SeqCst);
             let now = jiff::Timestamp::now();
             self.atomic_state.runnable_since.store(now);
