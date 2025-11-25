@@ -711,9 +711,17 @@ impl State {
             })
             .await;
         let before_build = Instant::now();
-        let fod_result = crate::utils::rebuild_fod(&store, &drv_info)
-            .await
-            .map_err(JobFailure::Build)?;
+        let fod_result = crate::utils::rebuild_fod(
+            &store,
+            &drv_info,
+            Some(nix_utils::BuildOptions::complete(
+                m.max_log_size,
+                m.max_silent_time,
+                m.build_timeout,
+            )),
+        )
+        .await
+        .map_err(JobFailure::Build)?;
         timings.build_elapsed = before_build.elapsed();
 
         let (result_state, expected_hash, actual_hash, output) = match fod_result {

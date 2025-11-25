@@ -185,7 +185,16 @@ impl QueueType {
     }
 }
 
-#[derive(Debug)]
+pub struct BuildMessageBody {
+    pub build_id: uuid::Uuid,
+    pub drv: nix_utils::StorePath,
+    pub resolved_drv: Option<nix_utils::StorePath>,
+    pub max_log_size: u64,
+    pub max_silent_time: i32,
+    pub build_timeout: i32,
+    pub presigned_url_opts: Option<super::machine::PresignedUrlOpts>,
+}
+
 pub struct InnerQueues {
     queue_type: QueueType,
     features: Vec<String>,
@@ -195,16 +204,24 @@ pub struct InnerQueues {
     inner: HashMap<System, Arc<BuildQueue>>,
     #[allow(clippy::type_complexity)]
     scheduled: parking_lot::RwLock<HashMap<nix_utils::StorePath, ScheduledItem>>,
+    build_message_generator: Arc<dyn Fn(BuildMessageBody) -> super::machine::Message + Send + Sync>,
 }
 
 impl InnerQueues {
-    fn new(queue_type: QueueType, features: Vec<String>) -> Self {
+    fn new(
+        queue_type: QueueType,
+        features: Vec<String>,
+        build_message_generator: Arc<
+            dyn Fn(BuildMessageBody) -> super::machine::Message + Send + Sync,
+        >,
+    ) -> Self {
         Self {
             queue_type,
             features,
             jobs: HashMap::with_capacity(1000),
             inner: HashMap::with_capacity(4),
             scheduled: parking_lot::RwLock::new(HashMap::with_capacity(100)),
+            build_message_generator,
         }
     }
 
@@ -380,12 +397,21 @@ impl InnerQueues {
     }
 }
 
-#[derive(Debug)]
 pub struct JobConstraint<'a> {
     job: Arc<StepInfo>,
     system: System,
     queue_type: QueueType,
     queue_features: &'a [String],
+
+    build_message_generator: Arc<dyn Fn(BuildMessageBody) -> super::machine::Message + Send + Sync>,
+}
+
+pub struct ResolvedJobConstraint {
+    pub machine: Arc<crate::state::Machine>,
+    pub step_info: Arc<StepInfo>,
+    pub queue_type: QueueType,
+    pub build_message_generator:
+        Arc<dyn Fn(BuildMessageBody) -> super::machine::Message + Send + Sync>,
 }
 
 impl<'a> JobConstraint<'a> {
@@ -394,12 +420,16 @@ impl<'a> JobConstraint<'a> {
         system: System,
         queue_type: QueueType,
         queue_features: &'a [String],
+        build_message_generator: Arc<
+            dyn Fn(BuildMessageBody) -> super::machine::Message + Send + Sync,
+        >,
     ) -> Self {
         Self {
             job,
             system,
             queue_type,
             queue_features,
+            build_message_generator,
         }
     }
 
@@ -407,7 +437,7 @@ impl<'a> JobConstraint<'a> {
         self,
         machines: &crate::state::Machines,
         free_fn: crate::config::MachineFreeFn,
-    ) -> Option<(Arc<crate::state::Machine>, Arc<StepInfo>, QueueType)> {
+    ) -> Option<ResolvedJobConstraint> {
         let step_features = self.job.step.get_required_features();
         let merged_features = if self.queue_features.is_empty() {
             step_features
@@ -417,7 +447,12 @@ impl<'a> JobConstraint<'a> {
         if let Some(machine) =
             machines.get_machine_for_system(&self.system, &merged_features, Some(free_fn))
         {
-            Some((machine, self.job, self.queue_type))
+            Some(ResolvedJobConstraint {
+                machine,
+                step_info: self.job,
+                queue_type: self.queue_type,
+                build_message_generator: self.build_message_generator,
+            })
         } else {
             let drv = self.job.step.get_drv_path();
             tracing::debug!("No free machine found for system={} drv={drv}", self.system);
@@ -426,7 +461,7 @@ impl<'a> JobConstraint<'a> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Queues {
     main: Arc<tokio::sync::RwLock<InnerQueues>>,
     fod: Arc<tokio::sync::RwLock<InnerQueues>>,
@@ -438,6 +473,30 @@ impl Default for Queues {
     }
 }
 
+fn into_build_message(body: BuildMessageBody) -> super::machine::Message {
+    super::machine::Message::BuildMessage {
+        build_id: body.build_id,
+        drv: body.drv,
+        resolved_drv: body.resolved_drv,
+        max_log_size: body.max_log_size,
+        max_silent_time: body.max_silent_time,
+        build_timeout: body.build_timeout,
+        presigned_url_opts: body.presigned_url_opts,
+    }
+}
+
+fn into_fod_message(body: BuildMessageBody) -> super::machine::Message {
+    super::machine::Message::RebuildFodMessage {
+        build_id: body.build_id,
+        drv: body.drv,
+        resolved_drv: body.resolved_drv,
+        max_log_size: body.max_log_size,
+        max_silent_time: body.max_silent_time,
+        build_timeout: body.build_timeout,
+        presigned_url_opts: body.presigned_url_opts,
+    }
+}
+
 impl Queues {
     #[must_use]
     pub fn new() -> Self {
@@ -445,10 +504,12 @@ impl Queues {
             main: Arc::new(tokio::sync::RwLock::new(InnerQueues::new(
                 QueueType::Main,
                 vec![],
+                Arc::new(into_build_message),
             ))),
             fod: Arc::new(tokio::sync::RwLock::new(InnerQueues::new(
                 QueueType::Fod,
                 vec!["fod-checker".into()],
+                Arc::new(into_fod_message),
             ))),
         }
     }
@@ -460,10 +521,12 @@ impl Queues {
             main: Arc::new(tokio::sync::RwLock::new(InnerQueues::new(
                 QueueType::Main,
                 main_features,
+                Arc::new(into_build_message),
             ))),
             fod: Arc::new(tokio::sync::RwLock::new(InnerQueues::new(
                 QueueType::Fod,
                 fod_features,
+                Arc::new(into_fod_message),
             ))),
         }
     }
@@ -535,12 +598,13 @@ impl Queues {
         let now = jiff::Timestamp::now();
         let mut nr_steps_waiting_all_queues = 0;
         for inner in [&self.main, &self.fod] {
-            let (queue_features, queues, queue_type) = {
+            let (queue_features, queues, queue_type, build_message_generator) = {
                 let inner = inner.read().await;
                 (
                     inner.get_features().to_vec(),
                     inner.clone_inner(),
                     inner.queue_type,
+                    inner.build_message_generator.clone(),
                 )
             };
             for (system, queue) in queues {
@@ -578,6 +642,7 @@ impl Queues {
                         system.clone(),
                         queue_type,
                         &queue_features,
+                        build_message_generator.clone(),
                     );
                     match processor(constraint).await {
                         Ok(crate::state::RealiseStepResult::Valid(m)) => {
@@ -873,7 +938,7 @@ mod tests {
                 captured.push(queue_features);
 
                 match constraint.resolve(&machines, crate::config::MachineFreeFn::Static) {
-                    Some((m, _, _)) => Ok(crate::state::RealiseStepResult::Valid(m)),
+                    Some(res) => Ok(crate::state::RealiseStepResult::Valid(res.machine)),
                     None => Ok(crate::state::RealiseStepResult::None),
                 }
             }
@@ -941,15 +1006,15 @@ mod tests {
                 captured.push((drv_path, queue_features));
 
                 match constraint.resolve(&machines, crate::config::MachineFreeFn::Static) {
-                    Some((m, step_info, queue_type)) => {
+                    Some(res) => {
                         let job = crate::state::machine::Job::new(
                             123,
-                            step_info.step.get_drv_path().clone(),
-                            queue_type,
-                            step_info.resolved_drv_path.clone(),
+                            res.step_info.step.get_drv_path().clone(),
+                            res.queue_type,
+                            res.step_info.resolved_drv_path.clone(),
                         );
-                        m.insert_job2(job);
-                        Ok(crate::state::RealiseStepResult::Valid(m))
+                        res.machine.insert_job2(job);
+                        Ok(crate::state::RealiseStepResult::Valid(res.machine))
                     }
                     None => Ok(crate::state::RealiseStepResult::None),
                 }
@@ -1040,15 +1105,15 @@ mod tests {
                 captured.push((drv_path, queue_features));
 
                 match constraint.resolve(&machines, crate::config::MachineFreeFn::Static) {
-                    Some((m, step_info, queue_type)) => {
+                    Some(res) => {
                         let job = crate::state::machine::Job::new(
                             123,
-                            step_info.step.get_drv_path().clone(),
-                            queue_type,
-                            step_info.resolved_drv_path.clone(),
+                            res.step_info.step.get_drv_path().clone(),
+                            res.queue_type,
+                            res.step_info.resolved_drv_path.clone(),
                         );
-                        m.insert_job2(job);
-                        Ok(crate::state::RealiseStepResult::Valid(m))
+                        res.machine.insert_job2(job);
+                        Ok(crate::state::RealiseStepResult::Valid(res.machine))
                     }
                     None => Ok(crate::state::RealiseStepResult::None),
                 }

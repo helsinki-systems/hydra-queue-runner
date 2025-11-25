@@ -8,7 +8,9 @@ use db::models::BuildID;
 
 use super::{RemoteBuild, System};
 use crate::config::{MachineFreeFn, MachineSortFn};
-use crate::server::grpc::runner_v1::{AbortMessage, BuildMessage, JoinMessage, runner_request};
+use crate::server::grpc::runner_v1::{
+    AbortMessage, BuildMessage, JoinMessage, RebuildFodMessage, runner_request,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Pressure {
@@ -525,6 +527,7 @@ impl Job {
     }
 }
 
+#[derive(Debug)]
 pub struct PresignedUrlOpts {
     pub upload_debug_info: bool,
 }
@@ -542,9 +545,19 @@ pub struct ConfigUpdate {
     pub max_concurrent_downloads: u32,
 }
 
+#[derive(Debug)]
 pub enum Message {
     ConfigUpdate(ConfigUpdate),
     BuildMessage {
+        build_id: uuid::Uuid,
+        drv: nix_utils::StorePath,
+        resolved_drv: Option<nix_utils::StorePath>,
+        max_log_size: u64,
+        max_silent_time: i32,
+        build_timeout: i32,
+        presigned_url_opts: Option<PresignedUrlOpts>,
+    },
+    RebuildFodMessage {
         build_id: uuid::Uuid,
         drv: nix_utils::StorePath,
         resolved_drv: Option<nix_utils::StorePath>,
@@ -575,6 +588,23 @@ impl Message {
                 build_timeout,
                 presigned_url_opts,
             } => runner_request::Message::Build(BuildMessage {
+                build_id: build_id.to_string(),
+                drv: drv.into_base_name(),
+                resolved_drv: resolved_drv.map(nix_utils::StorePath::into_base_name),
+                max_log_size,
+                max_silent_time,
+                build_timeout,
+                presigned_url_opts: presigned_url_opts.map(Into::into),
+            }),
+            Message::RebuildFodMessage {
+                build_id,
+                drv,
+                resolved_drv,
+                max_log_size,
+                max_silent_time,
+                build_timeout,
+                presigned_url_opts,
+            } => runner_request::Message::Fod(RebuildFodMessage {
                 build_id: build_id.to_string(),
                 drv: drv.into_base_name(),
                 resolved_drv: resolved_drv.map(nix_utils::StorePath::into_base_name),
@@ -733,19 +763,20 @@ impl Machine {
     }
 
     #[tracing::instrument(
-        skip(self, job, opts, presigned_url_opts),
+        skip(self, msg_generator, job, opts, presigned_url_opts),
         fields(build_id=job.build_id, step_nr=job.step_nr),
         err,
     )]
     pub async fn build_drv(
         &self,
+        msg_generator: Arc<dyn Fn(super::queue::BuildMessageBody) -> Message + Send + Sync>,
         job: Job,
         opts: &nix_utils::BuildOptions,
         presigned_url_opts: Option<PresignedUrlOpts>,
     ) -> anyhow::Result<()> {
         let drv = job.path.clone();
         self.msg_queue
-            .send(Message::BuildMessage {
+            .send(msg_generator(super::queue::BuildMessageBody {
                 build_id: job.internal_build_id,
                 drv,
                 resolved_drv: job.resolved_drv.clone(),
@@ -753,7 +784,7 @@ impl Machine {
                 max_silent_time: opts.get_max_silent_time(),
                 build_timeout: opts.get_build_timeout(),
                 presigned_url_opts,
-            })
+            }))
             .await?;
 
         if self.stats.jobs_in_last_30s_count.load(Ordering::Relaxed) == 0 {
