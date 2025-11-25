@@ -1,9 +1,9 @@
 use sqlx::Acquire;
 
 use super::models::{
-    Build, BuildSmall, BuildStatus, BuildSteps, InsertBuildMetric, InsertBuildProduct,
-    InsertBuildStep, InsertBuildStepOutput, Jobset, UpdateBuild, UpdateBuildStep,
-    UpdateBuildStepInFinish,
+    Build, BuildSmall, BuildStatus, BuildSteps, BuildWithTimestamps, InsertBuildMetric,
+    InsertBuildProduct, InsertBuildStep, InsertBuildStepOutput, InsertFodCheck, Jobset,
+    UpdateBuild, UpdateBuildStep, UpdateBuildStepInFinish,
 };
 
 pub struct Connection {
@@ -31,11 +31,9 @@ impl Connection {
         sqlx::query_as!(
             BuildSmall,
             r#"
-            SELECT
-              id,
-              globalPriority
+            SELECT id, globalPriority
             FROM builds
-            WHERE finished = 0;"#
+            WHERE finished = 0 AND fodCheck = false;"#
         )
         .fetch_all(&mut *self.conn)
         .await
@@ -60,7 +58,7 @@ impl Connection {
               priority
             FROM builds
             INNER JOIN jobsets ON builds.jobset_id = jobsets.id
-            WHERE finished = 0 ORDER BY globalPriority desc, schedulingshares, random();"#
+            WHERE finished = 0 AND fodCheck = false ORDER BY globalPriority desc, schedulingshares, random();"#
         )
         .fetch_all(&mut *self.conn)
         .await
@@ -109,7 +107,8 @@ impl Connection {
             WHERE
               s.startTime IS NOT NULL AND
               to_timestamp(s.stopTime) > (NOW() - (interval '1 second' * $1)) AND
-              jobset_id = $2
+              jobset_id = $2 AND
+              fodCheck = false
             "#,
             Some((scheduling_window * 10) as f64),
             jobset_id,
@@ -221,11 +220,14 @@ impl Connection {
         sqlx::query_as!(
             super::models::BuildOutput,
             r#"
-            SELECT
-              id, buildStatus, releaseName, closureSize, size
+            SELECT id, buildStatus, releaseName, closureSize, size
             FROM builds b
             JOIN buildoutputs o on b.id = o.build
-            WHERE finished = 1 and (buildStatus = 0 or buildStatus = 6) and path = $1;"#,
+            WHERE
+              finished = 1 AND
+              (buildStatus = 0 OR buildStatus = 6) AND
+              path = $1 AND
+              fodCheck = false;"#,
             out_path,
         )
         .fetch_optional(&mut *self.conn)
@@ -280,6 +282,31 @@ impl Connection {
                 .await?
                 .map(|v| v.status),
         )
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    pub async fn get_not_finished_fod_checks(&mut self) -> sqlx::Result<Vec<Build>> {
+        sqlx::query_as!(
+            Build,
+            r#"
+            SELECT
+              builds.id,
+              builds.jobset_id,
+              jobsets.project as project,
+              jobsets.name as jobset,
+              job,
+              drvPath,
+              maxsilent,
+              timeout,
+              timestamp,
+              globalPriority,
+              priority
+            FROM builds
+            INNER JOIN jobsets ON builds.jobset_id = jobsets.id
+            WHERE finished = 0 and fodCheck = true ORDER BY globalPriority desc, schedulingshares, random();"#
+        )
+        .fetch_all(&mut *self.conn)
+        .await
     }
 }
 
@@ -462,8 +489,46 @@ impl Transaction<'_> {
         .map_or(1, |v| v + 1))
     }
 
+    #[tracing::instrument(skip(self, build), err)]
+    pub async fn create_fod_check(&mut self, build: InsertFodCheck<'_>) -> sqlx::Result<i32> {
+        Ok(sqlx::query!(
+            r#"
+            INSERT INTO builds (
+              finished,
+              timestamp,
+              jobset_id,
+              job,
+              nixname,
+              drvPath,
+              system,
+              isCachedBuild,
+              fodCheck
+            ) VALUES (
+              0,
+              $1,
+              $2,
+              $3,
+              $4,
+              $5,
+              $6,
+              0,
+              true
+            ) RETURNING id;
+            "#,
+            build.timestamp,
+            build.jobset_id,
+            build.job,
+            build.nixname,
+            build.drv_path,
+            build.system,
+        )
+        .fetch_one(&mut *self.tx)
+        .await?
+        .id)
+    }
+
     #[tracing::instrument(skip(self, step), err)]
-    pub async fn insert_build_step(&mut self, step: InsertBuildStep<'_>) -> sqlx::Result<bool> {
+    async fn insert_build_step(&mut self, step: InsertBuildStep<'_>) -> sqlx::Result<bool> {
         let success = sqlx::query!(
             r#"
               INSERT INTO buildsteps (
@@ -613,6 +678,24 @@ impl Transaction<'_> {
         .fetch_optional(&mut *self.tx)
         .await?
         .is_some())
+    }
+
+    #[tracing::instrument(skip(self, drv_path), err)]
+    pub async fn get_last_fod_check(
+        &mut self,
+        drv_path: &str,
+    ) -> sqlx::Result<Option<BuildWithTimestamps>> {
+        sqlx::query_as!(
+            BuildWithTimestamps,
+            r#"SELECT
+              id, timestamp, drvpath, starttime, stoptime
+            FROM builds
+            WHERE drvpath = $1 and fodcheck = true and finished = 1 ORDER BY timestamp desc
+            LIMIT 1;"#,
+            drv_path,
+        )
+        .fetch_optional(&mut *self.tx)
+        .await
     }
 
     #[tracing::instrument(skip(self, p), err)]

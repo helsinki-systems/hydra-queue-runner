@@ -2,14 +2,22 @@ use std::sync::Arc;
 
 use hashbrown::{HashMap, HashSet};
 
-use nix_utils::{Derivation, LocalStore, StorePath};
+use nix_utils::{BaseStore, Derivation, LocalStore, StorePath};
 
 use crate::state::{AtomicDateTime, QueueType, Queues, Step, StepInfo, System};
 
-pub struct FodChecker {
-    store: nix_utils::LocalStore,
+#[derive(Clone, Debug)]
+struct FodItem {
+    drv: nix_utils::Derivation,
+    build_id: Option<i32>,
+}
 
-    ca_derivations: parking_lot::RwLock<HashMap<StorePath, nix_utils::Derivation>>,
+pub struct FodChecker {
+    db: Option<db::Database>,
+    store: nix_utils::LocalStore,
+    config: crate::config::PreparedFodConfig,
+
+    ca_derivations: parking_lot::RwLock<HashMap<StorePath, FodItem>>,
     to_traverse: parking_lot::RwLock<HashSet<StorePath>>,
 
     notify_traverse: tokio::sync::Notify,
@@ -23,7 +31,7 @@ async fn collect_ca_derivations(
     store: &LocalStore,
     drv: &StorePath,
     processed: Arc<parking_lot::RwLock<HashSet<StorePath>>>,
-) -> HashMap<StorePath, nix_utils::Derivation> {
+) -> HashMap<StorePath, FodItem> {
     use futures::StreamExt as _;
 
     {
@@ -58,7 +66,11 @@ async fn collect_ca_derivations(
         .await
     };
     if is_ca {
-        out.insert(drv.clone(), parsed);
+        let item = FodItem {
+            drv: parsed,
+            build_id: None,
+        };
+        out.insert(drv.clone(), item);
     }
 
     out
@@ -67,11 +79,18 @@ async fn collect_ca_derivations(
 impl FodChecker {
     #[must_use]
     pub fn new(
+        db: Option<db::Database>,
         store: LocalStore,
+        config: crate::config::PreparedFodConfig,
         traverse_done_notifier: Option<tokio::sync::mpsc::Sender<()>>,
     ) -> Self {
+        // TODO: load not done steps
+
         Self {
+            db,
             store,
+            config,
+
             ca_derivations: parking_lot::RwLock::new(HashMap::with_capacity(1000)),
             to_traverse: parking_lot::RwLock::new(HashSet::new()),
 
@@ -86,7 +105,13 @@ impl FodChecker {
     pub(super) fn add_ca_drv_parsed(&self, drv: &StorePath, parsed: &nix_utils::Derivation) {
         if parsed.is_ca() {
             let mut ca = self.ca_derivations.write();
-            ca.insert(drv.clone(), parsed.clone());
+            if !ca.contains_key(drv) {
+                let item = FodItem {
+                    drv: parsed.clone(),
+                    build_id: None,
+                };
+                ca.insert(drv.clone(), item);
+            }
         }
     }
 
@@ -108,10 +133,14 @@ impl FodChecker {
     async fn traverse(&self) {
         use futures::StreamExt as _;
 
-        let drvs = {
+        let mut drvs = {
             let mut tt = self.to_traverse.write();
             tt.drain().collect::<HashSet<_>>()
         };
+        {
+            let ca_derivations = self.ca_derivations.read();
+            drvs.retain(|p| !ca_derivations.contains_key(p));
+        }
         if drvs.is_empty() {
             return;
         }
@@ -129,7 +158,10 @@ impl FodChecker {
         {
             let out_len = out.len();
             let mut ca_derivations = self.ca_derivations.write();
-            ca_derivations.extend(out);
+            for (k, v) in out {
+                // dont update any existing value
+                let _ = ca_derivations.try_insert(k, v);
+            }
             tracing::info!(
                 "new ca derivations: {out_len} => resulting count: {}",
                 ca_derivations.len()
@@ -164,38 +196,88 @@ impl FodChecker {
         task.abort_handle()
     }
 
-    #[tracing::instrument(skip(self, queues, config))]
-    async fn dispatch_once(&self, queues: Queues, config: crate::config::App) {
+    #[tracing::instrument(skip(self, queues, app_config))]
+    async fn dispatch_once(
+        &self,
+        queues: Queues,
+        app_config: crate::config::App,
+    ) -> anyhow::Result<()> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or(anyhow::anyhow!("No db passed. Can not dispatch"))?;
+
         let now = jiff::Timestamp::now();
 
         // only do this every 3 hours as the FOD-checker has almost no priority
         if now <= (self.last_full_dispatch.load() + jiff::SignedDuration::from_hours(3)) {
-            return;
+            return Ok(());
         }
 
         let mut new_queues = HashMap::<System, Vec<StepInfo>>::with_capacity(10);
-        let new_ca_derivations = {
+        let mut new_ca_derivations = {
             let mut ca_derivations = self.ca_derivations.write();
             ca_derivations.drain().collect::<HashMap<_, _>>()
         };
         if new_ca_derivations.is_empty() {
             // early return, because we dont want to reset last_full_dispatch in this case.
-            return;
+            return Ok(());
+        }
+
+        let mut conn = db.get().await?;
+        let not_done = conn
+            .get_not_finished_fod_checks()
+            .await?
+            .into_iter()
+            .map(|b| nix_utils::StorePath::new(&b.drvpath))
+            .collect::<HashSet<_>>();
+        new_ca_derivations.retain(|s, item| item.build_id.is_some() || !not_done.contains(s));
+        if new_ca_derivations.is_empty() {
+            // early return, because we dont want to reset last_full_dispatch in this case.
+            return Ok(());
         }
 
         tracing::info!("starting fod dispatch");
-        for (store_path, drv) in new_ca_derivations {
+        let mut tx = conn.begin_transaction().await?;
+        let timestamp = i32::try_from(now.as_second())?; // TODO
+        for (store_path, item) in new_ca_derivations {
+            let drv = item.drv;
             if !drv.is_ca() {
                 continue;
             }
             let system = drv.system.clone();
 
-            // TODO: write new step as build into db
-            // TODO: check last time we checked that FOD, dont check FODs more than 1Week, configurable
-            // TODO: write into db
+            let printed_store_path = self.store.print_store_path(&store_path);
+            // if from_database is true we already have this build in the database
+            let build_id = if let Some(build_id) = item.build_id {
+                build_id
+            } else {
+                if let Some(prev_build) = tx.get_last_fod_check(&printed_store_path).await? {
+                    let ts = jiff::Timestamp::from_second(
+                        prev_build.stoptime.unwrap_or(prev_build.timestamp).into(),
+                    )?;
+                    if (ts + self.config.duration_between_fod_checks) >= now {
+                        tracing::debug!(
+                            "We had a fod check in the last {}h, not checking {}",
+                            self.config.duration_between_fod_checks.as_hours(),
+                            store_path,
+                        );
+                        continue;
+                    }
+                }
+                tx.create_fod_check(db::models::InsertFodCheck {
+                    timestamp,
+                    jobset_id: self.config.jobset_id,
+                    job: "fod-check",
+                    nixname: drv.env.get_name(),
+                    drv_path: &printed_store_path,
+                    system: &drv.system,
+                })
+                .await?
+            };
 
             // TODO: Do we need to ensure that its actually runnable?
-            let step = Step::new(store_path);
+            let step = Step::with_build_id(store_path, build_id);
             step.atomic_state.set_created(true);
             step.set_drv(drv);
             step.make_runnable();
@@ -206,35 +288,70 @@ impl FodChecker {
                 .or_insert_with(|| Vec::with_capacity(100))
                 .push(step_info);
         }
+        tx.commit().await?;
 
         for (system, jobs) in new_queues {
             tracing::info!("Inserting new jobs into fod queue: {system} {}", jobs.len());
             queues
-                .insert_new_jobs_into_fod(system, jobs, &now, config.get_step_sort_fn())
+                .insert_new_jobs_into_fod(system, jobs, &now, app_config.get_step_sort_fn())
                 .await;
         }
         queues.remove_all_weak_pointer(Some(QueueType::Fod)).await;
         self.last_full_dispatch.store(jiff::Timestamp::now());
+        Ok(())
     }
 
-    #[tracing::instrument(name = "fod_dispatch_loop", skip(self, queues, config))]
-    async fn dispatch_loop(&self, queues: Queues, config: crate::config::App) {
+    #[tracing::instrument(name = "fod_dispatch_loop", skip(self, queues, app_config))]
+    async fn dispatch_loop(&self, queues: Queues, app_config: crate::config::App) {
         loop {
             tokio::select! {
                 () = self.notify_dispatch.notified() => {},
                 () = tokio::time::sleep(tokio::time::Duration::from_secs(3600)) => {},
             };
-            self.dispatch_once(queues.clone(), config.clone()).await;
+            if let Err(e) = self.dispatch_once(queues.clone(), app_config.clone()).await {
+                tracing::error!("Failed to run dispatch: {e}");
+            }
         }
     }
 
-    pub fn start_dispatch_loop(
+    async fn load_vals_from_db(&self) -> anyhow::Result<()> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or(anyhow::anyhow!("No db passed. Can not dispatch"))?;
+        let mut conn = db.get().await?;
+        let not_done = conn.get_not_finished_fod_checks().await?;
+
+        let mut c = 0;
+        for b in not_done {
+            let drvpath = nix_utils::StorePath::new(&b.drvpath);
+            if let Ok(Some(drv)) = nix_utils::query_drv(&self.store, &drvpath).await {
+                let item = FodItem {
+                    drv,
+                    build_id: Some(b.id),
+                };
+                let mut ca = self.ca_derivations.write();
+                ca.insert(drvpath, item);
+                c += 1;
+            }
+        }
+        tracing::info!("Found {c} items in db");
+
+        Ok(())
+    }
+
+    pub async fn start_dispatch_loop(
         self: Arc<Self>,
         queues: Queues,
-        config: crate::config::App,
+        app_config: crate::config::App,
     ) -> tokio::task::AbortHandle {
+        // on the start of the dispatch loop we first load all current fod checks not yet finished.
+        if let Err(e) = self.load_vals_from_db().await {
+            tracing::error!("Failed to load old values from database: {e}");
+        }
+
         let task = tokio::task::spawn(async move {
-            Box::pin(self.dispatch_loop(queues, config)).await;
+            Box::pin(self.dispatch_loop(queues, app_config)).await;
         });
         task.abort_handle()
     }
@@ -251,8 +368,8 @@ impl FodChecker {
         };
 
         let mut c = 0;
-        for (path, drv) in drvs {
-            processor(path, drv).await;
+        for (path, item) in drvs {
+            processor(path, item.drv).await;
             c += 1;
         }
 
@@ -275,7 +392,12 @@ mod tests {
             nix_utils::StorePath::new("rl5m4zxd24mkysmpbp4j9ak6q7ia6vj8-hello-2.12.2.drv");
         store.ensure_path(&hello_drv).await.unwrap();
 
-        let fod = FodChecker::new(store, None);
+        let fod = FodChecker::new(
+            None,
+            store,
+            crate::config::PreparedFodConfig::init(1, jiff::SignedDuration::from_secs(60)),
+            None,
+        );
         fod.to_traverse(&hello_drv);
         fod.traverse().await;
         assert_eq!(fod.ca_derivations.read().len(), 59);

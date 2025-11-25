@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n              id,\n              globalPriority\n            FROM builds\n            WHERE finished = 0;",
+  "query": "\n            SELECT id, globalPriority\n            FROM builds\n            WHERE finished = 0 AND fodCheck = false;",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "9ac00b06367900308f94877d24cc7db38d6e03e9208206195f52214648ddc2d2"
+  "hash": "a97e3894b3e72c4581e5ed167ed37cddfd19738a3ca0dc2eb17016c896f46717"
 }

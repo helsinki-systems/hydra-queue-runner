@@ -65,6 +65,14 @@ pub struct BuildSmall {
     pub globalpriority: i32,
 }
 
+pub struct BuildWithTimestamps {
+    pub id: BuildID,
+    pub timestamp: i32,
+    pub drvpath: String,
+    pub starttime: Option<i32>,
+    pub stoptime: Option<i32>,
+}
+
 pub struct Build {
     pub id: BuildID,
     pub jobset_id: i32,
@@ -98,6 +106,15 @@ pub struct UpdateBuild<'a> {
     pub closure_size: i64,
     pub release_name: Option<&'a str>,
     pub is_cached_build: bool,
+}
+
+pub struct InsertFodCheck<'a> {
+    pub timestamp: i32, // TODO
+    pub jobset_id: i32,
+    pub job: &'a str,
+    pub nixname: Option<&'a str>,
+    pub drv_path: &'a str,
+    pub system: &'a str,
 }
 
 pub struct InsertBuildStep<'a> {

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT s.startTime, s.stopTime FROM buildsteps s join builds b on build = id\n            WHERE\n              s.startTime IS NOT NULL AND\n              to_timestamp(s.stopTime) > (NOW() - (interval '1 second' * $1)) AND\n              jobset_id = $2 AND\n              fodCheck = false\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "starttime",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "stoptime",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "52df16acda3b0fa0e842d2277c187d7ffc98594b387365e5b5275db1f0b9371f"
+}
