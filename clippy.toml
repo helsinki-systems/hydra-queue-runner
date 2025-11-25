@@ -18,6 +18,10 @@ disallowed-methods = [
     { path = "std::fs::set_permissions", replacement = "fs_err::set_permissions" },
     { path = "std::fs::symlink_metadata", replacement = "fs_err::symlink_metadata" },
     { path = "std::fs::write", replacement = "fs_err::write" },
+    { path = "std::fs::File::open", replacement = "fs_err::File::open" },
+    { path = "std::fs::File::create", replacement = "fs_err::File::create" },
+    { path = "std::fs::File::create_new", replacement = "fs_err::File::create_new" },
+    { path = "std::fs::OpenOptions::new", replacement = "fs_err::OpenOptions::new" },
 
     { path = "std::os::unix::fs::symlink", replacement = "fs_err::os::unix::symlink" },
 
@@ -45,4 +49,8 @@ disallowed-methods = [
     { path = "tokio::fs::set_permissions", replacement = "fs_err::tokio::set_permissions" },
     { path = "tokio::fs::symlink_metadata", replacement = "fs_err::tokio::symlink_metadata" },
     { path = "tokio::fs::write", replacement = "fs_err::tokio::write" },
+    { path = "tokio::fs::File::open", replacement = "fs_err::tokio::File::open" },
+    { path = "tokio::fs::File::create", replacement = "fs_err::tokio::File::create" },
+    { path = "tokio::fs::File::create_new", replacement = "fs_err::tokio::File::create_new" },
+    { path = "tokio::fs::OpenOptions::new", replacement = "fs_err::tokio::OpenOptions::new" },
 ]

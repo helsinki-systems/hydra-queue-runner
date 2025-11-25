@@ -7,9 +7,12 @@
 
 pub mod config;
 pub mod io;
+pub mod lock_file;
 pub mod server;
 pub mod state;
 pub mod utils;
+
+use anyhow::Context as _;
 
 use state::State;
 
@@ -80,20 +83,16 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    let lockfile_path = state.config.get_lockfile();
+    let _lock = lock_file::LockFile::acquire(&lockfile_path)
+        .context("Another instance is already running.")?;
+
     if !state.cli.mtls_configured_correctly() {
         tracing::error!(
             "mtls configured inproperly, please pass all options: server_cert_path, server_key_path and client_ca_cert_path!"
         );
         return Err(anyhow::anyhow!("Configuration issue"));
     }
-
-    let lockfile_path = state.config.get_lockfile();
-    let _lock = lockfile::Lockfile::create_with_parents(&lockfile_path).map_err(|e| {
-        anyhow::anyhow!(
-            "Another instance is already running. Path={} Internal Error: {e}",
-            lockfile_path.display()
-        )
-    })?;
 
     let task_abort_handles = start_task_loops(&state);
     tracing::info!(
