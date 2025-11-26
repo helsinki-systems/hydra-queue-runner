@@ -6,6 +6,9 @@ pub(crate) struct LockFile {
 impl LockFile {
     pub(crate) fn acquire(path: impl Into<std::path::PathBuf>) -> std::io::Result<Self> {
         let path = path.into();
+        if let Some(parent) = path.parent() {
+            fs_err::create_dir_all(&parent)?;
+        }
         let file = fs_err::File::create(&path)?;
         file.try_lock()?;
         Ok(Self { path, file })
