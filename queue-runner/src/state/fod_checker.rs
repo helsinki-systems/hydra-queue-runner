@@ -4,7 +4,7 @@ use hashbrown::{HashMap, HashSet};
 
 use nix_utils::{BaseStore, Derivation, LocalStore, StorePath};
 
-use crate::state::{AtomicDateTime, QueueType, Queues, Step, StepInfo, System};
+use crate::state::{AtomicDateTime, Jobsets, QueueType, Queues, Step, StepInfo, System};
 
 #[derive(Clone, Debug)]
 struct FodItem {
@@ -196,9 +196,11 @@ impl FodChecker {
         task.abort_handle()
     }
 
-    #[tracing::instrument(skip(self, queues, app_config))]
+    #[allow(clippy::too_many_lines)]
+    #[tracing::instrument(skip(self, jobsets, queues, app_config), err)]
     async fn dispatch_once(
         &self,
+        jobsets: Jobsets,
         queues: Queues,
         app_config: crate::config::App,
     ) -> anyhow::Result<()> {
@@ -209,8 +211,8 @@ impl FodChecker {
 
         let now = jiff::Timestamp::now();
 
-        // only do this every 3 hours as the FOD-checker has almost no priority
-        if now <= (self.last_full_dispatch.load() + jiff::SignedDuration::from_hours(3)) {
+        // only do this every 1 hours as the FOD-checker has almost no priority
+        if now <= (self.last_full_dispatch.load() + jiff::SignedDuration::from_hours(1)) {
             return Ok(());
         }
 
@@ -225,6 +227,7 @@ impl FodChecker {
         }
 
         let mut conn = db.get().await?;
+        let mut conn2 = db.get().await?;
         let not_done = conn
             .get_not_finished_fod_checks()
             .await?
@@ -249,8 +252,8 @@ impl FodChecker {
 
             let printed_store_path = self.store.print_store_path(&store_path);
             // if from_database is true we already have this build in the database
-            let build_id = if let Some(build_id) = item.build_id {
-                build_id
+            let b = if let Some(build_id) = item.build_id {
+                tx.load_build_by_id(build_id).await?
             } else {
                 if let Some(prev_build) = tx.get_last_fod_check(&printed_store_path).await? {
                     let ts = jiff::Timestamp::from_second(
@@ -265,22 +268,46 @@ impl FodChecker {
                         continue;
                     }
                 }
-                tx.create_fod_check(db::models::InsertFodCheck {
-                    timestamp,
-                    jobset_id: self.config.jobset_id,
-                    job: "fod-check",
-                    nixname: drv.env.get_name(),
-                    drv_path: &printed_store_path,
-                    system: &drv.system,
-                })
-                .await?
+                let build_id = tx
+                    .create_fod_check(db::models::InsertFodCheck {
+                        timestamp,
+                        jobset_id: self.config.jobset_id,
+                        job: "fod-check",
+                        nixname: drv.env.get_name(),
+                        drv_path: &printed_store_path,
+                        system: &drv.system,
+                    })
+                    .await?;
+                tx.load_build_by_id(build_id).await?
             };
+            let Some(b) = b else {
+                continue;
+            };
+            let jobset = jobsets
+                // TODO: allow tx here as well
+                .create(&mut conn2, b.jobset_id, &b.project, &b.jobset)
+                .await?;
+
+            let build = super::Build::new(b, jobset)?;
 
             // TODO: Do we need to ensure that its actually runnable?
-            let step = Step::with_build_id(store_path, build_id);
+            let step = Step::with_build_hint(store_path, build.clone());
             step.atomic_state.set_created(true);
             step.set_drv(drv);
             step.make_runnable();
+            step.add_referring_data(Some(&build), None);
+
+            let mut indirect = HashSet::new();
+            let mut steps = HashSet::new();
+            step.get_dependents(&mut indirect, &mut steps);
+            tracing::warn!("indirect for {}: {indirect:?}", step.get_drv_path());
+            tracing::warn!("steps for {}: {steps:?}", step.get_drv_path());
+            tracing::warn!(
+                "direct for {}: {:?}",
+                step.get_drv_path(),
+                step.get_direct_builds()
+            );
+
             let step_info = StepInfo::new(&self.store, step).await;
 
             new_queues
@@ -301,14 +328,22 @@ impl FodChecker {
         Ok(())
     }
 
-    #[tracing::instrument(name = "fod_dispatch_loop", skip(self, queues, app_config))]
-    async fn dispatch_loop(&self, queues: Queues, app_config: crate::config::App) {
+    #[tracing::instrument(name = "fod_dispatch_loop", skip(self, jobsets, queues, app_config))]
+    async fn dispatch_loop(
+        &self,
+        jobsets: Jobsets,
+        queues: Queues,
+        app_config: crate::config::App,
+    ) {
         loop {
             tokio::select! {
                 () = self.notify_dispatch.notified() => {},
                 () = tokio::time::sleep(tokio::time::Duration::from_secs(3600)) => {},
             };
-            if let Err(e) = self.dispatch_once(queues.clone(), app_config.clone()).await {
+            if let Err(e) = self
+                .dispatch_once(jobsets.clone(), queues.clone(), app_config.clone())
+                .await
+            {
                 tracing::error!("Failed to run dispatch: {e}");
             }
         }
@@ -325,14 +360,25 @@ impl FodChecker {
         let mut c = 0;
         for b in not_done {
             let drvpath = nix_utils::StorePath::new(&b.drvpath);
-            if let Ok(Some(drv)) = nix_utils::query_drv(&self.store, &drvpath).await {
-                let item = FodItem {
-                    drv,
-                    build_id: Some(b.id),
-                };
+            let Ok(drv) = nix_utils::query_drv(&self.store, &drvpath).await else {
+                continue;
+            };
+
+            if let Some(drv) = drv {
                 let mut ca = self.ca_derivations.write();
-                ca.insert(drvpath, item);
+                ca.insert(
+                    drvpath,
+                    FodItem {
+                        drv,
+                        build_id: Some(b.id),
+                    },
+                );
                 c += 1;
+            } else {
+                tracing::error!("aborting GC'ed fod check {}", b.id);
+                if let Err(e) = conn.abort_build(b.id).await {
+                    tracing::error!("Failed to abort the build={} e={}", b.id, e);
+                }
             }
         }
         tracing::info!("Found {c} items in db");
@@ -342,6 +388,7 @@ impl FodChecker {
 
     pub async fn start_dispatch_loop(
         self: Arc<Self>,
+        jobsets: Jobsets,
         queues: Queues,
         app_config: crate::config::App,
     ) -> tokio::task::AbortHandle {
@@ -351,7 +398,7 @@ impl FodChecker {
         }
 
         let task = tokio::task::spawn(async move {
-            Box::pin(self.dispatch_loop(queues, app_config)).await;
+            Box::pin(self.dispatch_loop(jobsets, queues, app_config)).await;
         });
         task.abort_handle()
     }
@@ -374,6 +421,11 @@ impl FodChecker {
         }
 
         c
+    }
+
+    pub fn force_dispatch_sync(&self) {
+        self.last_full_dispatch.store(jiff::Timestamp::MIN);
+        self.trigger_traverse();
     }
 }
 

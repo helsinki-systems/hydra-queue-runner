@@ -90,7 +90,9 @@ pub struct Step {
     pub atomic_state: StepAtomicState,
     state: parking_lot::RwLock<StepState>,
 
-    pub build_id_hint: Option<i32>,
+    // if we dont track this build globally we can set this hint to ensure that its not cleaned up
+    // this is useful for Fod-Checker
+    _build_hint: Option<Arc<Build>>,
 }
 
 impl PartialEq for Step {
@@ -124,12 +126,12 @@ impl Step {
             ),
             state: parking_lot::RwLock::new(StepState::new()),
 
-            build_id_hint: None,
+            _build_hint: None,
         })
     }
 
     #[must_use]
-    pub fn with_build_id(drv_path: nix_utils::StorePath, build_id: i32) -> Arc<Self> {
+    pub fn with_build_hint(drv_path: nix_utils::StorePath, build_hint: Arc<Build>) -> Arc<Self> {
         Arc::new(Self {
             drv_path,
             drv: arc_swap::ArcSwapOption::from(None),
@@ -142,7 +144,7 @@ impl Step {
             ),
             state: parking_lot::RwLock::new(StepState::new()),
 
-            build_id_hint: Some(build_id),
+            _build_hint: Some(build_hint),
         })
     }
 
