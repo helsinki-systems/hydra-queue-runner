@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
-use hashbrown::HashSet;
+use hashbrown::{HashMap, HashSet};
 
 use super::{Build, Jobset};
 use db::models::BuildID;
@@ -369,5 +369,132 @@ impl Step {
             .filter(|dep| !queued.contains(*dep))
             .map(Clone::clone)
             .collect()
+    }
+}
+
+#[derive(Clone)]
+pub struct Steps {
+    inner: Arc<parking_lot::RwLock<HashMap<nix_utils::StorePath, Weak<Step>>>>,
+}
+
+impl Default for Steps {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Steps {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(parking_lot::RwLock::new(HashMap::with_capacity(10000))),
+        }
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        let mut steps = self.inner.write();
+        steps.retain(|_, s| s.upgrade().is_some());
+        steps.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        let mut steps = self.inner.write();
+        steps.retain(|_, s| s.upgrade().is_some());
+        steps.is_empty()
+    }
+
+    #[must_use]
+    pub fn len_runnable(&self) -> usize {
+        let mut steps = self.inner.write();
+        steps.retain(|_, s| s.upgrade().is_some());
+        steps
+            .iter()
+            .filter_map(|(_, s)| s.upgrade().map(|v| v.get_runnable()))
+            .filter(|v| *v)
+            .count()
+    }
+
+    #[must_use]
+    pub fn clone_as_io(&self) -> Vec<crate::io::Step> {
+        let steps = self.inner.read();
+        steps
+            .values()
+            .filter_map(std::sync::Weak::upgrade)
+            .map(Into::into)
+            .collect()
+    }
+
+    #[must_use]
+    pub fn clone_runnable_as_io(&self) -> Vec<crate::io::Step> {
+        let steps = self.inner.read();
+        steps
+            .values()
+            .filter_map(std::sync::Weak::upgrade)
+            .filter(|v| v.get_runnable())
+            .map(Into::into)
+            .collect()
+    }
+
+    #[must_use]
+    pub fn clone_runnable(&self) -> Vec<Arc<Step>> {
+        let mut steps = self.inner.write();
+        let mut new_runnable = Vec::with_capacity(steps.len());
+        steps.retain(|_, r| {
+            let Some(step) = r.upgrade() else {
+                return false;
+            };
+            if step.get_runnable() {
+                new_runnable.push(step.clone());
+            }
+            true
+        });
+        new_runnable
+    }
+
+    pub fn make_rdeps_runnable(&self) {
+        let steps = self.inner.read();
+        for (_, s) in steps.iter() {
+            let Some(s) = s.upgrade() else {
+                continue;
+            };
+            if s.get_finished() && !s.get_previous_failure() {
+                s.make_rdeps_runnable();
+            }
+            // TODO: if previous failure we should propably also remove from deps
+        }
+    }
+
+    #[must_use]
+    pub fn create(
+        &self,
+        drv_path: &nix_utils::StorePath,
+        referring_build: Option<&Arc<Build>>,
+        referring_step: Option<&Arc<Step>>,
+    ) -> (Arc<Step>, bool) {
+        let mut is_new = false;
+        let mut steps = self.inner.write();
+        let step = if let Some(step) = steps.get(drv_path) {
+            if let Some(step) = step.upgrade() {
+                step
+            } else {
+                steps.remove(drv_path);
+                is_new = true;
+                Step::new(drv_path.to_owned())
+            }
+        } else {
+            is_new = true;
+            Step::new(drv_path.to_owned())
+        };
+
+        step.add_referring_data(referring_build, referring_step);
+        steps.insert(drv_path.to_owned(), Arc::downgrade(&step));
+        (step, is_new)
+    }
+
+    pub fn remove(&self, drv_path: &nix_utils::StorePath) {
+        let mut steps = self.inner.write();
+        steps.remove(drv_path);
     }
 }

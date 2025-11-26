@@ -236,30 +236,13 @@ mod handler {
 
         #[tracing::instrument(skip(state), err)]
         pub fn steps(state: std::sync::Arc<State>) -> Result<Response, Error> {
-            let steps: Vec<io::Step> = {
-                state
-                    .steps
-                    .read()
-                    .values()
-                    .filter_map(std::sync::Weak::upgrade)
-                    .map(Into::into)
-                    .collect()
-            };
+            let steps = state.steps.clone_as_io();
             construct_json_ok_response(&io::StepsResponse::new(steps))
         }
 
         #[tracing::instrument(skip(state), err)]
         pub fn runnable(state: std::sync::Arc<State>) -> Result<Response, Error> {
-            let steps: Vec<io::Step> = {
-                state
-                    .steps
-                    .read()
-                    .values()
-                    .filter_map(std::sync::Weak::upgrade)
-                    .filter(|v| v.get_runnable())
-                    .map(Into::into)
-                    .collect()
-            };
+            let steps = state.steps.clone_runnable_as_io();
             construct_json_ok_response(&io::StepsResponse::new(steps))
         }
 

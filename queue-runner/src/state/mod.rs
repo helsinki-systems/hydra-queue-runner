@@ -14,12 +14,12 @@ pub use build::{Build, BuildOutput, BuildResultState, Builds, RemoteBuild};
 pub use jobset::{Jobset, JobsetID, Jobsets};
 pub use machine::{Machine, Message as MachineMessage, Pressure, Stats as MachineStats};
 pub use queue::{BuildQueueStats, Queues};
-pub use step::Step;
+pub use step::{Step, Steps};
 pub use step_info::StepInfo;
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Instant;
-use std::{sync::Arc, sync::Weak};
 
 use futures::TryStreamExt as _;
 use hashbrown::{HashMap, HashSet};
@@ -62,7 +62,7 @@ pub struct State {
 
     pub builds: Builds,
     pub jobsets: Jobsets,
-    pub steps: parking_lot::RwLock<HashMap<nix_utils::StorePath, Weak<Step>>>,
+    pub steps: Steps,
     pub queues: Queues,
 
     pub fod_checker: Option<Arc<FodChecker>>,
@@ -108,7 +108,7 @@ impl State {
             log_dir,
             builds: Builds::new(),
             jobsets: Jobsets::new(),
-            steps: parking_lot::RwLock::new(HashMap::with_capacity(10000)),
+            steps: Steps::new(),
             queues: Queues::new(),
             fod_checker: if config.get_enable_fod_checker() {
                 Some(Arc::new(FodChecker::new(None)))
@@ -166,22 +166,6 @@ impl State {
         }
 
         Ok(())
-    }
-
-    pub fn get_nr_steps_unfinished(&self) -> usize {
-        let mut steps = self.steps.write();
-        steps.retain(|_, s| s.upgrade().is_some());
-        steps.len()
-    }
-
-    pub fn get_nr_runnable(&self) -> usize {
-        let mut steps = self.steps.write();
-        steps.retain(|_, s| s.upgrade().is_some());
-        steps
-            .iter()
-            .filter_map(|(_, s)| s.upgrade().map(|v| v.get_runnable()))
-            .filter(|v| *v)
-            .count()
     }
 
     #[tracing::instrument(skip(self, machine))]
@@ -469,21 +453,10 @@ impl State {
             }
         }
 
-        {
-            // This is here to ensure that we dont have any deps to finished steps
-            // This can happen because step creation is async and is_new can return a step that is
-            // still undecided if its finished or not.
-            let steps = self.steps.read();
-            for (_, s) in steps.iter() {
-                let Some(s) = s.upgrade() else {
-                    continue;
-                };
-                if s.get_finished() && !s.get_previous_failure() {
-                    s.make_rdeps_runnable();
-                }
-                // TODO: if previous failure we should propably also remove from deps
-            }
-        }
+        // This is here to ensure that we dont have any deps to finished steps
+        // This can happen because step creation is async and is_new can return a step that is
+        // still undecided if its finished or not.
+        self.steps.make_rdeps_runnable();
 
         // we can just always trigger dispatch as we might have a free machine and its cheap
         self.metrics.queue_checks_finished.inc();
@@ -870,19 +843,7 @@ impl State {
     async fn do_dispatch_once(self: Arc<Self>) {
         // Prune old historical build step info from the jobsets.
         self.jobsets.prune();
-        let mut new_runnable = Vec::with_capacity(100);
-        {
-            let mut steps = self.steps.write();
-            steps.retain(|_, r| {
-                let Some(step) = r.upgrade() else {
-                    return false;
-                };
-                if step.get_runnable() {
-                    new_runnable.push(step.clone());
-                }
-                true
-            });
-        }
+        let new_runnable = self.steps.clone_runnable();
 
         let now = jiff::Timestamp::now();
         let mut new_queues = HashMap::<System, Vec<StepInfo>>::with_capacity(10);
@@ -1060,8 +1021,7 @@ impl State {
 
         let direct = step_info.step.get_direct_builds();
         if direct.is_empty() {
-            let mut steps = self.steps.write();
-            steps.remove(step_info.step.get_drv_path());
+            self.steps.remove(step_info.step.get_drv_path());
         }
 
         {
@@ -1403,11 +1363,10 @@ impl State {
         // steps from ‘steps’. As for the success case, we can
         // be certain no new referrers can be added.
         if indirect.is_empty() {
-            let mut current_steps_map = self.steps.write();
             for s in steps {
                 let drv = s.get_drv_path();
                 tracing::debug!("finishing build step '{drv}'");
-                current_steps_map.remove(drv);
+                self.steps.remove(drv);
             }
         }
 
@@ -1666,27 +1625,9 @@ impl State {
             }
         }
 
-        let mut is_new = false;
-        let step = {
-            let mut steps = self.steps.write();
-            let step = if let Some(step) = steps.get(&drv_path) {
-                if let Some(step) = step.upgrade() {
-                    step
-                } else {
-                    steps.remove(&drv_path);
-                    is_new = true;
-                    Step::new(drv_path.clone())
-                }
-            } else {
-                is_new = true;
-                Step::new(drv_path.clone())
-            };
-
-            step.add_referring_data(referring_build.as_ref(), referring_step.as_ref());
-            steps.insert(drv_path.clone(), Arc::downgrade(&step));
-            step
-        };
-
+        let (step, is_new) =
+            self.steps
+                .create(&drv_path, referring_build.as_ref(), referring_step.as_ref());
         if !is_new {
             return CreateStepResult::Valid(step);
         }
@@ -1971,16 +1912,7 @@ impl State {
     }
 
     async fn abort_unsupported(&self) {
-        let runnable = {
-            let mut steps = self.steps.write();
-            steps.retain(|_, s| s.upgrade().is_some());
-            steps
-                .iter()
-                .filter_map(|(_, s)| s.upgrade())
-                .filter(|v| v.get_runnable())
-                .collect::<Vec<_>>()
-        };
-
+        let runnable = self.steps.clone_runnable();
         let now = jiff::Timestamp::now();
 
         let mut aborted = HashSet::new();
