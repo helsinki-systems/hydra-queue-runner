@@ -34,7 +34,11 @@ async fn start_task_loops(state: &std::sync::Arc<State>) -> Vec<tokio::task::Abo
         service_list.push(
             fod_checker
                 .clone()
-                .start_dispatch_loop(state.queues.clone(), state.config.clone())
+                .start_dispatch_loop(
+                    state.jobsets.clone(),
+                    state.queues.clone(),
+                    state.config.clone(),
+                )
                 .await,
         );
         service_list.push(fod_checker.clone().start_traverse_loop());

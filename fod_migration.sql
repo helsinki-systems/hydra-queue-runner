@@ -2,8 +2,8 @@
 CREATE TABLE FodOutputs (
     build         integer not null,
 
-    timestamp     integer, -- output created
-    expectedHash  text,
+    timestamp     integer not null, -- output created
+    expectedHash  text not null,
     actualHash    text,
     foreign key   (build) references Builds(id) on delete cascade
 );
