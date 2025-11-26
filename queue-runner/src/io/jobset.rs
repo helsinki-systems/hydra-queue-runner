@@ -5,8 +5,8 @@ pub struct Jobset {
     project_name: String,
     name: String,
 
-    seconds: i64,
-    shares: u32,
+    pub seconds: i64,
+    pub shares: u32,
 }
 
 impl From<std::sync::Arc<crate::state::Jobset>> for Jobset {

@@ -1,7 +1,8 @@
-use std::{
-    collections::BTreeMap,
-    sync::atomic::{AtomicI64, AtomicU32, Ordering},
-};
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
+
+use hashbrown::HashMap;
 
 pub type JobsetID = i32;
 pub const SCHEDULING_WINDOW: i64 = 24 * 60 * 60;
@@ -95,5 +96,121 @@ impl Jobset {
             self.seconds.fetch_sub(*first.get(), Ordering::Relaxed);
             steps.remove(&start_time);
         }
+    }
+}
+
+// Projectname, Jobsetname
+type JobsetName = (String, String);
+
+#[derive(Clone)]
+pub struct Jobsets {
+    inner: Arc<parking_lot::RwLock<HashMap<JobsetName, Arc<Jobset>>>>,
+}
+
+impl Default for Jobsets {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Jobsets {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(parking_lot::RwLock::new(HashMap::with_capacity(100))),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.read().len()
+    }
+
+    pub fn clone_as_io(&self) -> HashMap<String, crate::io::Jobset> {
+        let jobsets = self.inner.read();
+        jobsets
+            .values()
+            .map(|v| (v.full_name(), v.clone().into()))
+            .collect()
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn prune(&self) {
+        let jobsets = self.inner.read();
+        for ((project_name, jobset_name), jobset) in jobsets.iter() {
+            let s1 = jobset.share_used();
+            jobset.prune_steps();
+            let s2 = jobset.share_used();
+            if (s1 - s2).abs() > f64::EPSILON {
+                tracing::debug!(
+                    "pruned scheduling window of '{project_name}:{jobset_name}' from {s1} to {s2}"
+                );
+            }
+        }
+    }
+
+    #[tracing::instrument(skip(self, conn), err)]
+    pub async fn create(
+        &self,
+        conn: &mut db::Connection,
+        jobset_id: i32,
+        project_name: &str,
+        jobset_name: &str,
+    ) -> anyhow::Result<Arc<Jobset>> {
+        let key = (project_name.to_owned(), jobset_name.to_owned());
+        {
+            let jobsets = self.inner.read();
+            if let Some(jobset) = jobsets.get(&key) {
+                return Ok(jobset.clone());
+            }
+        }
+
+        let shares = conn
+            .get_jobset_scheduling_shares(jobset_id)
+            .await?
+            .ok_or(anyhow::anyhow!(
+                "Scheduling Shares not found for jobset not found."
+            ))?;
+        let jobset = Jobset::new(jobset_id, project_name, jobset_name);
+        jobset.set_shares(shares)?;
+
+        for step in conn
+            .get_jobset_build_steps(jobset_id, SCHEDULING_WINDOW)
+            .await?
+        {
+            let Some(starttime) = step.starttime else {
+                continue;
+            };
+            let Some(stoptime) = step.stoptime else {
+                continue;
+            };
+            jobset.add_step(i64::from(starttime), i64::from(stoptime - starttime));
+        }
+
+        let jobset = Arc::new(jobset);
+        {
+            let mut jobsets = self.inner.write();
+            jobsets.insert(key, jobset.clone());
+        }
+
+        Ok(jobset.clone())
+    }
+
+    #[tracing::instrument(skip(self, conn), err)]
+    pub async fn handle_change(&self, conn: &mut db::Connection) -> anyhow::Result<()> {
+        let curr_jobsets_in_db = conn.get_jobsets().await?;
+
+        let jobsets = self.inner.read();
+        for row in curr_jobsets_in_db {
+            if let Some(i) = jobsets.get(&(row.project.clone(), row.name.clone()))
+                && let Err(e) = i.set_shares(row.schedulingshares)
+            {
+                tracing::error!(
+                    "Failed to update jobset scheduling shares. project_name={} jobset_name={} e={}",
+                    row.project,
+                    row.name,
+                    e,
+                );
+            }
+        }
+        Ok(())
     }
 }

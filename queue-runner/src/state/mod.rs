@@ -31,7 +31,6 @@ use nix_utils::BaseStore as _;
 use crate::config::{App, Cli};
 use crate::state::build::get_mark_build_sccuess_data;
 pub use crate::state::fod_checker::FodChecker;
-use crate::state::jobset::SCHEDULING_WINDOW;
 use crate::state::machine::Machines;
 use crate::utils::finish_build_step;
 
@@ -62,8 +61,7 @@ pub struct State {
     pub log_dir: std::path::PathBuf,
 
     pub builds: parking_lot::RwLock<HashMap<BuildID, Arc<Build>>>,
-    // Projectname, Jobsetname
-    pub jobsets: parking_lot::RwLock<HashMap<(String, String), Arc<Jobset>>>,
+    pub jobsets: jobset::Jobsets,
     pub steps: parking_lot::RwLock<HashMap<nix_utils::StorePath, Weak<Step>>>,
     pub queues: queue::Queues,
 
@@ -109,7 +107,7 @@ impl State {
             machines: Machines::new(),
             log_dir,
             builds: parking_lot::RwLock::new(HashMap::with_capacity(1000)),
-            jobsets: parking_lot::RwLock::new(HashMap::with_capacity(10)),
+            jobsets: jobset::Jobsets::new(),
             steps: parking_lot::RwLock::new(HashMap::with_capacity(10000)),
             queues: queue::Queues::new(),
             fod_checker: if config.get_enable_fod_checker() {
@@ -584,7 +582,8 @@ impl State {
             let mut conn = self.db.get().await?;
             for b in conn.get_not_finished_builds().await? {
                 let jobset = self
-                    .create_jobset(&mut conn, b.jobset_id, &b.project, &b.jobset)
+                    .jobsets
+                    .create(&mut conn, b.jobset_id, &b.project, &b.jobset)
                     .await?;
                 let build = Build::new(b, jobset)?;
                 new_ids.push(build.id);
@@ -683,8 +682,17 @@ impl State {
                 }
                 "jobset_shares_changed" => {
                     tracing::info!("got notification: jobset shares changed");
-                    if let Err(e) = self.handle_jobset_change().await {
-                        tracing::error!("Failed to handle jobset change. e={e}");
+                    match self.db.get().await {
+                        Ok(mut conn) => {
+                            if let Err(e) = self.jobsets.handle_change(&mut conn).await {
+                                tracing::error!("Failed to handle jobset change. e={e}");
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to get db connection for event 'jobset_shares_changed'. e={e}"
+                            );
+                        }
                     }
                 }
                 _ => (),
@@ -770,13 +778,7 @@ impl State {
                     )
                 })
                 .collect();
-            let jobsets = {
-                let jobsets = state.jobsets.read();
-                jobsets
-                    .values()
-                    .map(|v| (v.full_name(), v.clone().into()))
-                    .collect()
-            };
+            let jobsets = self.jobsets.clone_as_io();
             let remote_stores = {
                 let stores = state.remote_stores.read();
                 stores.clone()
@@ -889,20 +891,7 @@ impl State {
     #[tracing::instrument(skip(self))]
     async fn do_dispatch_once(self: Arc<Self>) {
         // Prune old historical build step info from the jobsets.
-        {
-            let jobsets = self.jobsets.read();
-            for ((project_name, jobset_name), jobset) in jobsets.iter() {
-                let s1 = jobset.share_used();
-                jobset.prune_steps();
-                let s2 = jobset.share_used();
-                if (s1 - s2).abs() > f64::EPSILON {
-                    tracing::debug!(
-                        "pruned scheduling window of '{project_name}:{jobset_name}' from {s1} to {s2}"
-                    );
-                }
-            }
-        }
-
+        self.jobsets.prune();
         let mut new_runnable = Vec::with_capacity(100);
         {
             let mut steps = self.steps.write();
@@ -1453,53 +1442,6 @@ impl State {
         indirect
     }
 
-    #[tracing::instrument(skip(self, conn), err)]
-    async fn create_jobset(
-        &self,
-        conn: &mut db::Connection,
-        jobset_id: i32,
-        project_name: &str,
-        jobset_name: &str,
-    ) -> anyhow::Result<Arc<Jobset>> {
-        let key = (project_name.to_owned(), jobset_name.to_owned());
-        {
-            let jobsets = self.jobsets.read();
-            if let Some(jobset) = jobsets.get(&key) {
-                return Ok(jobset.clone());
-            }
-        }
-
-        let shares = conn
-            .get_jobset_scheduling_shares(jobset_id)
-            .await?
-            .ok_or(anyhow::anyhow!(
-                "Scheduling Shares not found for jobset not found."
-            ))?;
-        let jobset = Jobset::new(jobset_id, project_name, jobset_name);
-        jobset.set_shares(shares)?;
-
-        for step in conn
-            .get_jobset_build_steps(jobset_id, SCHEDULING_WINDOW)
-            .await?
-        {
-            let Some(starttime) = step.starttime else {
-                continue;
-            };
-            let Some(stoptime) = step.stoptime else {
-                continue;
-            };
-            jobset.add_step(i64::from(starttime), i64::from(stoptime - starttime));
-        }
-
-        let jobset = Arc::new(jobset);
-        {
-            let mut jobsets = self.jobsets.write();
-            jobsets.insert(key, jobset.clone());
-        }
-
-        Ok(jobset.clone())
-    }
-
     #[tracing::instrument(skip(self, build, step), err)]
     async fn handle_previous_failure(
         &self,
@@ -1967,27 +1909,6 @@ impl State {
         )
         .await
         .unwrap_or_default()
-    }
-
-    #[tracing::instrument(skip(self), err)]
-    async fn handle_jobset_change(&self) -> anyhow::Result<()> {
-        let curr_jobsets_in_db = self.db.get().await?.get_jobsets().await?;
-
-        let jobsets = self.jobsets.read();
-        for row in curr_jobsets_in_db {
-            if let Some(i) = jobsets.get(&(row.project.clone(), row.name.clone()))
-                && let Err(e) = i.set_shares(row.schedulingshares)
-            {
-                tracing::error!(
-                    "Failed to update jobset scheduling shares. project_name={} jobset_name={} e={}",
-                    row.project,
-                    row.name,
-                    e,
-                );
-            }
-        }
-
-        Ok(())
     }
 
     #[tracing::instrument(skip(self, build), fields(build_id=build.id), err)]

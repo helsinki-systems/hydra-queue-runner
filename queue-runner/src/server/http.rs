@@ -185,13 +185,7 @@ mod handler {
                     )
                 })
                 .collect();
-            let jobsets = {
-                let jobsets = state.jobsets.read();
-                jobsets
-                    .values()
-                    .map(|v| (v.full_name(), v.clone().into()))
-                    .collect()
-            };
+            let jobsets = state.jobsets.clone_as_io();
             let remote_stores = {
                 let stores = state.remote_stores.read();
                 stores.clone()
@@ -233,13 +227,7 @@ mod handler {
             _req: hyper::Request<hyper::body::Incoming>,
             state: std::sync::Arc<State>,
         ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
-            let jobsets = {
-                let jobsets = state.jobsets.read();
-                jobsets
-                    .values()
-                    .map(|v| (v.full_name(), v.clone().into()))
-                    .collect()
-            };
+            let jobsets = state.jobsets.clone_as_io();
             construct_json_ok_response(&io::JobsetsResponse::new(jobsets))
         }
 

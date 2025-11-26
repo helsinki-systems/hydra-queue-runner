@@ -1071,18 +1071,17 @@ impl PromMetrics {
         self.jobset_share_used.reset();
         self.jobset_seconds.reset();
 
-        let jobsets = state.jobsets.read();
-        for ((project_name, jobset_name), jobset) in jobsets.iter() {
-            let full_jobset_name = format!("{project_name}:{jobset_name}");
+        let jobsets = state.jobsets.clone_as_io();
+        for (full_jobset_name, jobset) in &jobsets {
             let labels = &[full_jobset_name.as_str()];
 
-            let share_used = jobset.share_used();
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let v = i64::try_from(share_used as u64).unwrap_or(0);
+            let v = i64::try_from(u64::from(jobset.shares)).unwrap_or(0);
             self.jobset_share_used.with_label_values(labels).set(v);
 
-            let seconds = jobset.get_seconds();
-            self.jobset_seconds.with_label_values(labels).set(seconds);
+            self.jobset_seconds
+                .with_label_values(labels)
+                .set(jobset.seconds);
         }
     }
 
