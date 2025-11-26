@@ -2,7 +2,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use crate::state::State;
 use bytes::Bytes;
-use http_body_util::{BodyExt, Full, combinators::BoxBody};
+use http_body_util::{BodyExt as _, Full, combinators::BoxBody};
 use tracing::Instrument as _;
 
 #[derive(thiserror::Error, Debug)]
@@ -75,9 +75,9 @@ fn construct_json_response<U: serde::Serialize>(
         .body(full(serde_json::to_string(data)?))?)
 }
 
-fn construct_json_ok_response<U: serde::Serialize>(
-    data: &U,
-) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+type Response = hyper::Response<BoxBody<Bytes, hyper::Error>>;
+
+fn construct_json_ok_response<U: serde::Serialize>(data: &U) -> Result<Response, Error> {
     construct_json_response(hyper::StatusCode::OK, data)
 }
 
@@ -117,7 +117,7 @@ impl Server {
 async fn router(
     req: hyper::Request<hyper::body::Incoming>,
     state: Arc<State>,
-) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+) -> Result<Response, Error> {
     let span = tracing::span!(
         tracing::Level::INFO,
         "request",
@@ -127,24 +127,36 @@ async fn router(
     );
     async move {
         let r = match (req.method(), req.uri().path()) {
-            (&hyper::Method::GET, "/status") => handler::status::get(req, state).await,
-            (&hyper::Method::GET, "/status/machines") => {
-                handler::status::machines(req, state).await
+            (&hyper::Method::GET, "/status" | "/status/") => handler::status::get(state).await,
+            (&hyper::Method::GET, "/status/machines" | "/status/machines/") => {
+                handler::status::machines(state).await
             }
-            (&hyper::Method::GET, "/status/jobsets") => handler::status::jobsets(req, state),
-            (&hyper::Method::GET, "/status/builds") => handler::status::builds(req, state),
-            (&hyper::Method::GET, "/status/steps") => handler::status::steps(req, state),
-            (&hyper::Method::GET, "/status/runnable") => handler::status::runnable(req, state),
-            (&hyper::Method::GET, "/status/queues") => handler::status::queues(req, state).await,
-            (&hyper::Method::GET, "/status/queues/jobs") => {
-                handler::status::queue_jobs(req, state).await
+            (&hyper::Method::GET, "/status/jobsets" | "/status/jobsets/") => {
+                handler::status::jobsets(state)
             }
-            (&hyper::Method::GET, "/status/queues/scheduled") => {
-                handler::status::queue_scheduled(req, state).await
+            (&hyper::Method::GET, "/status/builds" | "/status/builds/") => {
+                handler::status::builds(state)
             }
-            (&hyper::Method::POST, "/dump_status") => handler::dump_status::post(req, state).await,
-            (&hyper::Method::PUT, "/build") => handler::build::put(req, state).await,
-            (&hyper::Method::GET, "/metrics") => handler::metrics::get(req, state).await,
+            (&hyper::Method::GET, "/status/steps" | "/status/steps/") => {
+                handler::status::steps(state)
+            }
+            (&hyper::Method::GET, "/status/runnable" | "/status/runnable/") => {
+                handler::status::runnable(state)
+            }
+            (&hyper::Method::GET, "/status/queues" | "/status/queues/") => {
+                handler::status::queues(state).await
+            }
+            (&hyper::Method::GET, "/status/queues/jobs" | "/status/queues/jobs/") => {
+                handler::status::queue_jobs(state).await
+            }
+            (&hyper::Method::GET, "/status/queues/scheduled" | "/status/queues/scheduled/") => {
+                handler::status::queue_scheduled(state).await
+            }
+            (&hyper::Method::POST, "/dump_status" | "/dump_status/") => {
+                handler::dump_status::post(state).await
+            }
+            (&hyper::Method::PUT, "/build" | "/build/") => handler::build::put(req, state).await,
+            (&hyper::Method::GET, "/metrics" | "/metrics/") => handler::metrics::get(state).await,
             _ => Err(Error::NotFound),
         };
         if let Err(r) = r.as_ref() {
@@ -159,18 +171,11 @@ async fn router(
 
 mod handler {
     pub mod status {
-        use bytes::Bytes;
-        use http_body_util::combinators::BoxBody;
-
-        use super::super::{Error, construct_json_ok_response};
+        use super::super::{Error, Response, construct_json_ok_response};
         use crate::{io, state::State};
 
-        #[allow(clippy::no_effect_underscore_binding)]
-        #[tracing::instrument(skip(_req, state), err)]
-        pub async fn get(
-            _req: hyper::Request<hyper::body::Incoming>,
-            state: std::sync::Arc<State>,
-        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+        #[tracing::instrument(skip(state), err)]
+        pub async fn get(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let queue_stats = io::QueueRunnerStats::new(state.clone()).await;
             let sort_fn = state.config.get_machine_sort_fn();
             let free_fn = state.config.get_machine_free_fn();
@@ -199,12 +204,8 @@ mod handler {
             ))
         }
 
-        #[allow(clippy::no_effect_underscore_binding)]
-        #[tracing::instrument(skip(_req, state), err)]
-        pub async fn machines(
-            _req: hyper::Request<hyper::body::Incoming>,
-            state: std::sync::Arc<State>,
-        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+        #[tracing::instrument(skip(state), err)]
+        pub async fn machines(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let sort_fn = state.config.get_machine_sort_fn();
             let free_fn = state.config.get_machine_free_fn();
             let machines = state
@@ -221,22 +222,14 @@ mod handler {
             construct_json_ok_response(&io::MachinesResponse::new(machines))
         }
 
-        #[allow(clippy::no_effect_underscore_binding)]
-        #[tracing::instrument(skip(_req, state), err)]
-        pub fn jobsets(
-            _req: hyper::Request<hyper::body::Incoming>,
-            state: std::sync::Arc<State>,
-        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+        #[tracing::instrument(skip(state), err)]
+        pub fn jobsets(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let jobsets = state.jobsets.clone_as_io();
             construct_json_ok_response(&io::JobsetsResponse::new(jobsets))
         }
 
-        #[allow(clippy::no_effect_underscore_binding)]
-        #[tracing::instrument(skip(_req, state), err)]
-        pub fn builds(
-            _req: hyper::Request<hyper::body::Incoming>,
-            state: std::sync::Arc<State>,
-        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+        #[tracing::instrument(skip(state), err)]
+        pub fn builds(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let builds: Vec<io::Build> = {
                 state
                     .builds
@@ -248,12 +241,8 @@ mod handler {
             construct_json_ok_response(&io::BuildsResponse::new(builds))
         }
 
-        #[allow(clippy::no_effect_underscore_binding)]
-        #[tracing::instrument(skip(_req, state), err)]
-        pub fn steps(
-            _req: hyper::Request<hyper::body::Incoming>,
-            state: std::sync::Arc<State>,
-        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+        #[tracing::instrument(skip(state), err)]
+        pub fn steps(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let steps: Vec<io::Step> = {
                 state
                     .steps
@@ -266,12 +255,8 @@ mod handler {
             construct_json_ok_response(&io::StepsResponse::new(steps))
         }
 
-        #[allow(clippy::no_effect_underscore_binding)]
-        #[tracing::instrument(skip(_req, state), err)]
-        pub fn runnable(
-            _req: hyper::Request<hyper::body::Incoming>,
-            state: std::sync::Arc<State>,
-        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+        #[tracing::instrument(skip(state), err)]
+        pub fn runnable(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let steps: Vec<io::Step> = {
                 state
                     .steps
@@ -285,12 +270,8 @@ mod handler {
             construct_json_ok_response(&io::StepsResponse::new(steps))
         }
 
-        #[allow(clippy::no_effect_underscore_binding)]
-        #[tracing::instrument(skip(_req, state), err)]
-        pub async fn queues(
-            _req: hyper::Request<hyper::body::Incoming>,
-            state: std::sync::Arc<State>,
-        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+        #[tracing::instrument(skip(state), err)]
+        pub async fn queues(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let queues = state
                 .queues
                 .clone_inner()
@@ -309,12 +290,8 @@ mod handler {
             construct_json_ok_response(&io::QueueResponse::new(queues))
         }
 
-        #[allow(clippy::no_effect_underscore_binding)]
-        #[tracing::instrument(skip(_req, state), err)]
-        pub async fn queue_jobs(
-            _req: hyper::Request<hyper::body::Incoming>,
-            state: std::sync::Arc<State>,
-        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+        #[tracing::instrument(skip(state), err)]
+        pub async fn queue_jobs(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let stepinfos = state
                 .queues
                 .get_jobs()
@@ -325,12 +302,8 @@ mod handler {
             construct_json_ok_response(&io::StepInfoResponse::new(stepinfos))
         }
 
-        #[allow(clippy::no_effect_underscore_binding)]
-        #[tracing::instrument(skip(_req, state), err)]
-        pub async fn queue_scheduled(
-            _req: hyper::Request<hyper::body::Incoming>,
-            state: std::sync::Arc<State>,
-        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+        #[tracing::instrument(skip(state), err)]
+        pub async fn queue_scheduled(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let stepinfos = state
                 .queues
                 .get_scheduled()
@@ -343,18 +316,11 @@ mod handler {
     }
 
     pub mod dump_status {
-        use bytes::Bytes;
-        use http_body_util::combinators::BoxBody;
-
-        use super::super::{Error, construct_json_ok_response};
+        use super::super::{Error, Response, construct_json_ok_response};
         use crate::{io, state::State};
 
-        #[allow(clippy::no_effect_underscore_binding)]
-        #[tracing::instrument(skip(_req, state), err)]
-        pub async fn post(
-            _req: hyper::Request<hyper::body::Incoming>,
-            state: std::sync::Arc<State>,
-        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+        #[tracing::instrument(skip(state), err)]
+        pub async fn post(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let mut db = state.db.get().await?;
             let mut tx = db.begin_transaction().await?;
             tx.notify_dump_status().await?;
@@ -364,17 +330,17 @@ mod handler {
     }
 
     pub mod build {
-        use bytes::{Buf as _, Bytes};
-        use http_body_util::{BodyExt, combinators::BoxBody};
+        use bytes::Buf as _;
+        use http_body_util::BodyExt as _;
 
-        use super::super::{Error, construct_json_ok_response};
+        use super::super::{Error, Response, construct_json_ok_response};
         use crate::{io, state::State};
 
         #[tracing::instrument(skip(req, state), err)]
         pub async fn put(
             req: hyper::Request<hyper::body::Incoming>,
             state: std::sync::Arc<State>,
-        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+        ) -> Result<Response, Error> {
             let whole_body = req.collect().await?.aggregate();
             let data: io::BuildPayload = serde_json::from_reader(whole_body.reader())?;
 
@@ -386,18 +352,11 @@ mod handler {
     }
 
     pub mod metrics {
-        use bytes::Bytes;
-        use http_body_util::combinators::BoxBody;
-
-        use super::super::{Error, full};
+        use super::super::{Error, Response, full};
         use crate::state::State;
 
-        #[allow(clippy::no_effect_underscore_binding)]
-        #[tracing::instrument(skip(_req, state), err)]
-        pub async fn get(
-            _req: hyper::Request<hyper::body::Incoming>,
-            state: std::sync::Arc<State>,
-        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+        #[tracing::instrument(skip(state), err)]
+        pub async fn get(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let metrics = state.metrics.gather_metrics(&state).await?;
             Ok(hyper::Response::builder()
                 .status(hyper::StatusCode::OK)
