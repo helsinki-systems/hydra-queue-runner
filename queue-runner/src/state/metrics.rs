@@ -1110,19 +1110,17 @@ impl PromMetrics {
         Ok(buffer)
     }
 
-    pub fn add_to_total_step_time_ms(&self, v: u128) {
-        if let Ok(v) = u64::try_from(v) {
-            self.total_step_time_ms.inc_by(v);
-        }
+    fn add_to_total_step_time_ms(&self, v: u64) {
+        self.total_step_time_ms.inc_by(v);
     }
 
-    pub fn add_to_total_step_import_time_ms(&self, v: u128) {
+    fn add_to_total_step_import_time_ms(&self, v: u128) {
         if let Ok(v) = u64::try_from(v) {
             self.total_step_import_time_ms.inc_by(v);
         }
     }
 
-    pub fn add_to_total_step_build_time_ms(&self, v: u128) {
+    fn add_to_total_step_build_time_ms(&self, v: u128) {
         if let Ok(v) = u64::try_from(v) {
             self.total_step_build_time_ms.inc_by(v);
         }
@@ -1144,5 +1142,33 @@ impl PromMetrics {
         self.queue_job_wait_time_histogram
             .with_label_values(&[machine_type])
             .observe(wait_seconds);
+    }
+
+    pub fn track_build_success(
+        &self,
+        import_elapsed: std::time::Duration,
+        build_elapsed: std::time::Duration,
+        total_step_time: u64,
+    ) {
+        self.nr_builds_succeeded.inc();
+        self.nr_steps_done.inc();
+        self.nr_steps_building.sub(1);
+        self.add_to_total_step_import_time_ms(import_elapsed.as_millis());
+        self.add_to_total_step_build_time_ms(build_elapsed.as_millis());
+        self.add_to_total_step_time_ms(total_step_time);
+    }
+
+    pub fn track_build_failure(
+        &self,
+        import_elapsed: std::time::Duration,
+        build_elapsed: std::time::Duration,
+        total_step_time: u64,
+    ) {
+        self.nr_steps_done.inc();
+        self.nr_steps_building.sub(1);
+        self.nr_builds_failed.inc();
+        self.add_to_total_step_build_time_ms(build_elapsed.as_millis());
+        self.add_to_total_step_import_time_ms(import_elapsed.as_millis());
+        self.add_to_total_step_time_ms(total_step_time);
     }
 }

@@ -1030,27 +1030,16 @@ impl State {
         job.result.stop_time = Some(jiff::Timestamp::now());
 
         let total_step_time = job.result.get_total_step_time_ms();
-        machine.stats.increment_succeeded_builds();
-        machine
-            .stats
-            .add_to_total_step_time_ms(u128::from(total_step_time));
-        machine
-            .stats
-            .add_to_total_step_import_time_ms(output.import_elapsed.as_millis());
-        machine
-            .stats
-            .add_to_total_step_build_time_ms(output.build_elapsed.as_millis());
-        machine.stats.reset_consecutive_failures();
-
-        self.metrics.nr_builds_succeeded.inc();
-        self.metrics.nr_steps_done.inc();
-        self.metrics.nr_steps_building.sub(1);
-        self.metrics
-            .add_to_total_step_time_ms(u128::from(total_step_time));
-        self.metrics
-            .add_to_total_step_import_time_ms(output.import_elapsed.as_millis());
-        self.metrics
-            .add_to_total_step_build_time_ms(output.build_elapsed.as_millis());
+        machine.stats.track_build_success(
+            output.import_elapsed,
+            output.build_elapsed,
+            total_step_time,
+        );
+        self.metrics.track_build_success(
+            output.import_elapsed,
+            output.build_elapsed,
+            total_step_time,
+        );
 
         {
             let mut db = self.db.get().await?;
@@ -1067,8 +1056,7 @@ impl State {
             tx.commit().await?;
         }
 
-        // TODO: can retry: builder.cc:260
-
+        // TODO: redo gc roots, we only need to root until we are done with that build
         for (_, path) in &output.outputs {
             self.add_root(path);
         }
@@ -1195,24 +1183,15 @@ impl State {
         job.result.step_status = BuildStatus::Failed;
         // this can override step_status to something more specific
         job.result.update_with_result_state(&state);
+        job.result.stop_time = Some(jiff::Timestamp::now());
 
-        machine.stats.increment_failed_builds();
+        let total_step_time = job.result.get_total_step_time_ms();
         machine
             .stats
-            .add_to_total_step_build_time_ms(build_elapsed.as_millis());
-        machine
-            .stats
-            .add_to_total_step_import_time_ms(import_elapsed.as_millis());
-
-        self.metrics.nr_steps_done.inc();
-        self.metrics.nr_steps_building.sub(1);
-        self.metrics.nr_builds_failed.inc();
+            .track_build_failure(import_elapsed, build_elapsed, total_step_time);
         self.metrics
-            .add_to_total_step_build_time_ms(build_elapsed.as_millis());
-        self.metrics
-            .add_to_total_step_import_time_ms(import_elapsed.as_millis());
+            .track_build_failure(import_elapsed, build_elapsed, total_step_time);
 
-        // TODO: max failure count
         let (max_retries, retry_interval, retry_backoff) = self.config.get_retry();
 
         if job.result.can_retry {
@@ -1223,13 +1202,6 @@ impl State {
                 .fetch_add(1, Ordering::Relaxed);
             let tries = step_info.step.atomic_state.tries.load(Ordering::Relaxed);
             if tries < max_retries {
-                // retry step
-                // TODO: update metrics:
-                // - build_step_time_ms,
-                // - total_step_time_ms,
-                // - maschine.build_step_time_ms,
-                // - maschine.total_step_time_ms,
-                // - maschine.last_failure
                 self.metrics.nr_retries.inc();
                 #[allow(clippy::cast_precision_loss)]
                 #[allow(clippy::cast_possible_truncation)]
@@ -1318,17 +1290,8 @@ impl State {
         mut job: machine::Job,
         step: Arc<Step>,
     ) -> anyhow::Result<()> {
-        job.result.stop_time = Some(jiff::Timestamp::now());
-        {
-            let total_step_time = job.result.get_total_step_time_ms();
-            self.metrics
-                .add_to_total_step_time_ms(u128::from(total_step_time));
-            if let Some(machine) = &machine {
-                machine
-                    .stats
-                    .add_to_total_step_time_ms(u128::from(total_step_time));
-                machine.stats.store_last_failure_now();
-            }
+        if job.result.stop_time.is_none() {
+            job.result.stop_time = Some(jiff::Timestamp::now());
         }
 
         if job.step_nr != 0 {

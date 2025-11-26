@@ -141,12 +141,6 @@ impl Stats {
         self.total_step_time_ms.load(Ordering::Relaxed)
     }
 
-    pub fn add_to_total_step_time_ms(&self, v: u128) {
-        if let Ok(v) = u64::try_from(v) {
-            self.total_step_time_ms.fetch_add(v, Ordering::Relaxed);
-        }
-    }
-
     pub fn get_total_step_build_time_ms(&self) -> u64 {
         self.total_step_build_time_ms.load(Ordering::Relaxed)
     }
@@ -162,7 +156,7 @@ impl Stats {
         self.total_step_import_time_ms.load(Ordering::Relaxed)
     }
 
-    pub fn add_to_total_step_import_time_ms(&self, v: u128) {
+    fn add_to_total_step_import_time_ms(&self, v: u128) {
         if let Ok(v) = u64::try_from(v) {
             self.total_step_import_time_ms
                 .fetch_add(v, Ordering::Relaxed);
@@ -177,12 +171,6 @@ impl Stats {
         self.last_failure.load(Ordering::Relaxed)
     }
 
-    pub fn store_last_failure_now(&self) {
-        self.last_failure
-            .store(jiff::Timestamp::now().as_second(), Ordering::Relaxed);
-        self.consecutive_failures.fetch_add(1, Ordering::Relaxed);
-    }
-
     pub fn get_disabled_until(&self) -> i64 {
         self.disabled_until.load(Ordering::Relaxed)
     }
@@ -191,24 +179,42 @@ impl Stats {
         self.consecutive_failures.load(Ordering::Relaxed)
     }
 
-    pub fn reset_consecutive_failures(&self) {
-        self.consecutive_failures.store(0, Ordering::Relaxed);
-    }
-
     pub fn get_failed_builds(&self) -> u64 {
         self.failed_builds.load(Ordering::Relaxed)
-    }
-
-    pub fn increment_failed_builds(&self) {
-        self.failed_builds.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn get_succeeded_builds(&self) -> u64 {
         self.succeeded_builds.load(Ordering::Relaxed)
     }
 
-    pub fn increment_succeeded_builds(&self) {
+    pub fn track_build_success(
+        &self,
+        import_elapsed: std::time::Duration,
+        build_elapsed: std::time::Duration,
+        total_step_time: u64,
+    ) {
         self.succeeded_builds.fetch_add(1, Ordering::Relaxed);
+        self.add_to_total_step_import_time_ms(import_elapsed.as_millis());
+        self.add_to_total_step_build_time_ms(build_elapsed.as_millis());
+        self.total_step_time_ms
+            .fetch_add(total_step_time, Ordering::Relaxed);
+        self.consecutive_failures.store(0, Ordering::Relaxed);
+    }
+
+    pub fn track_build_failure(
+        &self,
+        import_elapsed: std::time::Duration,
+        build_elapsed: std::time::Duration,
+        total_step_time: u64,
+    ) {
+        self.failed_builds.fetch_add(1, Ordering::Relaxed);
+        self.add_to_total_step_import_time_ms(import_elapsed.as_millis());
+        self.add_to_total_step_build_time_ms(build_elapsed.as_millis());
+        self.total_step_time_ms
+            .fetch_add(total_step_time, Ordering::Relaxed);
+        self.last_failure
+            .store(jiff::Timestamp::now().as_second(), Ordering::Relaxed);
+        self.consecutive_failures.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn get_last_ping(&self) -> i64 {
