@@ -15,9 +15,9 @@ use binary_cache::{Compression, PresignedUpload, PresignedUploadClient};
 use nix_utils::BaseStore as _;
 use runner_v1::{
     AbortMessage, BuildMessage, BuildMetric, BuildProduct, BuildResultInfo, BuildResultState,
-    FetchRequisitesRequest, FodResult, FodResultState, JoinMessage, LogChunk, NarData, NixSupport,
-    Output, OutputNameOnly, OutputWithPath, PingMessage, PressureState, RebuildFodMessage,
-    StepStatus, StepUpdate, StorePaths, output,
+    FetchRequisitesRequest, FodOutput, JoinMessage, LogChunk, NarData, NixSupport, Output,
+    OutputNameOnly, OutputWithPath, PingMessage, PressureState, RebuildFodMessage, StepStatus,
+    StepUpdate, StorePaths, output,
 };
 
 include!(concat!(env!("OUT_DIR"), "/proto_version.rs"));
@@ -304,6 +304,7 @@ impl State {
                             result_state: BuildResultState::from(e) as i32,
                             nix_support: None,
                             outputs: vec![],
+                            fod_output: None,
                         };
 
                         if let (_, Err(e)) = (|tuple: (BuilderClient, BuildResultInfo)| async {
@@ -386,6 +387,7 @@ impl State {
                             result_state: BuildResultState::from(e) as i32,
                             outputs: vec![],
                             nix_support: None,
+                            fod_output: None,
                         };
 
                         if let (_, Err(e)) = (|tuple: (BuilderClient, BuildResultInfo)| async {
@@ -724,52 +726,78 @@ impl State {
         .map_err(JobFailure::Build)?;
         timings.build_elapsed = before_build.elapsed();
 
-        let (result_state, expected_hash, actual_hash, output) = match fod_result {
-            crate::utils::FodResult::Ok { actual_sri, output } => (
-                FodResultState::FodSuccess,
-                actual_sri.clone(),
-                Some(actual_sri),
-                output,
-            ),
+        let build_results = match fod_result {
+            crate::utils::FodResult::Ok { actual_sri, output } => {
+                let mut build_results = Box::pin(new_success_build_result_info(
+                    store.clone(),
+                    machine_id,
+                    &drv,
+                    drv_info,
+                    *timings,
+                    m.build_id.clone(),
+                ))
+                .await
+                .map_err(JobFailure::PostProcessing)?;
+                build_results.fod_output = Some(FodOutput {
+                    expected_hash: actual_sri.clone(),
+                    actual_hash: Some(actual_sri),
+                    output,
+                });
+                build_results
+            }
             crate::utils::FodResult::HashMismatch {
                 expected_sri,
                 actual_sri,
                 output,
-            } => (
-                FodResultState::FodHashMissmatch,
-                expected_sri,
-                Some(actual_sri),
-                output,
-            ),
+            } => BuildResultInfo {
+                build_id: m.build_id.clone(),
+                machine_id: machine_id.to_string(),
+                import_time_ms: u64::try_from(timings.import_elapsed.as_millis())
+                    .unwrap_or_default(),
+                build_time_ms: u64::try_from(timings.build_elapsed.as_millis()).unwrap_or_default(),
+                upload_time_ms: u64::try_from(timings.upload_elapsed.as_millis())
+                    .unwrap_or_default(),
+                result_state: BuildResultState::HashMismatch as i32,
+                nix_support: None,
+                outputs: vec![],
+                fod_output: Some(FodOutput {
+                    expected_hash: expected_sri,
+                    actual_hash: Some(actual_sri),
+                    output,
+                }),
+            },
             crate::utils::FodResult::BuildFailure {
                 expected_sri,
                 output,
-            } => (FodResultState::FodBuildFailure, expected_sri, None, output),
-        };
-
-        let fod_result = FodResult {
-            build_id: m.build_id.clone(),
-            machine_id: machine_id.to_string(),
-            import_time_ms: u64::try_from(timings.import_elapsed.as_millis())
-                .map_err(|e| JobFailure::PostProcessing(anyhow::Error::from(e)))?,
-            build_time_ms: u64::try_from(timings.build_elapsed.as_millis())
-                .map_err(|e| JobFailure::PostProcessing(anyhow::Error::from(e)))?,
-            result_state: result_state as i32,
-            expected_hash,
-            actual_hash,
-            output,
+            } => BuildResultInfo {
+                build_id: m.build_id.clone(),
+                machine_id: machine_id.to_string(),
+                import_time_ms: u64::try_from(timings.import_elapsed.as_millis())
+                    .unwrap_or_default(),
+                build_time_ms: u64::try_from(timings.build_elapsed.as_millis()).unwrap_or_default(),
+                upload_time_ms: u64::try_from(timings.upload_elapsed.as_millis())
+                    .unwrap_or_default(),
+                result_state: BuildResultState::BuildFailure as i32,
+                nix_support: None,
+                outputs: vec![],
+                fod_output: Some(FodOutput {
+                    expected_hash: expected_sri,
+                    actual_hash: None,
+                    output,
+                }),
+            },
         };
 
         // This part is stupid, if writing doesnt work, we try to write a failure, maybe that works.
         // We retry to ensure that this almost never happens.
-        (|tuple: (BuilderClient, FodResult)| async {
+        (|tuple: (BuilderClient, BuildResultInfo)| async {
             let (mut client, body) = tuple;
-            let res = client.upload_fod_result(body.clone()).await;
+            let res = client.complete_build(body.clone()).await;
             ((client, body), res)
         })
         .retry(retry_strategy())
         .sleep(tokio::time::sleep)
-        .context((client.clone(), fod_result))
+        .context((client.clone(), build_results))
         .notify(|err: &tonic::Status, dur: core::time::Duration| {
             tracing::error!("Failed to submit build success info: err={err}, retrying in={dur:?}");
         })
@@ -1353,5 +1381,6 @@ async fn new_success_build_result_info(
                 })
                 .collect(),
         }),
+        fod_output: None,
     })
 }

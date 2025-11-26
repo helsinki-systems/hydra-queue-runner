@@ -161,6 +161,7 @@ pub enum BuildResultState {
     PostProcessingFailure,
     Aborted,
     Cancelled,
+    HashMismatch,
 }
 
 impl From<crate::server::grpc::runner_v1::BuildResultState> for BuildResultState {
@@ -176,6 +177,7 @@ impl From<crate::server::grpc::runner_v1::BuildResultState> for BuildResultState
             crate::server::grpc::runner_v1::BuildResultState::PostProcessingFailure => {
                 Self::PostProcessingFailure
             }
+            crate::server::grpc::runner_v1::BuildResultState::HashMismatch => Self::HashMismatch,
         }
     }
 }
@@ -197,6 +199,8 @@ pub struct RemoteBuild {
 
     overhead: i32,
     pub log_file: String,
+
+    pub fod_result: Option<FodOutput>,
 }
 
 impl Default for RemoteBuild {
@@ -220,6 +224,7 @@ impl RemoteBuild {
             stop_time: None,
             overhead: 0,
             log_file: String::new(),
+            fod_result: None,
         }
     }
 
@@ -255,6 +260,10 @@ impl RemoteBuild {
             BuildResultState::Cancelled => {
                 self.can_retry = true;
                 self.step_status = BuildStatus::Cancelled;
+            }
+            BuildResultState::HashMismatch => {
+                self.can_retry = false;
+                self.step_status = BuildStatus::HashMismatch;
             }
         }
     }
@@ -409,6 +418,23 @@ impl From<db::models::OwnedBuildMetric> for BuildMetric {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct FodOutput {
+    pub expected_hash: String,
+    pub actual_hash: Option<String>,
+    pub output: String,
+}
+
+impl From<crate::server::grpc::runner_v1::FodOutput> for FodOutput {
+    fn from(v: crate::server::grpc::runner_v1::FodOutput) -> Self {
+        Self {
+            expected_hash: v.expected_hash,
+            actual_hash: v.actual_hash,
+            output: v.output,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct BuildTimings {
     pub import_elapsed: std::time::Duration,
@@ -443,6 +469,8 @@ pub struct BuildOutput {
     pub products: Vec<BuildProduct>,
     pub outputs: HashMap<String, nix_utils::StorePath>,
     pub metrics: HashMap<String, BuildMetric>,
+
+    pub fod_output: Option<FodOutput>,
 }
 
 impl TryFrom<db::models::BuildOutput> for BuildOutput {
@@ -465,6 +493,8 @@ impl TryFrom<db::models::BuildOutput> for BuildOutput {
             products: vec![],
             outputs: HashMap::with_capacity(6),
             metrics: HashMap::with_capacity(10),
+
+            fod_output: None,
         })
     }
 }
@@ -520,6 +550,7 @@ impl From<crate::server::grpc::runner_v1::BuildResultInfo> for BuildOutput {
                     )
                 })
                 .collect(),
+            fod_output: v.fod_output.map(Into::into),
         }
     }
 }
@@ -573,6 +604,7 @@ impl BuildOutput {
                     )
                 })
                 .collect(),
+            fod_output: None,
         })
     }
 }

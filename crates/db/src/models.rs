@@ -17,6 +17,7 @@ pub enum BuildStatus {
     LogLimitExceeded = 10,
     NarSizeLimitExceeded = 11,
     NotDeterministic = 12,
+    HashMismatch = 13,
     Busy = 100, // not stored
 }
 
@@ -36,6 +37,7 @@ impl BuildStatus {
             10 => Some(Self::LogLimitExceeded),
             11 => Some(Self::NarSizeLimitExceeded),
             12 => Some(Self::NotDeterministic),
+            13 => Some(Self::HashMismatch),
             100 => Some(Self::Busy),
             _ => None,
         }
@@ -130,6 +132,13 @@ pub struct InsertBuildStep<'a> {
     pub propagated_from: Option<i32>,
     pub error_msg: Option<&'a str>,
     pub machine: &'a str,
+}
+
+pub struct InsertFodOutput {
+    pub build_id: BuildID,
+    pub timestamp: i32,
+    pub expected_hash: String,
+    pub actual_hash: Option<String>,
 }
 
 pub struct InsertBuildStepOutput {

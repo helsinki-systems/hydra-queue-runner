@@ -175,6 +175,9 @@ async fn router(
             (&hyper::Method::POST, "/dump_status" | "/dump_status/") => {
                 handler::dump_status::post(state).await
             }
+            (&hyper::Method::POST, "/fod/force_dispatch" | "/fod/force_dispatch/") => {
+                handler::fod::force(req, state).await
+            }
             (&hyper::Method::PUT, "/build" | "/build/") => handler::build::put(req, state).await,
             (&hyper::Method::GET, "/metrics" | "/metrics/") => handler::metrics::get(state).await,
             _ => Err(Error::NotFound),
@@ -402,6 +405,27 @@ mod handler {
             let mut tx = db.begin_transaction().await?;
             tx.notify_dump_status().await?;
             tx.commit().await?;
+            construct_json_ok_response(&io::Empty {})
+        }
+    }
+
+    pub mod fod {
+        use bytes::Bytes;
+        use http_body_util::combinators::BoxBody;
+
+        use super::super::{Error, construct_json_ok_response};
+        use crate::{io, state::State};
+
+        #[tracing::instrument(skip(_req, state), err)]
+        pub async fn force(
+            _req: hyper::Request<hyper::body::Incoming>,
+            state: std::sync::Arc<State>,
+        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+            let Some(fod_checker) = state.fod_checker.as_ref() else {
+                return Err(Error::NotFound);
+            };
+            fod_checker.force_dispatch_sync();
+
             construct_json_ok_response(&io::Empty {})
         }
     }

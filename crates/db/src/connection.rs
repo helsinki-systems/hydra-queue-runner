@@ -2,8 +2,8 @@ use sqlx::Acquire;
 
 use super::models::{
     Build, BuildSmall, BuildStatus, BuildSteps, BuildWithTimestamps, InsertBuildMetric,
-    InsertBuildProduct, InsertBuildStep, InsertBuildStepOutput, InsertFodCheck, Jobset,
-    UpdateBuild, UpdateBuildStep, UpdateBuildStepInFinish,
+    InsertBuildProduct, InsertBuildStep, InsertBuildStepOutput, InsertFodCheck, InsertFodOutput,
+    Jobset, UpdateBuild, UpdateBuildStep, UpdateBuildStepInFinish,
 };
 
 pub struct Connection {
@@ -412,7 +412,7 @@ impl Transaction<'_> {
         name: &str,
         path: &str,
     ) -> sqlx::Result<()> {
-        // TODO: support inserting multiple at the same time
+        // TODO: support updating multiple at the same time
         sqlx::query!(
             "UPDATE buildoutputs SET path = $3 WHERE build = $1 AND name = $2",
             build_id,
@@ -527,6 +527,53 @@ impl Transaction<'_> {
         .id)
     }
 
+    #[tracing::instrument(skip(self), err)]
+    pub async fn load_build_by_id(&mut self, id: i32) -> sqlx::Result<Option<Build>> {
+        sqlx::query_as!(
+            Build,
+            r#"
+            SELECT
+              builds.id,
+              builds.jobset_id,
+              jobsets.project as project,
+              jobsets.name as jobset,
+              job,
+              drvPath,
+              maxsilent,
+              timeout,
+              timestamp,
+              globalPriority,
+              priority
+            FROM builds
+            INNER JOIN jobsets ON builds.jobset_id = jobsets.id
+            WHERE builds.id = $1;"#,
+            id,
+        )
+        .fetch_optional(&mut *self.tx)
+        .await
+    }
+
+    #[tracing::instrument(skip(self, outputs), err)]
+    pub async fn insert_fod_outputs(&mut self, outputs: &[InsertFodOutput]) -> sqlx::Result<()> {
+        if outputs.is_empty() {
+            return Ok(());
+        }
+
+        let mut query_builder = sqlx::QueryBuilder::new(
+            "INSERT INTO fodoutputs (build, timestamp, expectedHash, actualHash) ",
+        );
+
+        query_builder.push_values(outputs, |mut b, output| {
+            b.push_bind(output.build_id)
+                .push_bind(output.timestamp)
+                .push_bind(&output.expected_hash)
+                .push_bind(&output.actual_hash);
+        });
+        let query = query_builder.build();
+        query.execute(&mut *self.tx).await?;
+        Ok(())
+    }
+
     #[tracing::instrument(skip(self, step), err)]
     async fn insert_build_step(&mut self, step: InsertBuildStep<'_>) -> sqlx::Result<bool> {
         let success = sqlx::query!(
@@ -604,7 +651,7 @@ impl Transaction<'_> {
         name: &str,
         path: &str,
     ) -> sqlx::Result<()> {
-        // TODO: support inserting multiple at the same time
+        // TODO: support updating multiple at the same time
         sqlx::query!(
             "UPDATE buildstepoutputs SET path = $4 WHERE build = $1 AND stepnr = $2 AND name = $3",
             build_id,

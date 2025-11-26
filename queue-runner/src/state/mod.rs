@@ -29,6 +29,7 @@ use db::models::{BuildID, BuildStatus};
 use nix_utils::BaseStore as _;
 
 use crate::config::{App, Cli};
+use crate::server::grpc::runner_v1::FodOutput;
 use crate::state::build::get_mark_build_sccuess_data;
 pub use crate::state::fod_checker::FodChecker;
 use crate::state::machine::Machines;
@@ -208,6 +209,7 @@ impl State {
                         // a machine is removed
                         BuildResultState::PreparingFailure,
                         BuildTimings::default(),
+                        None,
                     )
                     .await
                 {
@@ -247,12 +249,7 @@ impl State {
         let drv = resolved.step_info.step.get_drv_path();
         let mut build_options = nix_utils::BuildOptions::new(None);
 
-        let build_id = if let Some(build_id) = resolved.step_info.step.build_id_hint {
-            // TODO: get build from db
-            build_options.set_max_silent_time(3600); // default values for build
-            build_options.set_build_timeout(36000); // default values for build
-            build_id
-        } else {
+        let build_id = {
             let mut dependents = HashSet::new();
             let mut steps = HashSet::new();
             resolved
@@ -507,6 +504,7 @@ impl State {
                     queue_type,
                     BuildResultState::Cancelled,
                     BuildTimings::default(),
+                    None,
                 )
                 .await
             {
@@ -979,6 +977,7 @@ impl State {
         job.result.step_status = BuildStatus::Success;
         job.result.set_stop_time_now();
         job.result.set_overhead(output.timings.get_overhead())?;
+        job.result.fod_result.clone_from(&output.fod_output);
 
         let total_step_time = job.result.get_total_step_time_ms();
         item.machine
@@ -1034,6 +1033,8 @@ impl State {
         {
             let mut db = self.db.get().await?;
             let mut tx = db.begin_transaction().await?;
+            let mut fod_outputs = Vec::with_capacity(direct.len());
+
             let start_time = job.result.get_start_time_as_i32()?;
             let stop_time = job.result.get_stop_time_as_i32()?;
             for b in &direct {
@@ -1045,7 +1046,19 @@ impl State {
                     stop_time,
                 )
                 .await?;
+                if let Some(fod_result) = job.result.fod_result.as_ref() {
+                    fod_outputs.push(db::models::InsertFodOutput {
+                        build_id: b.id,
+                        timestamp: stop_time,
+                        expected_hash: fod_result.expected_hash.clone(),
+                        actual_hash: fod_result.actual_hash.clone(),
+                    });
+                }
+
                 self.metrics.nr_builds_done.inc();
+            }
+            if !fod_outputs.is_empty() {
+                tx.insert_fod_outputs(&fod_outputs).await?;
             }
 
             tx.commit().await?;
@@ -1084,6 +1097,7 @@ impl State {
         queue_type: QueueType,
         state: BuildResultState,
         timings: BuildTimings,
+        fod_result: Option<FodOutput>,
     ) -> anyhow::Result<()> {
         tracing::info!("removing job from running in system queue: drv_path={drv_path}");
         let item = self
@@ -1108,6 +1122,7 @@ impl State {
         job.result.update_with_result_state(&state);
         job.result.set_stop_time_now();
         job.result.set_overhead(timings.get_overhead())?;
+        job.result.fod_result = fod_result.map(Into::into);
 
         let total_step_time = job.result.get_total_step_time_ms();
         item.machine
@@ -1197,6 +1212,7 @@ impl State {
         machine_id: uuid::Uuid,
         state: BuildResultState,
         timings: BuildTimings,
+        fod_result: Option<FodOutput>,
     ) -> anyhow::Result<()> {
         let machine = self
             .machines
@@ -1206,8 +1222,10 @@ impl State {
             .get_job_drv_for_build_id(build_id)
             .ok_or_else(|| anyhow::anyhow!("Job with build_id not found"))?;
 
-        self.fail_step(machine_id, &drv_path, queue_type, state, timings)
-            .await
+        self.fail_step(
+            machine_id, &drv_path, queue_type, state, timings, fod_result,
+        )
+        .await
     }
 
     #[allow(clippy::too_many_lines)]
@@ -1285,6 +1303,10 @@ impl State {
                     .await?;
                 }
 
+                let mut fod_outputs = Vec::with_capacity(indirect.len());
+
+                let start_time = job.result.get_start_time_as_i32()?;
+                let stop_time = job.result.get_stop_time_as_i32()?;
                 // Mark all builds that depend on this derivation as failed.
                 for b in &indirect {
                     if b.get_finished_in_db() {
@@ -1292,8 +1314,6 @@ impl State {
                     }
 
                     tracing::info!("marking build {} as failed", b.id);
-                    let start_time = job.result.get_start_time_as_i32()?;
-                    let stop_time = job.result.get_stop_time_as_i32()?;
                     tx.update_build_after_failure(
                         b.id,
                         if &b.drv_path != step.get_drv_path()
@@ -1308,7 +1328,19 @@ impl State {
                         job.result.step_status == BuildStatus::CachedFailure,
                     )
                     .await?;
+                    if let Some(fod_result) = job.result.fod_result.as_ref() {
+                        fod_outputs.push(db::models::InsertFodOutput {
+                            build_id: b.id,
+                            timestamp: stop_time,
+                            expected_hash: fod_result.expected_hash.clone(),
+                            actual_hash: fod_result.actual_hash.clone(),
+                        });
+                    }
+
                     self.metrics.nr_builds_done.inc();
+                }
+                if !fod_outputs.is_empty() {
+                    tx.insert_fod_outputs(&fod_outputs).await?;
                 }
 
                 // Remember failed paths in the database so that they won't be built again.

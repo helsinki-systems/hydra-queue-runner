@@ -20,7 +20,6 @@ service RunnerService {
   rpc RequestPresignedUrl(PresignedUrlRequest) returns (PresignedUrlResponse) {}
   rpc NotifyPresignedUploadComplete(PresignedUploadComplete) returns (Empty) {}
 
-  rpc UploadFodResult(FodResult) returns (Empty) {}
   rpc UploadRealisation(Realisation) returns (Empty) {}
 }
 
@@ -252,6 +251,13 @@ enum BuildResultState {
   ImportFailure = 3;
   UploadFailure = 4;
   PostProcessingFailure = 5;
+  HashMismatch = 6;
+}
+
+message FodOutput {
+  string expected_hash = 1;
+  optional string actual_hash = 2;
+  string output = 3;
 }
 
 message BuildResultInfo {
@@ -263,6 +269,7 @@ message BuildResultInfo {
   BuildResultState result_state = 6;
   NixSupport nix_support = 7;
   repeated Output outputs = 8;
+  optional FodOutput fod_output = 9;
 }
 
 message PresignedNarRequest {
@@ -309,23 +316,6 @@ message PresignedUploadComplete {
   repeated string references = 10;
   optional string deriver = 11;
   optional string ca = 12;
-}
-
-enum FodResultState {
-  FodSuccess = 0;
-  FodHashMissmatch = 1;
-  FodBuildFailure = 2;
-}
-
-message FodResult {
-  string build_id = 1; // UUIDv4
-  string machine_id = 2; // UUIDv4
-  uint64 import_time_ms = 3;
-  uint64 build_time_ms = 4;
-  FodResultState result_state = 5;
-  string expected_hash = 6;
-  optional string actual_hash = 7;
-  string output = 8;
 }
 
 message Realisation {

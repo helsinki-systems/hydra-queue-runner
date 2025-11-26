@@ -16,10 +16,10 @@ use nix_utils::BaseStore as _;
 include!(concat!(env!("OUT_DIR"), "/proto_version.rs"));
 use runner_v1::runner_service_server::{RunnerService, RunnerServiceServer};
 use runner_v1::{
-    BuildResultInfo, BuilderRequest, FetchRequisitesRequest, FodResult, JoinResponse, LogChunk,
-    NarData, PresignedUploadComplete, PresignedUrlRequest, PresignedUrlResponse, Realisation,
-    RunnerRequest, SimplePingMessage, StorePath, StorePaths, VersionCheckRequest,
-    VersionCheckResponse, builder_request,
+    BuildResultInfo, BuilderRequest, FetchRequisitesRequest, JoinResponse, LogChunk, NarData,
+    PresignedUploadComplete, PresignedUrlRequest, PresignedUrlResponse, Realisation, RunnerRequest,
+    SimplePingMessage, StorePath, StorePaths, VersionCheckRequest, VersionCheckResponse,
+    builder_request,
 };
 
 type BuilderResult<T> = Result<tonic::Response<T>, tonic::Status>;
@@ -493,6 +493,7 @@ impl RunnerService for Server {
                             req.build_time_ms,
                             req.upload_time_ms,
                         ),
+                        req.fod_output,
                     )
                     .await
                 {
@@ -762,42 +763,6 @@ impl RunnerService for Server {
             req.file_size,
             narinfo_url
         );
-
-        Ok(tonic::Response::new(runner_v1::Empty {}))
-    }
-
-    #[tracing::instrument(
-        skip(self, req),
-        fields(machine_id=req.get_ref().machine_id, build_id=req.get_ref().build_id),
-        err,
-    )]
-    async fn upload_fod_result(
-        &self,
-        req: tonic::Request<FodResult>,
-    ) -> BuilderResult<runner_v1::Empty> {
-        let _state = self.state.clone();
-
-        let req = req.into_inner();
-        let _build_id = uuid::Uuid::parse_str(&req.build_id).map_err(|e| {
-            tracing::error!("Failed to parse build_id into uuid: {e}");
-            tonic::Status::invalid_argument("build_id is not a valid uuid.")
-        })?;
-        let _machine_id = uuid::Uuid::parse_str(&req.machine_id).map_err(|e| {
-            tracing::error!("Failed to parse machine_id into uuid: {e}");
-            tonic::Status::invalid_argument("machine_id is not a valid uuid.")
-        })?;
-
-        tokio::spawn({
-            async move {
-                tracing::info!(
-                    "fod result: {:?} expected_sri: {} actual_sri: {:?}",
-                    req.result_state(),
-                    req.expected_hash,
-                    req.actual_hash
-                );
-            }
-            .in_current_span()
-        });
 
         Ok(tonic::Response::new(runner_v1::Empty {}))
     }
