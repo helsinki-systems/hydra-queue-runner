@@ -811,9 +811,10 @@ async fn upload_nars_regular(
     metrics: Arc<crate::metrics::Metrics>,
     nars: Vec<nix_utils::StorePath>,
 ) -> anyhow::Result<()> {
-    tracing::debug!("Start uploading paths (regular)");
+    tracing::info!("Start uploading paths to queue runner directly");
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<NarData>();
 
+    let before_upload = Instant::now();
     let nars_len = nars.len() as u64;
     metrics.add_uploading_path(nars_len);
     let closure = move |data: &[u8]| {
@@ -835,7 +836,10 @@ async fn upload_nars_regular(
     .await?
     .map_err(Into::<anyhow::Error>::into);
     futures::future::try_join(a, b).await?;
-    tracing::debug!("Finished uploading paths");
+    tracing::info!(
+        "Finished uploading paths to queue runner directly. elapsed={:?}",
+        before_upload.elapsed()
+    );
 
     metrics.sub_uploading_path(nars_len);
     Ok(())
@@ -853,7 +857,8 @@ async fn upload_nars_presigned(
 ) -> anyhow::Result<()> {
     use futures::stream::StreamExt as _;
 
-    tracing::debug!("Start uploading paths (presigned)");
+    tracing::info!("Start uploading paths using presigned urls");
+    let before_upload = Instant::now();
 
     let paths_to_upload = store
         .query_requisites(&output_paths.iter().collect::<Vec<_>>(), true)
@@ -920,7 +925,10 @@ async fn upload_nars_presigned(
         .await?;
     }
 
-    tracing::debug!("Finished uploading paths (presigned)");
+    tracing::info!(
+        "Finished uploading paths using presigned urls. elapsed={:?}",
+        before_upload.elapsed()
+    );
     Ok(())
 }
 
