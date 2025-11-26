@@ -65,7 +65,7 @@ pub struct QueueRunnerStats {
 
 impl QueueRunnerStats {
     pub async fn new(state: Arc<crate::state::State>) -> Self {
-        let build_count = state.get_nr_builds_unfinished();
+        let build_count = state.builds.len();
         let jobset_count = state.jobsets.len();
         let step_count = state.get_nr_steps_unfinished();
         let runnable_count = state.get_nr_runnable();

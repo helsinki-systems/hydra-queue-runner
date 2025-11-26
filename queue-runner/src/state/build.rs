@@ -536,3 +536,68 @@ pub fn get_mark_build_sccuess_data<'a>(
             .collect(),
     }
 }
+
+#[derive(Clone)]
+pub struct Builds {
+    inner: Arc<parking_lot::RwLock<HashMap<BuildID, Arc<Build>>>>,
+}
+
+impl Default for Builds {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Builds {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(parking_lot::RwLock::new(HashMap::with_capacity(1000))),
+        }
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.inner.read().len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.inner.read().is_empty()
+    }
+
+    #[must_use]
+    pub fn clone_as_io(&self) -> Vec<crate::io::Build> {
+        let builds = self.inner.read();
+        builds.values().map(|v| v.clone().into()).collect()
+    }
+
+    pub fn update_priorities(&self, curr_ids: &HashMap<BuildID, i32>) {
+        let mut builds = self.inner.write();
+        builds.retain(|k, _| curr_ids.contains_key(k));
+        for (id, build) in builds.iter() {
+            let Some(new_priority) = curr_ids.get(id) else {
+                // we should never get into this case because of the retain above
+                continue;
+            };
+
+            if build.global_priority.load(Ordering::Relaxed) < *new_priority {
+                tracing::info!("priority of build {id} increased");
+                build
+                    .global_priority
+                    .store(*new_priority, Ordering::Relaxed);
+                build.propagate_priorities();
+            }
+        }
+    }
+
+    pub fn insert_new_build(&self, build: Arc<Build>) {
+        let mut builds = self.inner.write();
+        builds.insert(build.id, build);
+    }
+
+    pub fn remove_by_id(&self, id: BuildID) {
+        let mut builds = self.inner.write();
+        builds.remove(&id);
+    }
+}

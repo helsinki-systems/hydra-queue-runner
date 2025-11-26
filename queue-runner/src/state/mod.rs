@@ -10,7 +10,7 @@ mod step_info;
 mod uploader;
 
 pub use atomic::AtomicDateTime;
-pub use build::{Build, BuildOutput, BuildResultState, RemoteBuild};
+pub use build::{Build, BuildOutput, BuildResultState, Builds, RemoteBuild};
 pub use jobset::{Jobset, JobsetID, Jobsets};
 pub use machine::{Machine, Message as MachineMessage, Pressure, Stats as MachineStats};
 pub use queue::{BuildQueueStats, Queues};
@@ -60,7 +60,7 @@ pub struct State {
 
     pub log_dir: std::path::PathBuf,
 
-    pub builds: parking_lot::RwLock<HashMap<BuildID, Arc<Build>>>,
+    pub builds: Builds,
     pub jobsets: Jobsets,
     pub steps: parking_lot::RwLock<HashMap<nix_utils::StorePath, Weak<Step>>>,
     pub queues: Queues,
@@ -106,7 +106,7 @@ impl State {
             db,
             machines: Machines::new(),
             log_dir,
-            builds: parking_lot::RwLock::new(HashMap::with_capacity(1000)),
+            builds: Builds::new(),
             jobsets: Jobsets::new(),
             steps: parking_lot::RwLock::new(HashMap::with_capacity(10000)),
             queues: Queues::new(),
@@ -166,10 +166,6 @@ impl State {
         }
 
         Ok(())
-    }
-
-    pub fn get_nr_builds_unfinished(&self) -> usize {
-        self.builds.read().len()
     }
 
     pub fn get_nr_steps_unfinished(&self) -> usize {
@@ -506,25 +502,7 @@ impl State {
             .into_iter()
             .map(|b| (b.id, b.globalpriority))
             .collect();
-
-        {
-            let mut builds = self.builds.write();
-            builds.retain(|k, _| curr_ids.contains_key(k));
-            for (id, build) in builds.iter() {
-                let Some(new_priority) = curr_ids.get(id) else {
-                    // we should never get into this case because of the retain above
-                    continue;
-                };
-
-                if build.global_priority.load(Ordering::Relaxed) < *new_priority {
-                    tracing::info!("priority of build {id} increased");
-                    build
-                        .global_priority
-                        .store(*new_priority, Ordering::Relaxed);
-                    build.propagate_priorities();
-                }
-            }
-        }
+        self.builds.update_priorities(&curr_ids);
 
         let cancelled_steps = self.queues.kill_active_steps().await;
         for (drv_path, machine_id) in cancelled_steps {
@@ -1114,14 +1092,11 @@ impl State {
             tx.commit().await?;
         }
 
-        {
-            // Remove the direct dependencies from 'builds'. This will cause them to be
-            // destroyed.
-            let mut current_builds = self.builds.write();
-            for b in &direct {
-                b.set_finished_in_db(true);
-                current_builds.remove(&b.id);
-            }
+        // Remove the direct dependencies from 'builds'. This will cause them to be
+        // destroyed.
+        for b in &direct {
+            b.set_finished_in_db(true);
+            self.builds.remove_by_id(b.id);
         }
 
         {
@@ -1396,15 +1371,12 @@ impl State {
 
             step_finished = true;
 
-            {
-                // Remove the indirect dependencies from 'builds'. This will cause them to be
-                // destroyed.
-                let mut current_builds = self.builds.write();
-                for b in indirect {
-                    b.set_finished_in_db(true);
-                    current_builds.remove(&b.id);
-                    dependent_ids.push(b.id);
-                }
+            // Remove the indirect dependencies from 'builds'. This will cause them to be
+            // destroyed.
+            for b in indirect {
+                b.set_finished_in_db(true);
+                self.builds.remove_by_id(b.id);
+                dependent_ids.push(b.id);
             }
         }
         {
@@ -1642,8 +1614,7 @@ impl State {
 
         if let Some(step) = step {
             if !build.get_finished_in_db() {
-                let mut builds = self.builds.write();
-                builds.insert(build.id, build.clone());
+                self.builds.insert_new_build(build.clone());
             }
 
             build.set_toplevel_step(step.clone());

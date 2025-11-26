@@ -833,7 +833,7 @@ impl PromMetrics {
             }
         }
 
-        if let Ok(v) = i64::try_from(state.get_nr_builds_unfinished()) {
+        if let Ok(v) = i64::try_from(state.builds.len()) {
             self.nr_builds_unfinished.set(v);
         }
         if let Ok(v) = i64::try_from(state.get_nr_steps_unfinished()) {

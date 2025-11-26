@@ -230,14 +230,7 @@ mod handler {
 
         #[tracing::instrument(skip(state), err)]
         pub fn builds(state: std::sync::Arc<State>) -> Result<Response, Error> {
-            let builds: Vec<io::Build> = {
-                state
-                    .builds
-                    .read()
-                    .values()
-                    .map(|v| v.clone().into())
-                    .collect()
-            };
+            let builds = state.builds.clone_as_io();
             construct_json_ok_response(&io::BuildsResponse::new(builds))
         }
 
