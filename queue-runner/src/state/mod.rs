@@ -11,9 +11,9 @@ mod uploader;
 
 pub use atomic::AtomicDateTime;
 pub use build::{Build, BuildOutput, BuildResultState, RemoteBuild};
-pub use jobset::{Jobset, JobsetID};
+pub use jobset::{Jobset, JobsetID, Jobsets};
 pub use machine::{Machine, Message as MachineMessage, Pressure, Stats as MachineStats};
-pub use queue::BuildQueueStats;
+pub use queue::{BuildQueueStats, Queues};
 pub use step::Step;
 pub use step_info::StepInfo;
 
@@ -61,9 +61,9 @@ pub struct State {
     pub log_dir: std::path::PathBuf,
 
     pub builds: parking_lot::RwLock<HashMap<BuildID, Arc<Build>>>,
-    pub jobsets: jobset::Jobsets,
+    pub jobsets: Jobsets,
     pub steps: parking_lot::RwLock<HashMap<nix_utils::StorePath, Weak<Step>>>,
-    pub queues: queue::Queues,
+    pub queues: Queues,
 
     pub fod_checker: Option<Arc<FodChecker>>,
 
@@ -107,9 +107,9 @@ impl State {
             machines: Machines::new(),
             log_dir,
             builds: parking_lot::RwLock::new(HashMap::with_capacity(1000)),
-            jobsets: jobset::Jobsets::new(),
+            jobsets: Jobsets::new(),
             steps: parking_lot::RwLock::new(HashMap::with_capacity(10000)),
-            queues: queue::Queues::new(),
+            queues: Queues::new(),
             fod_checker: if config.get_enable_fod_checker() {
                 Some(Arc::new(FodChecker::new(None)))
             } else {

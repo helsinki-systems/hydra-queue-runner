@@ -7,6 +7,7 @@ use smallvec::SmallVec;
 use super::{StepInfo, System};
 use crate::config::StepSortFn;
 
+#[derive(Debug)]
 pub struct BuildQueue {
     // Note: ensure that this stays private
     jobs: parking_lot::RwLock<Vec<Weak<StepInfo>>>,
@@ -19,6 +20,7 @@ pub struct BuildQueue {
     wait_time_ms: AtomicU64,
 }
 
+#[derive(Debug)]
 pub struct BuildQueueStats {
     pub active_runnable: u64,
     pub total_runnable: u64,
@@ -371,8 +373,9 @@ impl JobConstraint {
     }
 }
 
+#[derive(Clone)]
 pub struct Queues {
-    inner: tokio::sync::RwLock<InnerQueues>,
+    inner: Arc<tokio::sync::RwLock<InnerQueues>>,
 }
 
 impl Default for Queues {
@@ -382,9 +385,10 @@ impl Default for Queues {
 }
 
 impl Queues {
+    #[must_use]
     pub fn new() -> Self {
         Self {
-            inner: tokio::sync::RwLock::new(InnerQueues::new()),
+            inner: Arc::new(tokio::sync::RwLock::new(InnerQueues::new())),
         }
     }
 

@@ -114,16 +114,24 @@ impl Default for Jobsets {
 }
 
 impl Jobsets {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             inner: Arc::new(parking_lot::RwLock::new(HashMap::with_capacity(100))),
         }
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.inner.read().len()
     }
 
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.inner.read().is_empty()
+    }
+
+    #[must_use]
     pub fn clone_as_io(&self) -> HashMap<String, crate::io::Jobset> {
         let jobsets = self.inner.read();
         jobsets
