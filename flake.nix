@@ -1,7 +1,7 @@
 {
   inputs = {
     flake-utils.url = "github:numtide/flake-utils";
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05-small";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11-small";
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable-small";
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
@@ -24,7 +24,7 @@
         unstable = import nixpkgs-unstable { inherit system; };
         treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
 
-        rustPackages = pkgs.rustPackages_1_89;
+        rustPackages = pkgs.rustPackages_1_91;
         inherit (pkgs) lib;
 
         nativeBuildInputs = with pkgs; [

@@ -878,7 +878,7 @@ async fn upload_nars_presigned(
                 } else {
                     Vec::new()
                 };
-                let Some(narhash) = path_infos.get(&path).map(|i| i.nar_hash.to_string()) else {
+                let Some(narhash) = path_infos.get(&path).map(|i| i.nar_hash.clone()) else {
                     return Ok(None);
                 };
                 Ok::<_, anyhow::Error>(Some((path, narhash, debug_info_ids)))
@@ -998,7 +998,7 @@ async fn upload_single_nar_presigned(
             store_path: nar_path.base_name().to_owned(),
             url: updated_narinfo.url.clone(),
             compression: updated_narinfo.compression.as_str().to_owned(),
-            file_hash: file_hash.to_string(),
+            file_hash: file_hash.clone(),
             file_size,
             nar_hash: updated_narinfo.nar_hash,
             nar_size: updated_narinfo.nar_size,
