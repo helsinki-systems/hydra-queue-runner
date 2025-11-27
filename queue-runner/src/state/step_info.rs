@@ -148,7 +148,7 @@ mod tests {
         rdeps_len: u64,
     ) -> StepInfo {
         let step = Step::new(nix_utils::StorePath::new(
-            "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-test.drv",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-test.drv",
         ));
 
         step.atomic_state.highest_global_priority.store(

@@ -1,7 +1,6 @@
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let p =
-        nix_utils::StorePath::new("/nix/store/dzgpbp0vp7lj7lgj26rjgmnjicq2wf4k-hello-2.12.2.drv");
+    let p = nix_utils::StorePath::new("dzgpbp0vp7lj7lgj26rjgmnjicq2wf4k-hello-2.12.2.drv");
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(4);
 
     let store = nix_utils::LocalStore::init();

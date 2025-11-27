@@ -374,9 +374,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_products() {
-        let output =
-            nix_utils::StorePath::new("/nix/store/ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
-        let line = "file iso /nix/store/ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso/iso/custom.iso";
+        let store = nix_utils::LocalStore::init();
+        let output = nix_utils::StorePath::new("ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
+        let line = format!("file iso {}", store.print_store_path(&output));
         let fsop = DummyFsOperations {
             valid_file: true,
             metadata: FileMetadata {
@@ -385,8 +385,7 @@ mod tests {
             },
             file_hash: "4306152c73d2a7a01dbac16ba48f45fa4ae5b746a1d282638524ae2ae93af210".into(),
         };
-        let store = nix_utils::LocalStore::init();
-        let build_product = parse_build_product(&store, &fsop, &output, line)
+        let build_product = parse_build_product(&store, &fsop, &output, &line)
             .await
             .unwrap();
         assert!(build_product.is_regular);
@@ -404,8 +403,7 @@ mod tests {
 
     #[test]
     fn test_parse_invalid_metric() {
-        let output =
-            nix_utils::StorePath::new("/nix/store/ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
+        let output = nix_utils::StorePath::new("ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
         let line = "nix-env.qaCount";
         let store = nix_utils::LocalStore::init();
         let m = parse_metric(&store, line, &output);
@@ -414,8 +412,7 @@ mod tests {
 
     #[test]
     fn test_parse_metric_without_unit() {
-        let output =
-            nix_utils::StorePath::new("/nix/store/ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
+        let output = nix_utils::StorePath::new("ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
         let line = "nix-env.qaCount 4";
         let store = nix_utils::LocalStore::init();
         let m = parse_metric(&store, line, &output).unwrap();
@@ -426,8 +423,7 @@ mod tests {
 
     #[test]
     fn test_parse_metric_with_unit() {
-        let output =
-            nix_utils::StorePath::new("/nix/store/ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
+        let output = nix_utils::StorePath::new("ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
         let line = "xzy.time 123.321 s";
         let store = nix_utils::LocalStore::init();
         let m = parse_metric(&store, line, &output).unwrap();

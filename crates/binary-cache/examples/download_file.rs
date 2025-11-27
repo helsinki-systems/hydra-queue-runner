@@ -11,14 +11,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let has_info = client
         .has_narinfo(&nix_utils::StorePath::new(
-            "/nix/store/lmn7lwydprqibdkghw7wgcn21yhllz13-glibc-2.40-66",
+            "lmn7lwydprqibdkghw7wgcn21yhllz13-glibc-2.40-66",
         ))
         .await?;
     tracing::info!("has narinfo? {has_info}");
 
     let narinfo = client
         .download_narinfo(&nix_utils::StorePath::new(
-            "/nix/store/lmn7lwydprqibdkghw7wgcn21yhllz13-glibc-2.40-66",
+            "lmn7lwydprqibdkghw7wgcn21yhllz13-glibc-2.40-66",
         ))
         .await?;
     tracing::info!("narinfo:\n{narinfo:?}");

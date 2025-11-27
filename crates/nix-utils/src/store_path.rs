@@ -80,8 +80,7 @@ mod tests {
 
     #[test]
     fn test_store_path_with_prefix() {
-        let full_path_str = "/nix/store/abc123def45678901234567890123456-package-name";
-        let store_path = StorePath::new(full_path_str);
+        let store_path = StorePath::new("abc123def45678901234567890123456-package-name");
 
         assert_eq!(
             store_path.base_name(),
