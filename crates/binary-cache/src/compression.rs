@@ -6,7 +6,7 @@ use async_compression::{
 pub type CompressorFn<C> =
     Box<dyn FnOnce(C) -> Box<dyn tokio::io::AsyncRead + Unpin + Send> + Send>;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Compression {
     None,
     Xz,

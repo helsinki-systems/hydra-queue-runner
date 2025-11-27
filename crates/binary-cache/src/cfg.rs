@@ -434,7 +434,10 @@ fn parse_aws_credentials_file(
 mod tests {
     #![allow(clippy::unwrap_used)]
 
-    use super::{ConfigReadError, S3CacheConfig, UrlParseError, parse_aws_credentials_file};
+    use super::{
+        Compression, ConfigReadError, S3CacheConfig, S3ClientConfig, S3CredentialsConfig, S3Scheme,
+        UrlParseError, parse_aws_credentials_file,
+    };
     use std::str::FromStr as _;
 
     #[test]
@@ -613,15 +616,13 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY"
 
     #[test]
     fn test_presigned_url_expiry_validation() {
-        // Test valid expiry times
-        let valid_cases = vec!["60", "3600", "86400"]; // 1min, 1hr, 1day, 7days
+        let valid_cases = vec!["60", "3600", "86400"]; // 1min, 1hr, 1day
         for expiry in valid_cases {
             let config_str = format!("s3://test-bucket?presigned-url-expiry={expiry}");
             let result = S3CacheConfig::from_str(&config_str);
             assert!(result.is_ok(), "Should accept expiry: {expiry}");
         }
 
-        // Test invalid expiry times
         let invalid_cases = vec!["0", "30", "604801"]; // too small, too small, too large
         for expiry in invalid_cases {
             let config_str = format!("s3://test-bucket?presigned-url-expiry={expiry}");
@@ -635,5 +636,445 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY"
                 panic!("Expected InvalidPresignedUrlExpiry error");
             }
         }
+    }
+
+    #[test]
+    fn test_s3_cache_config_new_default_values() {
+        let client_config = S3ClientConfig::new("test-bucket".to_string());
+        let config = S3CacheConfig::new(client_config);
+
+        assert_eq!(config.compression, Compression::Xz);
+        assert!(!config.write_nar_listing);
+        assert!(!config.write_debug_info);
+        assert!(config.secret_key_files.is_empty());
+        assert!(!config.parallel_compression);
+        assert_eq!(config.compression_level, None);
+        assert_eq!(config.narinfo_compression, Compression::None);
+        assert_eq!(config.ls_compression, Compression::None);
+        assert_eq!(config.log_compression, Compression::None);
+        assert_eq!(config.buffer_size, 8 * 1024 * 1024);
+        assert_eq!(
+            config.presigned_url_expiry,
+            std::time::Duration::from_secs(3600)
+        );
+    }
+
+    #[test]
+    fn test_s3_cache_config_builder_methods() {
+        let client_config = S3ClientConfig::new("test-bucket".to_string());
+
+        let config =
+            S3CacheConfig::new(client_config.clone()).with_compression(Some(Compression::Bzip2));
+        assert_eq!(config.compression, Compression::Bzip2);
+
+        let config = S3CacheConfig::new(client_config.clone()).with_compression(None);
+        assert_eq!(config.compression, Compression::Xz);
+
+        let config = S3CacheConfig::new(client_config.clone()).with_write_nar_listing(Some("true"));
+        assert!(config.write_nar_listing);
+
+        let config = S3CacheConfig::new(client_config.clone()).with_write_nar_listing(Some("1"));
+        assert!(config.write_nar_listing);
+
+        let config =
+            S3CacheConfig::new(client_config.clone()).with_write_nar_listing(Some("false"));
+        assert!(!config.write_nar_listing);
+
+        let config = S3CacheConfig::new(client_config.clone()).with_write_nar_listing(Some("0"));
+        assert!(!config.write_nar_listing);
+
+        let config = S3CacheConfig::new(client_config.clone()).with_write_nar_listing(None);
+        assert!(!config.write_nar_listing);
+
+        let config = S3CacheConfig::new(client_config.clone()).with_write_debug_info(Some("TRUE"));
+        assert!(config.write_debug_info);
+
+        let config =
+            S3CacheConfig::new(client_config.clone()).with_write_debug_info(Some("  True  "));
+        assert!(config.write_debug_info);
+
+        let config = S3CacheConfig::new(client_config.clone()).with_write_debug_info(None);
+        assert!(!config.write_debug_info);
+
+        let secret_keys = vec![
+            std::path::PathBuf::from("/path/to/key1"),
+            std::path::PathBuf::from("/path/to/key2"),
+        ];
+        let config = S3CacheConfig::new(client_config.clone()).add_secret_key_files(&secret_keys);
+        assert_eq!(config.secret_key_files.len(), 2);
+        assert_eq!(
+            config.secret_key_files[0],
+            std::path::PathBuf::from("/path/to/key1")
+        );
+        assert_eq!(
+            config.secret_key_files[1],
+            std::path::PathBuf::from("/path/to/key2")
+        );
+
+        let config = S3CacheConfig::new(client_config.clone()).with_parallel_compression(Some("1"));
+        assert!(config.parallel_compression);
+
+        let config =
+            S3CacheConfig::new(client_config.clone()).with_parallel_compression(Some("false"));
+        assert!(!config.parallel_compression);
+
+        let config = S3CacheConfig::new(client_config.clone()).with_compression_level(Some(9));
+        assert_eq!(config.compression_level, Some(9));
+        assert!(matches!(
+            config.get_compression_level(),
+            async_compression::Level::Precise(9)
+        ));
+
+        let config = S3CacheConfig::new(client_config.clone()).with_compression_level(None);
+        assert_eq!(config.compression_level, None);
+        assert!(matches!(
+            config.get_compression_level(),
+            async_compression::Level::Default
+        ));
+
+        let config = S3CacheConfig::new(client_config.clone())
+            .with_narinfo_compression(Some(Compression::Zstd));
+        assert_eq!(config.narinfo_compression, Compression::Zstd);
+
+        let config = S3CacheConfig::new(client_config.clone())
+            .with_ls_compression(Some(Compression::Brotli));
+        assert_eq!(config.ls_compression, Compression::Brotli);
+
+        let config =
+            S3CacheConfig::new(client_config.clone()).with_log_compression(Some(Compression::Xz));
+        assert_eq!(config.log_compression, Compression::Xz);
+
+        let config =
+            S3CacheConfig::new(client_config.clone()).with_buffer_size(Some(16 * 1024 * 1024));
+        assert_eq!(config.buffer_size, 16 * 1024 * 1024);
+
+        let config = S3CacheConfig::new(client_config.clone())
+            .with_presigned_url_expiry(Some(7200))
+            .unwrap();
+        assert_eq!(
+            config.presigned_url_expiry,
+            std::time::Duration::from_secs(7200)
+        );
+
+        let config = S3CacheConfig::new(client_config)
+            .with_presigned_url_expiry(None)
+            .unwrap();
+        assert_eq!(
+            config.presigned_url_expiry,
+            std::time::Duration::from_secs(3600)
+        );
+    }
+
+    #[test]
+    fn test_s3_cache_config_from_str_basic() {
+        let config = S3CacheConfig::from_str("s3://my-bucket").unwrap();
+        assert_eq!(config.client_config.bucket, "my-bucket");
+        assert_eq!(config.client_config.region, "us-east-1");
+        assert_eq!(config.client_config.scheme, S3Scheme::HTTPS);
+        assert!(config.client_config.endpoint.is_none());
+        assert!(config.client_config.profile.is_none());
+    }
+
+    #[test]
+    fn test_s3_cache_config_from_str_with_parameters() {
+        let config_str = "s3://test-bucket?region=eu-west-1&scheme=http&endpoint=custom.example.com&profile=myprofile&compression=zstd&write-nar-listing=true&write-debug-info=1&parallel-compression=true&compression-level=9&narinfo-compression=bz2&ls-compression=br&log-compression=xz&buffer-size=16777216&presigned-url-expiry=7200";
+
+        let config = S3CacheConfig::from_str(config_str).unwrap();
+
+        assert_eq!(config.client_config.bucket, "test-bucket");
+        assert_eq!(config.client_config.region, "eu-west-1");
+        assert_eq!(config.client_config.scheme, S3Scheme::HTTP);
+        assert_eq!(
+            config.client_config.endpoint,
+            Some("custom.example.com".to_string())
+        );
+        assert_eq!(config.client_config.profile, Some("myprofile".to_string()));
+        assert_eq!(config.compression, Compression::Zstd);
+        assert!(config.write_nar_listing);
+        assert!(config.write_debug_info);
+        assert!(config.parallel_compression);
+        assert_eq!(config.compression_level, Some(9));
+        assert_eq!(config.narinfo_compression, Compression::Bzip2);
+        assert_eq!(config.ls_compression, Compression::Brotli);
+        assert_eq!(config.log_compression, Compression::Xz);
+        assert_eq!(config.buffer_size, 16777216);
+        assert_eq!(
+            config.presigned_url_expiry,
+            std::time::Duration::from_secs(7200)
+        );
+    }
+
+    #[test]
+    fn test_s3_cache_config_from_str_with_secret_keys() {
+        let config_str = "s3://test-bucket?secret-key=/path/to/key1";
+        let config = S3CacheConfig::from_str(config_str).unwrap();
+        assert_eq!(config.secret_key_files.len(), 1);
+        assert_eq!(
+            config.secret_key_files[0],
+            std::path::PathBuf::from("/path/to/key1")
+        );
+
+        let config_str = "s3://test-bucket?secret-keys=/path/to/key1,/path/to/key2,/path/to/key3";
+        let config = S3CacheConfig::from_str(config_str).unwrap();
+        assert_eq!(config.secret_key_files.len(), 3);
+        assert_eq!(
+            config.secret_key_files[0],
+            std::path::PathBuf::from("/path/to/key1")
+        );
+        assert_eq!(
+            config.secret_key_files[1],
+            std::path::PathBuf::from("/path/to/key2")
+        );
+        assert_eq!(
+            config.secret_key_files[2],
+            std::path::PathBuf::from("/path/to/key3")
+        );
+
+        let config_str = "s3://test-bucket?secret-key=";
+        let config = S3CacheConfig::from_str(config_str).unwrap();
+        assert!(config.secret_key_files.is_empty());
+
+        let config_str = "s3://test-bucket?secret-keys=";
+        let config = S3CacheConfig::from_str(config_str).unwrap();
+        assert!(config.secret_key_files.is_empty());
+
+        let config_str = "s3://test-bucket?secret-keys=/path/to/key1,,/path/to/key3";
+        let config = S3CacheConfig::from_str(config_str).unwrap();
+        assert_eq!(config.secret_key_files.len(), 2);
+        assert_eq!(
+            config.secret_key_files[0],
+            std::path::PathBuf::from("/path/to/key1")
+        );
+        assert_eq!(
+            config.secret_key_files[1],
+            std::path::PathBuf::from("/path/to/key3")
+        );
+    }
+
+    #[test]
+    fn test_s3_cache_config_from_str_case_insensitive() {
+        let config_str =
+            "s3://test-bucket?write-nar-listing=TRUE&write-debug-info=False&parallel-compression=1";
+        let config = S3CacheConfig::from_str(config_str).unwrap();
+        assert!(config.write_nar_listing);
+        assert!(!config.write_debug_info);
+        assert!(config.parallel_compression);
+
+        let config_str = "s3://test-bucket?compression=XZ&narinfo-compression=BZ2&ls-compression=BR&log-compression=ZSTD";
+        let config = S3CacheConfig::from_str(config_str).unwrap();
+        assert_eq!(config.compression, Compression::Xz);
+        assert_eq!(config.narinfo_compression, Compression::Bzip2);
+        assert_eq!(config.ls_compression, Compression::Brotli);
+        assert_eq!(config.log_compression, Compression::Zstd);
+    }
+
+    #[test]
+    fn test_s3_cache_config_from_str_errors() {
+        let result = S3CacheConfig::from_str("http://test-bucket");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), UrlParseError::BadSchema(_)));
+
+        let result = S3CacheConfig::from_str("s3://");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), UrlParseError::NoBucket));
+
+        let result = S3CacheConfig::from_str("s3://test-bucket?compression=invalid");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            UrlParseError::CompressionParseError(_)
+        ));
+
+        let result = S3CacheConfig::from_str("s3://test-bucket?scheme=invalid");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            UrlParseError::S3SchemeParseError(_)
+        ));
+
+        let result = S3CacheConfig::from_str("s3://test-bucket?compression-level=invalid");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            UrlParseError::IntParseError(_)
+        ));
+
+        let result = S3CacheConfig::from_str("s3://test-bucket?buffer-size=invalid");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            UrlParseError::IntParseError(_)
+        ));
+
+        let result = S3CacheConfig::from_str("s3://test-bucket?presigned-url-expiry=invalid");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            UrlParseError::IntParseError(_)
+        ));
+    }
+
+    #[test]
+    fn test_s3_scheme_from_str() {
+        assert_eq!(S3Scheme::from_str("http").unwrap(), S3Scheme::HTTP);
+        assert_eq!(S3Scheme::from_str("HTTP").unwrap(), S3Scheme::HTTP);
+        assert_eq!(S3Scheme::from_str("Http").unwrap(), S3Scheme::HTTP);
+        assert_eq!(S3Scheme::from_str("  http  ").unwrap(), S3Scheme::HTTP);
+
+        assert_eq!(S3Scheme::from_str("https").unwrap(), S3Scheme::HTTPS);
+        assert_eq!(S3Scheme::from_str("HTTPS").unwrap(), S3Scheme::HTTPS);
+        assert_eq!(S3Scheme::from_str("Https").unwrap(), S3Scheme::HTTPS);
+        assert_eq!(S3Scheme::from_str("  https  ").unwrap(), S3Scheme::HTTPS);
+
+        assert!(S3Scheme::from_str("ftp").is_err());
+        assert!(S3Scheme::from_str("").is_err());
+        assert!(S3Scheme::from_str("invalid").is_err());
+    }
+
+    #[test]
+    fn test_s3_client_config_builder() {
+        let mut config = S3ClientConfig::new("test-bucket".to_string());
+
+        assert_eq!(config.bucket, "test-bucket");
+        assert_eq!(config.region, "us-east-1");
+        assert_eq!(config.scheme, S3Scheme::HTTPS);
+        assert!(config.endpoint.is_none());
+        assert!(config.profile.is_none());
+        assert!(config.credentials.is_none());
+
+        config = config
+            .with_region(Some("eu-west-1"))
+            .with_scheme(Some(S3Scheme::HTTP))
+            .with_endpoint(Some("custom.example.com"))
+            .with_profile(Some("myprofile"))
+            .with_credentials(Some(S3CredentialsConfig {
+                access_key_id: "test-key".to_string(),
+                secret_access_key: "test-secret".to_string(),
+            }));
+
+        assert_eq!(config.region, "eu-west-1");
+        assert_eq!(config.scheme, S3Scheme::HTTP);
+        assert_eq!(config.endpoint, Some("custom.example.com".to_string()));
+        assert_eq!(config.profile, Some("myprofile".to_string()));
+        assert!(config.credentials.is_some());
+
+        let credentials = config.credentials.as_ref().unwrap();
+        assert_eq!(credentials.access_key_id, "test-key");
+        assert_eq!(credentials.secret_access_key, "test-secret");
+
+        let config = config
+            .with_region(None)
+            .with_scheme(None)
+            .with_endpoint(None)
+            .with_profile(None)
+            .with_credentials(None);
+
+        assert_eq!(config.region, "eu-west-1");
+        assert_eq!(config.scheme, S3Scheme::HTTP);
+        assert_eq!(config.endpoint, None);
+        assert_eq!(config.profile, None);
+        assert!(config.credentials.is_none());
+    }
+
+    #[test]
+    fn test_s3_client_config_new() {
+        let config = S3ClientConfig::new("my-bucket".to_string());
+        assert_eq!(config.bucket, "my-bucket");
+        assert_eq!(config.region, "us-east-1");
+        assert_eq!(config.scheme, S3Scheme::HTTPS);
+        assert!(config.endpoint.is_none());
+        assert!(config.profile.is_none());
+        assert!(config.credentials.is_none());
+    }
+
+    #[test]
+    fn test_s3_cache_config_chaining() {
+        let client_config = S3ClientConfig::new("test-bucket".to_string());
+
+        let config = S3CacheConfig::new(client_config)
+            .with_compression(Some(Compression::Zstd))
+            .with_write_nar_listing(Some("true"))
+            .with_write_debug_info(Some("1"))
+            .with_parallel_compression(Some("true"))
+            .with_compression_level(Some(6))
+            .with_narinfo_compression(Some(Compression::Bzip2))
+            .with_ls_compression(Some(Compression::Brotli))
+            .with_log_compression(Some(Compression::Xz))
+            .with_buffer_size(Some(16 * 1024 * 1024))
+            .with_presigned_url_expiry(Some(7200))
+            .unwrap()
+            .add_secret_key_files(&[
+                std::path::PathBuf::from("/path/to/key1"),
+                std::path::PathBuf::from("/path/to/key2"),
+            ]);
+
+        assert_eq!(config.compression, Compression::Zstd);
+        assert!(config.write_nar_listing);
+        assert!(config.write_debug_info);
+        assert!(config.parallel_compression);
+        assert_eq!(config.compression_level, Some(6));
+        assert_eq!(config.narinfo_compression, Compression::Bzip2);
+        assert_eq!(config.ls_compression, Compression::Brotli);
+        assert_eq!(config.log_compression, Compression::Xz);
+        assert_eq!(config.buffer_size, 16 * 1024 * 1024);
+        assert_eq!(
+            config.presigned_url_expiry,
+            std::time::Duration::from_secs(7200)
+        );
+        assert_eq!(config.secret_key_files.len(), 2);
+    }
+
+    #[test]
+    fn test_s3_cache_config_from_str_with_whitespace() {
+        let config_str = "  s3://test-bucket?region=eu-west-1&compression=xz  ";
+        let config = S3CacheConfig::from_str(config_str).unwrap();
+
+        assert_eq!(config.client_config.bucket, "test-bucket");
+        assert_eq!(config.client_config.region, "eu-west-1");
+        assert_eq!(config.compression, Compression::Xz);
+    }
+
+    #[test]
+    fn test_s3_cache_config_from_str_empty_query_params() {
+        let config_str = "s3://test-bucket?";
+        let config = S3CacheConfig::from_str(config_str).unwrap();
+
+        assert_eq!(config.client_config.bucket, "test-bucket");
+        assert_eq!(config.client_config.region, "us-east-1");
+        assert_eq!(config.compression, Compression::Xz);
+    }
+
+    #[test]
+    fn test_s3_cache_config_from_str_multiple_same_params() {
+        let config_str = "s3://test-bucket?compression=xz&compression=bz2";
+        let config = S3CacheConfig::from_str(config_str).unwrap();
+
+        assert_eq!(config.client_config.bucket, "test-bucket");
+        assert_eq!(config.compression, Compression::Xz);
+    }
+
+    #[test]
+    fn test_s3_cache_config_presigned_url_expiry_boundaries() {
+        let config_str = "s3://test-bucket?presigned-url-expiry=60";
+        let config = S3CacheConfig::from_str(config_str).unwrap();
+        assert_eq!(
+            config.presigned_url_expiry,
+            std::time::Duration::from_secs(60)
+        );
+
+        let config_str = "s3://test-bucket?presigned-url-expiry=86400";
+        let config = S3CacheConfig::from_str(config_str).unwrap();
+        assert_eq!(
+            config.presigned_url_expiry,
+            std::time::Duration::from_secs(86400)
+        );
+
+        let config_str = "s3://test-bucket?presigned-url-expiry=59";
+        let result = S3CacheConfig::from_str(config_str);
+        assert!(result.is_err());
+
+        let config_str = "s3://test-bucket?presigned-url-expiry=86401";
+        let result = S3CacheConfig::from_str(config_str);
+        assert!(result.is_err());
     }
 }
