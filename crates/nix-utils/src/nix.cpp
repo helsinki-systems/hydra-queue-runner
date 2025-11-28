@@ -348,4 +348,19 @@ rust::String try_resolve_drv(const StoreWrapper &wrapper, rust::Str path) {
   // TODO: return drv not drv path
   return extract_opt_path(*store, resolved_path);
 }
+
+rust::Vec<DerivationHash> static_output_hashes(const StoreWrapper &wrapper,
+                                               rust::Str drv_path) {
+  auto store = wrapper._store;
+
+  auto drvHashes = staticOutputHashes(
+      *store, store->readDerivation(store->parseStorePath(AS_VIEW(drv_path))));
+  rust::Vec<DerivationHash> data;
+  data.reserve(drvHashes.size());
+  for (auto &[name, hash] : drvHashes) {
+    data.emplace_back(
+        DerivationHash{name, hash.to_string(nix::HashFormat::Base16, true)});
+  }
+  return data;
+}
 } // namespace nix_utils

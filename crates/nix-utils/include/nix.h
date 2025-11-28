@@ -73,4 +73,6 @@ rust::String list_nar(const StoreWrapper &wrapper, rust::Str path,
 
 void ensure_path(const StoreWrapper &wrapper, rust::Str path);
 rust::String try_resolve_drv(const StoreWrapper &wrapper, rust::Str path);
+rust::Vec<DerivationHash> static_output_hashes(const StoreWrapper &wrapper,
+                                               rust::Str output_path);
 } // namespace nix_utils

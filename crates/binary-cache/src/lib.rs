@@ -615,6 +615,23 @@ impl S3BinaryCacheClient {
             narinfo.file_size = Some(file_size as u64);
         }
 
+        if self.cfg.write_realisation
+            && let Some(deriver) = narinfo.deriver.as_ref()
+            && let Ok(hashes) = store.static_output_hashes(deriver).await
+        {
+            for (output_name, drv_hash) in hashes {
+                self.copy_realisation(
+                    store,
+                    &nix_utils::DrvOutput {
+                        drv_hash,
+                        output_name,
+                    },
+                    repair,
+                )
+                .await?;
+            }
+        }
+
         self.upload_narinfo(store, narinfo).await?;
 
         Ok(())
@@ -918,6 +935,7 @@ impl S3BinaryCacheClient {
             })?;
 
         let narinfo = narinfo.clear_sigs_and_sign(store, &self.signing_keys);
+        // TODO: we also need to integarte realisation into this!
         self.upload_narinfo(store, narinfo).await
     }
 }

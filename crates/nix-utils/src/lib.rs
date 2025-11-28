@@ -105,6 +105,12 @@ mod ffi {
         head: u64,
     }
 
+    #[derive(Debug)]
+    struct DerivationHash {
+        output_name: String,
+        drv_hash: String,
+    }
+
     unsafe extern "C++" {
         include!("nix-utils/include/nix.h");
 
@@ -192,6 +198,10 @@ mod ffi {
 
         fn ensure_path(store: &StoreWrapper, path: &str) -> Result<()>;
         fn try_resolve_drv(store: &StoreWrapper, path: &str) -> Result<String>;
+        fn static_output_hashes(
+            store: &StoreWrapper,
+            drv_path: &str,
+        ) -> Result<Vec<DerivationHash>>;
     }
 }
 
@@ -456,6 +466,10 @@ pub trait BaseStore {
         &self,
         path: &StorePath,
     ) -> impl std::future::Future<Output = Option<StorePath>>;
+    fn static_output_hashes(
+        &self,
+        drv_path: &StorePath,
+    ) -> impl std::future::Future<Output = Result<HashMap<String, String>, crate::Error>>;
 
     #[must_use]
     fn print_store_path(&self, path: &StorePath) -> String;
@@ -744,6 +758,21 @@ impl BaseStore for BaseStoreImpl {
         .flatten()
     }
 
+    #[inline]
+    async fn static_output_hashes(
+        &self,
+        drv_path: &StorePath,
+    ) -> Result<HashMap<String, String>, crate::Error> {
+        let store = self.wrapper.clone();
+        let drv_path = self.print_store_path(drv_path);
+        asyncify(move || {
+            let o = ffi::static_output_hashes(&store, &drv_path)?;
+            Ok(o.into_iter().map(|v| (v.output_name, v.drv_hash)).collect())
+        })
+        .await
+    }
+
+    #[inline]
     fn print_store_path(&self, path: &StorePath) -> String {
         format!("{}/{}", self.store_path_prefix, path.base_name())
     }
@@ -965,6 +994,15 @@ impl BaseStore for LocalStore {
         self.base.try_resolve_drv(path).await
     }
 
+    #[inline]
+    async fn static_output_hashes(
+        &self,
+        drv_path: &StorePath,
+    ) -> Result<HashMap<String, String>, crate::Error> {
+        self.base.static_output_hashes(drv_path).await
+    }
+
+    #[inline]
     fn print_store_path(&self, path: &StorePath) -> String {
         self.base.print_store_path(path)
     }
@@ -1195,6 +1233,15 @@ impl BaseStore for RemoteStore {
         self.base.try_resolve_drv(path).await
     }
 
+    #[inline]
+    async fn static_output_hashes(
+        &self,
+        drv_path: &StorePath,
+    ) -> Result<HashMap<String, String>, crate::Error> {
+        self.base.static_output_hashes(drv_path).await
+    }
+
+    #[inline]
     fn print_store_path(&self, path: &StorePath) -> String {
         self.base.print_store_path(path)
     }

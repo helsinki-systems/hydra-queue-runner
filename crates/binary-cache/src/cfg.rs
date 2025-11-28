@@ -7,12 +7,14 @@ const MIN_PRESIGNED_URL_EXPIRY_SECS: u64 = 60;
 const MAX_PRESIGNED_URL_EXPIRY_SECS: u64 = 24 * 60 * 60;
 
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct S3CacheConfig {
     pub client_config: S3ClientConfig,
 
     pub compression: Compression,
     pub write_nar_listing: bool,
     pub write_debug_info: bool,
+    pub write_realisation: bool,
     pub secret_key_files: SmallVec<[std::path::PathBuf; 4]>,
     pub parallel_compression: bool,
     pub compression_level: Option<i32>,
@@ -33,6 +35,7 @@ impl S3CacheConfig {
             compression: Compression::Xz,
             write_nar_listing: false,
             write_debug_info: false,
+            write_realisation: false,
             secret_key_files: SmallVec::default(),
             parallel_compression: false,
             compression_level: Option::default(),
@@ -66,6 +69,15 @@ impl S3CacheConfig {
         if let Some(write_debug_info) = write_debug_info {
             let s = write_debug_info.trim().to_ascii_lowercase();
             self.write_debug_info = s.as_str() == "1" || s.as_str() == "true";
+        }
+        self
+    }
+
+    #[must_use]
+    pub fn with_write_realisation(mut self, write_realisation: Option<&str>) -> Self {
+        if let Some(write_realisation) = write_realisation {
+            let s = write_realisation.trim().to_ascii_lowercase();
+            self.write_realisation = s.as_str() == "1" || s.as_str() == "true";
         }
         self
     }
@@ -646,6 +658,7 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY"
         assert_eq!(config.compression, Compression::Xz);
         assert!(!config.write_nar_listing);
         assert!(!config.write_debug_info);
+        assert!(!config.write_realisation);
         assert!(config.secret_key_files.is_empty());
         assert!(!config.parallel_compression);
         assert_eq!(config.compression_level, None);
@@ -695,6 +708,16 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY"
 
         let config = S3CacheConfig::new(client_config.clone()).with_write_debug_info(None);
         assert!(!config.write_debug_info);
+
+        let config = S3CacheConfig::new(client_config.clone()).with_write_realisation(Some("TRUE"));
+        assert!(config.write_realisation);
+
+        let config =
+            S3CacheConfig::new(client_config.clone()).with_write_realisation(Some("  True  "));
+        assert!(config.write_realisation);
+
+        let config = S3CacheConfig::new(client_config.clone()).with_write_realisation(None);
+        assert!(!config.write_realisation);
 
         let secret_keys = vec![
             std::path::PathBuf::from("/path/to/key1"),
@@ -797,7 +820,7 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY"
         assert_eq!(config.narinfo_compression, Compression::Bzip2);
         assert_eq!(config.ls_compression, Compression::Brotli);
         assert_eq!(config.log_compression, Compression::Xz);
-        assert_eq!(config.buffer_size, 16777216);
+        assert_eq!(config.buffer_size, 16_777_216);
         assert_eq!(
             config.presigned_url_expiry,
             std::time::Duration::from_secs(7200)
@@ -995,6 +1018,7 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY"
             .with_compression(Some(Compression::Zstd))
             .with_write_nar_listing(Some("true"))
             .with_write_debug_info(Some("1"))
+            .with_write_realisation(Some("1"))
             .with_parallel_compression(Some("true"))
             .with_compression_level(Some(6))
             .with_narinfo_compression(Some(Compression::Bzip2))
@@ -1011,6 +1035,7 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY"
         assert_eq!(config.compression, Compression::Zstd);
         assert!(config.write_nar_listing);
         assert!(config.write_debug_info);
+        assert!(config.write_realisation);
         assert!(config.parallel_compression);
         assert_eq!(config.compression_level, Some(6));
         assert_eq!(config.narinfo_compression, Compression::Bzip2);
