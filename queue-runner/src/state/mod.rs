@@ -29,7 +29,6 @@ use db::models::{BuildID, BuildStatus};
 use nix_utils::BaseStore as _;
 
 use crate::config::{App, Cli};
-use crate::server::grpc::runner_v1::FodOutput;
 use crate::state::build::get_mark_build_sccuess_data;
 pub use crate::state::fod_checker::FodChecker;
 use crate::state::machine::Machines;
@@ -335,7 +334,12 @@ impl State {
                         .get_outputs()
                         .unwrap_or_default()
                         .into_iter()
-                        .map(|o| (o.name, o.path.map(|s| self.store.print_store_path(&s))))
+                        .map(|o| db::models::Output {
+                            name: o.name,
+                            path: o.path.map(|s| self.store.print_store_path(&s)),
+                            expected_hash: None,
+                            actual_hash: None,
+                        })
                         .collect(),
                 )
                 .await?;
@@ -1036,32 +1040,24 @@ impl State {
         {
             let mut db = self.db.get().await?;
             let mut tx = db.begin_transaction().await?;
-            let mut fod_outputs = Vec::with_capacity(direct.len());
 
             let start_time = job.result.get_start_time_as_i32()?;
             let stop_time = job.result.get_stop_time_as_i32()?;
             for b in &direct {
                 let is_cached = job.build_id != b.id || job.result.is_cached;
                 tx.mark_succeeded_build(
-                    get_mark_build_sccuess_data(&self.store, b, &output),
+                    get_mark_build_sccuess_data(
+                        &self.store,
+                        b,
+                        &output,
+                        job.result.fod_result.as_ref(),
+                    ),
                     is_cached,
                     start_time,
                     stop_time,
                 )
                 .await?;
-                if let Some(fod_result) = job.result.fod_result.as_ref() {
-                    fod_outputs.push(db::models::InsertFodOutput {
-                        build_id: b.id,
-                        timestamp: stop_time,
-                        expected_hash: fod_result.expected_hash.clone(),
-                        actual_hash: fod_result.actual_hash.clone(),
-                    });
-                }
-
                 self.metrics.nr_builds_done.inc();
-            }
-            if !fod_outputs.is_empty() {
-                tx.insert_fod_outputs(&fod_outputs).await?;
             }
 
             tx.commit().await?;
@@ -1100,7 +1096,7 @@ impl State {
         queue_type: QueueType,
         state: BuildResultState,
         timings: BuildTimings,
-        fod_result: Option<FodOutput>,
+        fod_result: Option<crate::server::grpc::runner_v1::FodOutput>,
     ) -> anyhow::Result<()> {
         tracing::info!("removing job from running in system queue: drv_path={drv_path}");
         let item = self
@@ -1215,7 +1211,7 @@ impl State {
         machine_id: uuid::Uuid,
         state: BuildResultState,
         timings: BuildTimings,
-        fod_result: Option<FodOutput>,
+        fod_result: Option<crate::server::grpc::runner_v1::FodOutput>,
     ) -> anyhow::Result<()> {
         let machine = self
             .machines
@@ -1300,13 +1296,24 @@ impl State {
                         step.get_outputs()
                             .unwrap_or_default()
                             .into_iter()
-                            .map(|o| (o.name, o.path.map(|s| self.store.print_store_path(&s))))
+                            .map(|o| db::models::Output {
+                                name: o.name,
+                                path: o.path.map(|s| self.store.print_store_path(&s)),
+                                expected_hash: job
+                                    .result
+                                    .fod_result
+                                    .as_ref()
+                                    .map(|r| r.expected_hash.clone()),
+                                actual_hash: job
+                                    .result
+                                    .fod_result
+                                    .as_ref()
+                                    .and_then(|r| r.actual_hash.clone()),
+                            })
                             .collect(),
                     )
                     .await?;
                 }
-
-                let mut fod_outputs = Vec::with_capacity(indirect.len());
 
                 let start_time = job.result.get_start_time_as_i32()?;
                 let stop_time = job.result.get_stop_time_as_i32()?;
@@ -1332,18 +1339,15 @@ impl State {
                     )
                     .await?;
                     if let Some(fod_result) = job.result.fod_result.as_ref() {
-                        fod_outputs.push(db::models::InsertFodOutput {
-                            build_id: b.id,
-                            timestamp: stop_time,
-                            expected_hash: fod_result.expected_hash.clone(),
-                            actual_hash: fod_result.actual_hash.clone(),
-                        });
+                        tx.update_build_fod_output(
+                            b.id,
+                            &fod_result.expected_hash,
+                            fod_result.actual_hash.as_deref(),
+                        )
+                        .await?;
                     }
 
                     self.metrics.nr_builds_done.inc();
-                }
-                if !fod_outputs.is_empty() {
-                    tx.insert_fod_outputs(&fod_outputs).await?;
                 }
 
                 // Remember failed paths in the database so that they won't be built again.
@@ -1464,7 +1468,12 @@ impl State {
             step.get_outputs()
                 .unwrap_or_default()
                 .into_iter()
-                .map(|o| (o.name, o.path.map(|s| self.store.print_store_path(&s))))
+                .map(|o| db::models::Output {
+                    name: o.name,
+                    path: o.path.map(|s| self.store.print_store_path(&s)),
+                    expected_hash: None,
+                    actual_hash: None,
+                })
                 .collect(),
         )
         .await?;
@@ -1862,7 +1871,7 @@ impl State {
             tracing::info!("marking build {} as succeeded (cached)", build.id);
             let now = jiff::Timestamp::now().as_second();
             tx.mark_succeeded_build(
-                get_mark_build_sccuess_data(&self.store, &build, &res),
+                get_mark_build_sccuess_data(&self.store, &build, &res, None),
                 true,
                 i32::try_from(now)?, // TODO
                 i32::try_from(now)?, // TODO

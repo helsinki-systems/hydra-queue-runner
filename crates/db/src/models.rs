@@ -134,10 +134,19 @@ pub struct InsertBuildStep<'a> {
     pub machine: &'a str,
 }
 
-pub struct InsertFodOutput {
+pub struct InsertBuildOutput {
     pub build_id: BuildID,
-    pub timestamp: i32,
-    pub expected_hash: String,
+    pub name: String,
+    pub path: Option<String>,
+
+    pub expected_hash: Option<String>,
+    pub actual_hash: Option<String>,
+}
+
+pub struct Output {
+    pub name: String,
+    pub path: Option<String>,
+    pub expected_hash: Option<String>,
     pub actual_hash: Option<String>,
 }
 
@@ -146,6 +155,9 @@ pub struct InsertBuildStepOutput {
     pub step_nr: i32,
     pub name: String,
     pub path: Option<String>,
+
+    pub expected_hash: Option<String>,
+    pub actual_hash: Option<String>,
 }
 
 pub struct UpdateBuildStep {
@@ -242,7 +254,7 @@ pub struct MarkBuildSuccessData<'a> {
     pub closure_size: u64,
     pub size: u64,
     pub release_name: Option<&'a str>,
-    pub outputs: HashMap<String, String>,
+    pub outputs: Vec<Output>,
     pub products: Vec<BuildProduct<'a>>,
     pub metrics: HashMap<&'a str, BuildMetric<'a>>,
 }

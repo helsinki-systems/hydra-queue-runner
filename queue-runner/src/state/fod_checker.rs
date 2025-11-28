@@ -278,6 +278,19 @@ impl FodChecker {
                         system: &drv.system,
                     })
                     .await?;
+                tx.insert_build_outputs(
+                    &drv.outputs
+                        .iter()
+                        .map(|o| db::models::InsertBuildOutput {
+                            build_id,
+                            name: o.name.clone(),
+                            path: o.path.as_ref().map(|p| self.store.print_store_path(p)),
+                            expected_hash: o.try_get_sri_hash(),
+                            actual_hash: None,
+                        })
+                        .collect::<Vec<_>>(),
+                )
+                .await?;
                 tx.load_build_by_id(build_id).await?
             };
             let Some(b) = b else {
