@@ -146,11 +146,17 @@ async fn handle_request(
             state
                 .max_concurrent_downloads
                 .store(m.max_concurrent_downloads, Ordering::Relaxed);
+            state
+                .fod_checker_upload_realisations
+                .store(m.fod_checker_upload_realisations, Ordering::Relaxed);
         }
         runner_request::Message::ConfigUpdate(m) => {
             state
                 .max_concurrent_downloads
                 .store(m.max_concurrent_downloads, Ordering::Relaxed);
+            state
+                .fod_checker_upload_realisations
+                .store(m.fod_checker_upload_realisations, Ordering::Relaxed);
         }
         runner_request::Message::Ping(_) => (),
         runner_request::Message::Build(m) => {

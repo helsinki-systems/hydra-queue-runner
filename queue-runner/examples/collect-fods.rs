@@ -7,7 +7,11 @@ async fn main() -> anyhow::Result<()> {
     let fod = std::sync::Arc::new(queue_runner::state::FodChecker::new(
         None,
         store,
-        queue_runner::config::PreparedFodConfig::init(1, jiff::SignedDuration::from_secs(60)),
+        queue_runner::config::PreparedFodConfig::init(
+            1,
+            jiff::SignedDuration::from_secs(60),
+            false,
+        ),
         Some(tx),
     ));
     fod.clone().start_traverse_loop();
