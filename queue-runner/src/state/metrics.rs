@@ -45,14 +45,16 @@ pub struct PromMetrics {
     pub avg_step_time_ms: prometheus::IntGauge,         // hydraqueuerunner_steps_avg_total_time_ms
     pub avg_step_import_time_ms: prometheus::IntGauge,  // hydraqueuerunner_steps_avg_import_time_ms
     pub avg_step_build_time_ms: prometheus::IntGauge,   // hydraqueuerunner_steps_avg_build_time_ms
+    pub avg_step_upload_time_ms: prometheus::IntGauge,  // hydraqueuerunner_steps_avg_upload_time_ms
     pub total_step_time_ms: prometheus::IntCounter,     // hydraqueuerunner_steps_total_time_ms
     pub total_step_import_time_ms: prometheus::IntCounter, // hydraqueuerunner_steps_total_import_time_ms
     pub total_step_build_time_ms: prometheus::IntCounter, // hydraqueuerunner_steps_total_build_time_ms
-    pub nr_queue_wakeups: prometheus::IntCounter,         //hydraqueuerunner_monitor_checks
-    pub nr_dispatcher_wakeups: prometheus::IntCounter,    // hydraqueuerunner_dispatch_wakeup
-    pub dispatch_time_ms: prometheus::IntCounter,         // hydraqueuerunner_dispatch_time_ms
-    pub machines_total: prometheus::IntGauge,             // hydraqueuerunner_machines_total
-    pub machines_in_use: prometheus::IntGauge,            // hydraqueuerunner_machines_in_use
+    pub total_step_upload_time_ms: prometheus::IntCounter, // hydraqueuerunner_steps_total_upload_time_ms
+    pub nr_queue_wakeups: prometheus::IntCounter,          //hydraqueuerunner_monitor_checks
+    pub nr_dispatcher_wakeups: prometheus::IntCounter,     // hydraqueuerunner_dispatch_wakeup
+    pub dispatch_time_ms: prometheus::IntCounter,          // hydraqueuerunner_dispatch_time_ms
+    pub machines_total: prometheus::IntGauge,              // hydraqueuerunner_machines_total
+    pub machines_in_use: prometheus::IntGauge,             // hydraqueuerunner_machines_in_use
 
     // Per-machine-type metrics
     pub runnable_per_machine_type: prometheus::IntGaugeVec, // hydraqueuerunner_machine_type_runnable
@@ -68,6 +70,7 @@ pub struct PromMetrics {
     pub machine_total_step_time_ms: prometheus::IntGaugeVec, // hydraqueuerunner_machine_total_step_time_ms
     pub machine_total_step_import_time_ms: prometheus::IntGaugeVec, // hydraqueuerunner_machine_total_step_import_time_ms
     pub machine_total_step_build_time_ms: prometheus::IntGaugeVec, // hydraqueuerunner_machine_total_step_build_time_ms
+    pub machine_total_step_upload_time_ms: prometheus::IntGaugeVec, // hydraqueuerunner_machine_total_step_upload_time_ms
     pub machine_consecutive_failures: prometheus::IntGaugeVec, // hydraqueuerunner_machine_consecutive_failures
     pub machine_last_ping_timestamp: prometheus::IntGaugeVec, // hydraqueuerunner_machine_last_ping_timestamp
     pub machine_idle_since_timestamp: prometheus::IntGaugeVec, // hydraqueuerunner_machine_idle_since_timestamp
@@ -257,6 +260,10 @@ impl PromMetrics {
             "hydraqueuerunner_steps_avg_build_time_ms",
             "Average time in milliseconds for building build steps",
         ))?;
+        let avg_step_upload_time_ms = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydraqueuerunner_steps_avg_upload_time_ms",
+            "Average time in milliseconds for uploading build steps",
+        ))?;
         let total_step_time_ms = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_steps_total_time_ms",
             "Total time in milliseconds spent on all build steps",
@@ -268,6 +275,10 @@ impl PromMetrics {
         let total_step_build_time_ms = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_steps_total_build_time_ms",
             "Total time in milliseconds spent building all build steps",
+        ))?;
+        let total_step_upload_time_ms = prometheus::IntCounter::with_opts(prometheus::Opts::new(
+            "hydraqueuerunner_steps_total_upload_time_ms",
+            "Total time in milliseconds spent uploading all build steps",
         ))?;
         let nr_queue_wakeups = prometheus::IntCounter::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_monitor_checks",
@@ -367,6 +378,13 @@ impl PromMetrics {
             prometheus::Opts::new(
                 "hydraqueuerunner_machine_total_step_build_time_ms",
                 "Total time in milliseconds spent building steps by each machine",
+            ),
+            &["hostname"],
+        )?;
+        let machine_total_step_upload_time_ms = prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "hydraqueuerunner_machine_total_step_upload_time_ms",
+                "Total time in milliseconds spent uploading steps by each machine",
             ),
             &["hostname"],
         )?;
@@ -643,9 +661,11 @@ impl PromMetrics {
         r.register(Box::new(avg_step_time_ms.clone()))?;
         r.register(Box::new(avg_step_import_time_ms.clone()))?;
         r.register(Box::new(avg_step_build_time_ms.clone()))?;
+        r.register(Box::new(avg_step_upload_time_ms.clone()))?;
         r.register(Box::new(total_step_time_ms.clone()))?;
         r.register(Box::new(total_step_import_time_ms.clone()))?;
         r.register(Box::new(total_step_build_time_ms.clone()))?;
+        r.register(Box::new(total_step_upload_time_ms.clone()))?;
         r.register(Box::new(nr_queue_wakeups.clone()))?;
         r.register(Box::new(nr_dispatcher_wakeups.clone()))?;
         r.register(Box::new(dispatch_time_ms.clone()))?;
@@ -662,6 +682,7 @@ impl PromMetrics {
         r.register(Box::new(machine_total_step_time_ms.clone()))?;
         r.register(Box::new(machine_total_step_import_time_ms.clone()))?;
         r.register(Box::new(machine_total_step_build_time_ms.clone()))?;
+        r.register(Box::new(machine_total_step_upload_time_ms.clone()))?;
         r.register(Box::new(machine_consecutive_failures.clone()))?;
         r.register(Box::new(machine_last_ping_timestamp.clone()))?;
         r.register(Box::new(machine_idle_since_timestamp.clone()))?;
@@ -748,9 +769,11 @@ impl PromMetrics {
             avg_step_time_ms,
             avg_step_import_time_ms,
             avg_step_build_time_ms,
+            avg_step_upload_time_ms,
             total_step_time_ms,
             total_step_import_time_ms,
             total_step_build_time_ms,
+            total_step_upload_time_ms,
             nr_queue_wakeups,
             nr_dispatcher_wakeups,
             dispatch_time_ms,
@@ -767,6 +790,7 @@ impl PromMetrics {
             machine_total_step_time_ms,
             machine_total_step_import_time_ms,
             machine_total_step_build_time_ms,
+            machine_total_step_upload_time_ms,
             machine_consecutive_failures,
             machine_last_ping_timestamp,
             machine_idle_since_timestamp,
@@ -821,12 +845,16 @@ impl PromMetrics {
             let avg_time = self.total_step_time_ms.get() / nr_steps_done;
             let avg_import_time = self.total_step_import_time_ms.get() / nr_steps_done;
             let avg_build_time = self.total_step_build_time_ms.get() / nr_steps_done;
+            let avg_upload_time = self.total_step_upload_time_ms.get() / nr_steps_done;
 
             if let Ok(v) = i64::try_from(avg_time) {
                 self.avg_step_time_ms.set(v);
             }
             if let Ok(v) = i64::try_from(avg_import_time) {
                 self.avg_step_import_time_ms.set(v);
+            }
+            if let Ok(v) = i64::try_from(avg_upload_time) {
+                self.avg_step_upload_time_ms.set(v);
             }
             if let Ok(v) = i64::try_from(avg_build_time) {
                 self.avg_step_build_time_ms.set(v);
@@ -905,6 +933,7 @@ impl PromMetrics {
         self.machine_total_step_time_ms.reset();
         self.machine_total_step_import_time_ms.reset();
         self.machine_total_step_build_time_ms.reset();
+        self.machine_total_step_upload_time_ms.reset();
         self.machine_consecutive_failures.reset();
         self.machine_last_ping_timestamp.reset();
         self.machine_idle_since_timestamp.reset();
@@ -933,6 +962,11 @@ impl PromMetrics {
             }
             if let Ok(v) = i64::try_from(machine.stats.get_total_step_build_time_ms()) {
                 self.machine_total_step_build_time_ms
+                    .with_label_values(labels)
+                    .set(v);
+            }
+            if let Ok(v) = i64::try_from(machine.stats.get_total_step_upload_time_ms()) {
+                self.machine_total_step_upload_time_ms
                     .with_label_values(labels)
                     .set(v);
             }
@@ -1125,6 +1159,12 @@ impl PromMetrics {
         }
     }
 
+    fn add_to_total_step_upload_time_ms(&self, v: u128) {
+        if let Ok(v) = u64::try_from(v) {
+            self.total_step_upload_time_ms.inc_by(v);
+        }
+    }
+
     pub fn observe_build_input_drvs(&self, count: f64, machine_type: &str) {
         self.build_input_drvs_histogram
             .with_label_values(&[machine_type])
@@ -1143,31 +1183,23 @@ impl PromMetrics {
             .observe(wait_seconds);
     }
 
-    pub fn track_build_success(
-        &self,
-        import_elapsed: std::time::Duration,
-        build_elapsed: std::time::Duration,
-        total_step_time: u64,
-    ) {
+    pub fn track_build_success(&self, timings: super::build::BuildTimings, total_step_time: u64) {
         self.nr_builds_succeeded.inc();
         self.nr_steps_done.inc();
         self.nr_steps_building.sub(1);
-        self.add_to_total_step_import_time_ms(import_elapsed.as_millis());
-        self.add_to_total_step_build_time_ms(build_elapsed.as_millis());
+        self.add_to_total_step_import_time_ms(timings.import_elapsed.as_millis());
+        self.add_to_total_step_build_time_ms(timings.build_elapsed.as_millis());
+        self.add_to_total_step_upload_time_ms(timings.upload_elapsed.as_millis());
         self.add_to_total_step_time_ms(total_step_time);
     }
 
-    pub fn track_build_failure(
-        &self,
-        import_elapsed: std::time::Duration,
-        build_elapsed: std::time::Duration,
-        total_step_time: u64,
-    ) {
+    pub fn track_build_failure(&self, timings: super::build::BuildTimings, total_step_time: u64) {
         self.nr_steps_done.inc();
         self.nr_steps_building.sub(1);
         self.nr_builds_failed.inc();
-        self.add_to_total_step_build_time_ms(build_elapsed.as_millis());
-        self.add_to_total_step_import_time_ms(import_elapsed.as_millis());
+        self.add_to_total_step_import_time_ms(timings.import_elapsed.as_millis());
+        self.add_to_total_step_build_time_ms(timings.build_elapsed.as_millis());
+        self.add_to_total_step_upload_time_ms(timings.upload_elapsed.as_millis());
         self.add_to_total_step_time_ms(total_step_time);
     }
 }

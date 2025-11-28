@@ -10,7 +10,7 @@ mod step_info;
 mod uploader;
 
 pub use atomic::AtomicDateTime;
-pub use build::{Build, BuildOutput, BuildResultState, Builds, RemoteBuild};
+pub use build::{Build, BuildOutput, BuildResultState, BuildTimings, Builds, RemoteBuild};
 pub use jobset::{Jobset, JobsetID, Jobsets};
 pub use machine::{Machine, Message as MachineMessage, Pressure, Stats as MachineStats};
 pub use queue::{BuildQueueStats, Queues};
@@ -198,8 +198,7 @@ impl State {
                         // we fail this with preparing because we kinda want to restart all jobs if
                         // a machine is removed
                         BuildResultState::PreparingFailure,
-                        std::time::Duration::from_secs(0),
-                        std::time::Duration::from_secs(0),
+                        BuildTimings::default(),
                     )
                     .await
                 {
@@ -484,8 +483,7 @@ impl State {
                     machine_id,
                     &drv_path,
                     BuildResultState::Cancelled,
-                    std::time::Duration::from_secs(0),
-                    std::time::Duration::from_secs(0),
+                    BuildTimings::default(),
                 )
                 .await
             {
@@ -956,18 +954,14 @@ impl State {
 
         job.result.step_status = BuildStatus::Success;
         job.result.set_stop_time_now();
+        job.result.set_overhead(output.timings.get_overhead())?;
 
         let total_step_time = job.result.get_total_step_time_ms();
-        machine.stats.track_build_success(
-            output.import_elapsed,
-            output.build_elapsed,
-            total_step_time,
-        );
-        self.metrics.track_build_success(
-            output.import_elapsed,
-            output.build_elapsed,
-            total_step_time,
-        );
+        machine
+            .stats
+            .track_build_success(output.timings, total_step_time);
+        self.metrics
+            .track_build_success(output.timings, total_step_time);
 
         finish_build_step(
             &self.db,
@@ -1071,8 +1065,7 @@ impl State {
         machine_id: uuid::Uuid,
         drv_path: &nix_utils::StorePath,
         state: BuildResultState,
-        import_elapsed: std::time::Duration,
-        build_elapsed: std::time::Duration,
+        timings: BuildTimings,
     ) -> anyhow::Result<()> {
         tracing::info!("removing job from running in system queue: drv_path={drv_path}");
         let (step_info, queue, machine) = self
@@ -1095,13 +1088,11 @@ impl State {
         // this can override step_status to something more specific
         job.result.update_with_result_state(&state);
         job.result.set_stop_time_now();
+        job.result.set_overhead(timings.get_overhead())?;
 
         let total_step_time = job.result.get_total_step_time_ms();
-        machine
-            .stats
-            .track_build_failure(import_elapsed, build_elapsed, total_step_time);
-        self.metrics
-            .track_build_failure(import_elapsed, build_elapsed, total_step_time);
+        machine.stats.track_build_failure(timings, total_step_time);
+        self.metrics.track_build_failure(timings, total_step_time);
 
         let (max_retries, retry_interval, retry_backoff) = self.config.get_retry();
 
@@ -1172,8 +1163,7 @@ impl State {
         build_id: uuid::Uuid,
         machine_id: uuid::Uuid,
         state: BuildResultState,
-        import_elapsed: std::time::Duration,
-        build_elapsed: std::time::Duration,
+        timings: BuildTimings,
     ) -> anyhow::Result<()> {
         let machine = self
             .machines
@@ -1183,8 +1173,7 @@ impl State {
             .get_job_drv_for_build_id(build_id)
             .ok_or(anyhow::anyhow!("Job with build_id not found"))?;
 
-        self.fail_step(machine_id, &drv_path, state, import_elapsed, build_elapsed)
-            .await
+        self.fail_step(machine_id, &drv_path, state, timings).await
     }
 
     #[allow(clippy::too_many_lines)]

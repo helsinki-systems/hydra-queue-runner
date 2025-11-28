@@ -10,6 +10,7 @@ use tonic::Request;
 use tracing::Instrument as _;
 
 use crate::grpc::{BuilderClient, runner_v1};
+use crate::types::BuildTimings;
 use binary_cache::{Compression, PresignedUpload, PresignedUploadClient};
 use nix_utils::BaseStore as _;
 use runner_v1::{
@@ -274,11 +275,8 @@ impl State {
             let drv = drv.clone();
             let was_cancelled = was_cancelled.clone();
             async move {
-                let mut import_elapsed = std::time::Duration::from_millis(0);
-                let mut build_elapsed = std::time::Duration::from_millis(0);
-                match Box::pin(self_.process_build(m, &mut import_elapsed, &mut build_elapsed))
-                    .await
-                {
+                let mut timings = BuildTimings::default();
+                match Box::pin(self_.process_build(m, &mut timings)).await {
                     Ok(()) => {
                         tracing::info!("Successfully completed build process for {drv}");
                         self_.remove_build(build_id);
@@ -296,9 +294,11 @@ impl State {
                         let failed_build = BuildResultInfo {
                             build_id: build_id.to_string(),
                             machine_id: self_.id.to_string(),
-                            import_time_ms: u64::try_from(import_elapsed.as_millis())
+                            import_time_ms: u64::try_from(timings.import_elapsed.as_millis())
                                 .unwrap_or_default(),
-                            build_time_ms: u64::try_from(build_elapsed.as_millis())
+                            build_time_ms: u64::try_from(timings.build_elapsed.as_millis())
+                                .unwrap_or_default(),
+                            upload_time_ms: u64::try_from(timings.upload_elapsed.as_millis())
                                 .unwrap_or_default(),
                             result_state: BuildResultState::from(e) as i32,
                             nix_support: None,
@@ -381,8 +381,7 @@ impl State {
     async fn process_build(
         &self,
         m: BuildMessage,
-        import_elapsed: &mut std::time::Duration,
-        build_elapsed: &mut std::time::Duration,
+        timings: &mut BuildTimings,
     ) -> Result<(), JobFailure> {
         // we dont use anyhow here because we manually need to write the correct build status
         // to the queue runner.
@@ -435,7 +434,7 @@ impl State {
         )
         .await
         .map_err(JobFailure::Import)?;
-        *import_elapsed = before_import.elapsed();
+        timings.import_elapsed = before_import.elapsed();
 
         // Resolved drv and drv output paths are the same
         let drv_info = nix_utils::query_drv(&store, &drv)
@@ -494,7 +493,7 @@ impl State {
             nix_utils::add_root(&store, &gcroot.root, o);
         }
 
-        *build_elapsed = before_build.elapsed();
+        timings.build_elapsed = before_build.elapsed();
         tracing::info!("Finished building {drv}");
 
         let _ = client // we ignore the error here, as this step status has no prio
@@ -504,6 +503,8 @@ impl State {
                 step_status: StepStatus::ReceivingOutputs as i32,
             })
             .await;
+
+        let before_upload = Instant::now();
         self.upload_nars(
             store.clone(),
             output_paths,
@@ -513,6 +514,7 @@ impl State {
         )
         .await
         .map_err(JobFailure::Upload)?;
+        timings.upload_elapsed = before_upload.elapsed();
 
         let _ = client // we ignore the error here, as this step status has no prio
             .build_step_update(StepUpdate {
@@ -526,8 +528,7 @@ impl State {
             machine_id,
             &drv,
             drv_info,
-            *import_elapsed,
-            *build_elapsed,
+            *timings,
             m.build_id.clone(),
         ))
         .await
@@ -1025,8 +1026,7 @@ async fn new_success_build_result_info(
     machine_id: uuid::Uuid,
     drv: &nix_utils::StorePath,
     drv_info: nix_utils::Derivation,
-    import_elapsed: std::time::Duration,
-    build_elapsed: std::time::Duration,
+    timings: BuildTimings,
     build_id: String,
 ) -> anyhow::Result<BuildResultInfo> {
     let outputs = &drv_info
@@ -1066,8 +1066,9 @@ async fn new_success_build_result_info(
     Ok(BuildResultInfo {
         build_id,
         machine_id: machine_id.to_string(),
-        import_time_ms: u64::try_from(import_elapsed.as_millis())?,
-        build_time_ms: u64::try_from(build_elapsed.as_millis())?,
+        import_time_ms: u64::try_from(timings.import_elapsed.as_millis())?,
+        build_time_ms: u64::try_from(timings.build_elapsed.as_millis())?,
+        upload_time_ms: u64::try_from(timings.upload_elapsed.as_millis())?,
         result_state: BuildResultState::Success as i32,
         outputs: build_outputs,
         nix_support: Some(NixSupport {

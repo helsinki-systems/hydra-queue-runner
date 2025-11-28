@@ -235,9 +235,10 @@ message BuildResultInfo {
   string machine_id = 2; // UUIDv4
   uint64 import_time_ms = 3;
   uint64 build_time_ms = 4;
-  BuildResultState result_state = 5;
-  NixSupport nix_support = 6;
-  repeated Output outputs = 7;
+  uint64 upload_time_ms = 5;
+  BuildResultState result_state = 6;
+  NixSupport nix_support = 7;
+  repeated Output outputs = 8;
 }
 
 message PresignedNarRequest {

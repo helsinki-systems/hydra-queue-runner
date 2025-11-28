@@ -53,6 +53,7 @@ pub struct Stats {
     total_step_time_ms: std::sync::atomic::AtomicU64,
     total_step_import_time_ms: std::sync::atomic::AtomicU64,
     total_step_build_time_ms: std::sync::atomic::AtomicU64,
+    total_step_upload_time_ms: std::sync::atomic::AtomicU64,
     idle_since: std::sync::atomic::AtomicI64,
 
     last_failure: std::sync::atomic::AtomicI64,
@@ -92,6 +93,7 @@ impl Stats {
             total_step_time_ms: 0.into(),
             total_step_import_time_ms: 0.into(),
             total_step_build_time_ms: 0.into(),
+            total_step_upload_time_ms: 0.into(),
             idle_since: (jiff::Timestamp::now().as_second()).into(),
             last_failure: 0.into(),
             disabled_until: 0.into(),
@@ -141,6 +143,17 @@ impl Stats {
         self.total_step_time_ms.load(Ordering::Relaxed)
     }
 
+    pub fn get_total_step_import_time_ms(&self) -> u64 {
+        self.total_step_import_time_ms.load(Ordering::Relaxed)
+    }
+
+    fn add_to_total_step_import_time_ms(&self, v: u128) {
+        if let Ok(v) = u64::try_from(v) {
+            self.total_step_import_time_ms
+                .fetch_add(v, Ordering::Relaxed);
+        }
+    }
+
     pub fn get_total_step_build_time_ms(&self) -> u64 {
         self.total_step_build_time_ms.load(Ordering::Relaxed)
     }
@@ -152,13 +165,13 @@ impl Stats {
         }
     }
 
-    pub fn get_total_step_import_time_ms(&self) -> u64 {
-        self.total_step_import_time_ms.load(Ordering::Relaxed)
+    pub fn get_total_step_upload_time_ms(&self) -> u64 {
+        self.total_step_upload_time_ms.load(Ordering::Relaxed)
     }
 
-    fn add_to_total_step_import_time_ms(&self, v: u128) {
+    fn add_to_total_step_upload_time_ms(&self, v: u128) {
         if let Ok(v) = u64::try_from(v) {
-            self.total_step_import_time_ms
+            self.total_step_upload_time_ms
                 .fetch_add(v, Ordering::Relaxed);
         }
     }
@@ -187,29 +200,21 @@ impl Stats {
         self.succeeded_builds.load(Ordering::Relaxed)
     }
 
-    pub fn track_build_success(
-        &self,
-        import_elapsed: std::time::Duration,
-        build_elapsed: std::time::Duration,
-        total_step_time: u64,
-    ) {
+    pub fn track_build_success(&self, timings: super::build::BuildTimings, total_step_time: u64) {
         self.succeeded_builds.fetch_add(1, Ordering::Relaxed);
-        self.add_to_total_step_import_time_ms(import_elapsed.as_millis());
-        self.add_to_total_step_build_time_ms(build_elapsed.as_millis());
+        self.add_to_total_step_import_time_ms(timings.import_elapsed.as_millis());
+        self.add_to_total_step_build_time_ms(timings.build_elapsed.as_millis());
+        self.add_to_total_step_upload_time_ms(timings.upload_elapsed.as_millis());
         self.total_step_time_ms
             .fetch_add(total_step_time, Ordering::Relaxed);
         self.consecutive_failures.store(0, Ordering::Relaxed);
     }
 
-    pub fn track_build_failure(
-        &self,
-        import_elapsed: std::time::Duration,
-        build_elapsed: std::time::Duration,
-        total_step_time: u64,
-    ) {
+    pub fn track_build_failure(&self, timings: super::build::BuildTimings, total_step_time: u64) {
         self.failed_builds.fetch_add(1, Ordering::Relaxed);
-        self.add_to_total_step_import_time_ms(import_elapsed.as_millis());
-        self.add_to_total_step_build_time_ms(build_elapsed.as_millis());
+        self.add_to_total_step_import_time_ms(timings.import_elapsed.as_millis());
+        self.add_to_total_step_build_time_ms(timings.build_elapsed.as_millis());
+        self.add_to_total_step_upload_time_ms(timings.upload_elapsed.as_millis());
         self.total_step_time_ms
             .fetch_add(total_step_time, Ordering::Relaxed);
         self.last_failure

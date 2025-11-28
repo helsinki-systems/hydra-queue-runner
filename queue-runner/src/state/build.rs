@@ -326,6 +326,11 @@ impl RemoteBuild {
             None
         }
     }
+
+    pub fn set_overhead(&mut self, v: u128) -> Result<(), std::num::TryFromIntError> {
+        self.overhead = i32::try_from(v)?;
+        Ok(())
+    }
 }
 
 pub struct BuildProduct {
@@ -404,11 +409,32 @@ impl From<db::models::OwnedBuildMetric> for BuildMetric {
     }
 }
 
-pub struct BuildOutput {
-    pub failed: bool,
+#[derive(Debug, Default, Clone, Copy)]
+pub struct BuildTimings {
     pub import_elapsed: std::time::Duration,
     pub build_elapsed: std::time::Duration,
+    pub upload_elapsed: std::time::Duration,
+}
 
+impl BuildTimings {
+    #[must_use]
+    pub fn new(import_time_ms: u64, build_time_ms: u64, upload_time_ms: u64) -> Self {
+        Self {
+            import_elapsed: std::time::Duration::from_millis(import_time_ms),
+            build_elapsed: std::time::Duration::from_millis(build_time_ms),
+            upload_elapsed: std::time::Duration::from_millis(upload_time_ms),
+        }
+    }
+
+    #[must_use]
+    pub fn get_overhead(&self) -> u128 {
+        self.import_elapsed.as_millis() + self.upload_elapsed.as_millis()
+    }
+}
+
+pub struct BuildOutput {
+    pub failed: bool,
+    pub timings: BuildTimings,
     pub release_name: Option<String>,
 
     pub closure_size: u64,
@@ -430,8 +456,7 @@ impl TryFrom<db::models::BuildOutput> for BuildOutput {
         .ok_or(anyhow::anyhow!("buildstatus did not map"))?;
         Ok(Self {
             failed: build_status != BuildStatus::Success,
-            import_elapsed: std::time::Duration::from_millis(0),
-            build_elapsed: std::time::Duration::from_millis(0),
+            timings: BuildTimings::default(),
             release_name: v.releasename,
             #[allow(clippy::cast_sign_loss)]
             closure_size: v.closuresize.unwrap_or_default() as u64,
@@ -476,8 +501,7 @@ impl From<crate::server::grpc::runner_v1::BuildResultInfo> for BuildOutput {
 
         Self {
             failed,
-            import_elapsed: std::time::Duration::from_millis(v.import_time_ms),
-            build_elapsed: std::time::Duration::from_millis(v.build_time_ms),
+            timings: BuildTimings::new(v.import_time_ms, v.build_time_ms, v.upload_time_ms),
             release_name,
             closure_size,
             size: nar_size,
@@ -529,8 +553,7 @@ impl BuildOutput {
 
         Ok(Self {
             failed: nix_support.failed,
-            import_elapsed: std::time::Duration::from_millis(0),
-            build_elapsed: std::time::Duration::from_millis(0),
+            timings: BuildTimings::default(),
             release_name: nix_support.hydra_release_name,
             closure_size,
             size: nar_size,

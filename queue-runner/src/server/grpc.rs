@@ -485,8 +485,11 @@ impl RunnerService for Server {
                         build_id,
                         machine_id,
                         req.result_state().into(),
-                        std::time::Duration::from_millis(req.import_time_ms),
-                        std::time::Duration::from_millis(req.build_time_ms),
+                        crate::state::BuildTimings::new(
+                            req.import_time_ms,
+                            req.build_time_ms,
+                            req.upload_time_ms,
+                        ),
                     )
                     .await
                 {

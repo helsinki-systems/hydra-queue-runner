@@ -42,9 +42,11 @@ pub struct MachineStats {
     avg_step_time_ms: u64,
     avg_step_import_time_ms: u64,
     avg_step_build_time_ms: u64,
+    avg_step_upload_time_ms: u64,
     total_step_time_ms: u64,
     total_step_import_time_ms: u64,
     total_step_build_time_ms: u64,
+    total_step_upload_time_ms: u64,
     idle_since: i64,
 
     last_failure: i64,
@@ -77,16 +79,22 @@ impl MachineStats {
         let total_step_time_ms = item.get_total_step_time_ms();
         let total_step_import_time_ms = item.get_total_step_import_time_ms();
         let total_step_build_time_ms = item.get_total_step_build_time_ms();
-        let (avg_step_time_ms, avg_step_import_time_ms, avg_step_build_time_ms) =
-            if nr_steps_done > 0 {
-                (
-                    total_step_time_ms / nr_steps_done,
-                    total_step_import_time_ms / nr_steps_done,
-                    total_step_build_time_ms / nr_steps_done,
-                )
-            } else {
-                (0, 0, 0)
-            };
+        let total_step_upload_time_ms = item.get_total_step_upload_time_ms();
+        let (
+            avg_step_time_ms,
+            avg_step_import_time_ms,
+            avg_step_build_time_ms,
+            avg_step_upload_time_ms,
+        ) = if nr_steps_done > 0 {
+            (
+                total_step_time_ms / nr_steps_done,
+                total_step_import_time_ms / nr_steps_done,
+                total_step_build_time_ms / nr_steps_done,
+                total_step_upload_time_ms / nr_steps_done,
+            )
+        } else {
+            (0, 0, 0, 0)
+        };
 
         Self {
             current_jobs: item.get_current_jobs(),
@@ -94,9 +102,11 @@ impl MachineStats {
             avg_step_time_ms,
             avg_step_import_time_ms,
             avg_step_build_time_ms,
+            avg_step_upload_time_ms,
             total_step_time_ms,
             total_step_import_time_ms,
             total_step_build_time_ms,
+            total_step_upload_time_ms,
             idle_since: item.get_idle_since(),
             last_failure: item.get_last_failure(),
             disabled_until: item.get_disabled_until(),
