@@ -1,12 +1,13 @@
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use anyhow::Context as _;
+use tonic::{Request, service::interceptor::InterceptedService, transport::Channel};
+
 use runner_v1::{
     BuilderRequest, VersionCheckRequest, builder_request, runner_request,
     runner_service_client::RunnerServiceClient,
 };
-
-use tonic::{Request, service::interceptor::InterceptedService, transport::Channel};
 
 pub mod runner_v1 {
     // We need to allow pedantic here because of generated code
@@ -140,19 +141,23 @@ async fn handle_request(
     request: runner_request::Message,
 ) -> anyhow::Result<()> {
     match request {
+        runner_request::Message::Join(m) => {
+            state
+                .max_concurrent_downloads
+                .store(m.max_concurrent_downloads, Ordering::Relaxed);
+        }
+        runner_request::Message::ConfigUpdate(m) => {
+            state
+                .max_concurrent_downloads
+                .store(m.max_concurrent_downloads, Ordering::Relaxed);
+        }
+        runner_request::Message::Ping(_) => (),
         runner_request::Message::Build(m) => {
             state.schedule_build(m)?;
         }
         runner_request::Message::Abort(m) => {
             state.abort_build(&m)?;
         }
-        runner_request::Message::Join(m) => {
-            state.max_concurrent_downloads.store(
-                m.max_concurrent_downloads,
-                std::sync::atomic::Ordering::Relaxed,
-            );
-        }
-        runner_request::Message::Ping(_) => (),
     }
     Ok(())
 }

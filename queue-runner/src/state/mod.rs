@@ -165,6 +165,12 @@ impl State {
             );
         }
 
+        self.machines
+            .publish_new_config(machine::ConfigUpdate {
+                max_concurrent_downloads: new_config.max_concurrent_downloads,
+            })
+            .await;
+
         Ok(())
     }
 

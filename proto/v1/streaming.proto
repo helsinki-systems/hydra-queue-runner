@@ -100,15 +100,20 @@ message SimplePingMessage {
 message RunnerRequest {
   oneof message {
     JoinResponse join = 1;
-    SimplePingMessage ping = 2;
-    BuildMessage build = 3;
-    AbortMessage abort = 4;
+    ConfigUpdate config_update = 2;
+    SimplePingMessage ping = 3;
+    BuildMessage build = 4;
+    AbortMessage abort = 5;
   }
 }
 
 message JoinResponse {
   string machine_id = 1; // UUIDv4
   uint32 max_concurrent_downloads = 2;
+}
+
+message ConfigUpdate {
+  uint32 max_concurrent_downloads = 1;
 }
 
 message PresignedUploadOpts {

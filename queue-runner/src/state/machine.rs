@@ -6,13 +6,9 @@ use tokio::sync::mpsc;
 
 use db::models::BuildID;
 
-use super::System;
-use super::build::RemoteBuild;
-use crate::config::MachineFreeFn;
-use crate::{
-    config::MachineSortFn,
-    server::grpc::runner_v1::{AbortMessage, BuildMessage, JoinMessage, runner_request},
-};
+use super::{RemoteBuild, System};
+use crate::config::{MachineFreeFn, MachineSortFn};
+use crate::server::grpc::runner_v1::{AbortMessage, BuildMessage, JoinMessage, runner_request};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Pressure {
@@ -478,6 +474,22 @@ impl Machines {
             .filter(|(_, v)| v.stats.get_current_jobs() > 0)
             .count()
     }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn publish_new_config(&self, cfg: ConfigUpdate) {
+        let machines = {
+            self.inner
+                .read()
+                .by_uuid
+                .values()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+
+        for m in machines {
+            let _ = m.publish_config_update(cfg).await;
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -519,7 +531,13 @@ impl From<PresignedUrlOpts> for crate::server::grpc::runner_v1::PresignedUploadO
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ConfigUpdate {
+    pub max_concurrent_downloads: u32,
+}
+
 pub enum Message {
+    ConfigUpdate(ConfigUpdate),
     BuildMessage {
         build_id: uuid::Uuid,
         drv: nix_utils::StorePath,
@@ -537,6 +555,11 @@ pub enum Message {
 impl Message {
     pub fn into_request(self) -> crate::server::grpc::runner_v1::RunnerRequest {
         let msg = match self {
+            Message::ConfigUpdate(m) => runner_request::Message::ConfigUpdate(
+                crate::server::grpc::runner_v1::ConfigUpdate {
+                    max_concurrent_downloads: m.max_concurrent_downloads,
+                },
+            ),
             Message::BuildMessage {
                 build_id,
                 drv,
@@ -711,6 +734,12 @@ impl Machine {
             .await?;
 
         // dont remove job from machine now, we will do that when the job is set to failed/cancelled
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    pub async fn publish_config_update(&self, change: ConfigUpdate) -> anyhow::Result<()> {
+        self.msg_queue.send(Message::ConfigUpdate(change)).await?;
         Ok(())
     }
 

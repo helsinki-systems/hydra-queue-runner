@@ -281,7 +281,7 @@ pub struct PreparedApp {
     retry_backoff: f32,
     max_unsupported_time: jiff::SignedDuration,
     stop_queue_run_after: Option<jiff::SignedDuration>,
-    max_concurrent_downloads: u32,
+    pub max_concurrent_downloads: u32,
     concurrent_upload_limit: usize,
     token_list: Option<Vec<String>>,
     pub enable_fod_checker: bool,
