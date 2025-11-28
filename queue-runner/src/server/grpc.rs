@@ -330,7 +330,7 @@ impl RunnerService for Server {
                         Some(Err(err)) => {
                             if let Some(io_err) = match_for_io_error(&err)
                                 && io_err.kind() == std::io::ErrorKind::BrokenPipe {
-                                    tracing::error!("client disconnected: broken pipe: machine={machine_id}");
+                                    tracing::error!("client disconnected: broken pipe: machine={machine_id} hostname={}", machine.hostname);
                                     state.remove_machine(machine_id).await;
                                     break;
                                 }

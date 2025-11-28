@@ -189,13 +189,13 @@ pub struct RemoteBuild {
     pub can_cache: bool,           // for bsFailed
     pub error_msg: Option<String>, // for bsAborted
 
-    pub times_build: i32,
-    pub is_non_deterministic: bool,
+    times_built: i32,
+    is_non_deterministic: bool,
 
-    pub start_time: Option<jiff::Timestamp>,
-    pub stop_time: Option<jiff::Timestamp>,
+    start_time: Option<jiff::Timestamp>,
+    stop_time: Option<jiff::Timestamp>,
 
-    pub overhead: i32,
+    overhead: i32,
     pub log_file: String,
 }
 
@@ -214,7 +214,7 @@ impl RemoteBuild {
             is_cached: false,
             can_cache: false,
             error_msg: None,
-            times_build: 0,
+            times_built: 0,
             is_non_deterministic: false,
             start_time: None,
             stop_time: None,
@@ -256,6 +256,74 @@ impl RemoteBuild {
                 self.can_retry = true;
                 self.step_status = BuildStatus::Cancelled;
             }
+        }
+    }
+
+    pub fn set_start_and_stop(&mut self, v: jiff::Timestamp) {
+        self.start_time = Some(v);
+        self.stop_time = Some(v);
+    }
+
+    pub fn set_start_time_now(&mut self) {
+        self.start_time = Some(jiff::Timestamp::now());
+    }
+
+    pub fn set_stop_time_now(&mut self) {
+        self.stop_time = Some(jiff::Timestamp::now());
+    }
+
+    #[must_use]
+    pub fn has_start_time(&self) -> bool {
+        self.start_time.is_some()
+    }
+
+    pub fn get_start_time_as_i32(&self) -> Result<i32, std::num::TryFromIntError> {
+        // TODO: migrate to 64 bit timestamps
+        i32::try_from(
+            self.start_time
+                .map(jiff::Timestamp::as_second)
+                .unwrap_or_default(),
+        )
+    }
+
+    #[must_use]
+    pub fn has_stop_time(&self) -> bool {
+        self.stop_time.is_some()
+    }
+
+    pub fn get_stop_time_as_i32(&self) -> Result<i32, std::num::TryFromIntError> {
+        // TODO: migrate to 64 bit timestamps
+        i32::try_from(
+            self.stop_time
+                .map(jiff::Timestamp::as_second)
+                .unwrap_or_default(),
+        )
+    }
+
+    #[must_use]
+    pub fn get_overhead(&self) -> Option<i32> {
+        if self.overhead != 0 {
+            Some(self.overhead)
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub fn get_times_built(&self) -> Option<i32> {
+        if self.times_built != 0 {
+            Some(self.times_built)
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub fn get_is_non_deterministic(&self) -> Option<bool> {
+        if self.times_built != 0 {
+            Some(self.is_non_deterministic)
+        } else {
+            None
         }
     }
 }

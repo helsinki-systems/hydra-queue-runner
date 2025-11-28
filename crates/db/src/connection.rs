@@ -728,7 +728,7 @@ impl Transaction<'_> {
     )]
     pub async fn create_build_step(
         &mut self,
-        start_time: Option<i64>,
+        start_time: Option<i32>,
         build_id: crate::models::BuildID,
         drv_path: &str,
         platform: Option<&str>,
@@ -738,8 +738,6 @@ impl Transaction<'_> {
         propagated_from: Option<crate::models::BuildID>,
         outputs: Vec<(String, Option<String>)>,
     ) -> sqlx::Result<i32> {
-        let start_time = start_time.and_then(|start_time| i32::try_from(start_time).ok()); // TODO
-
         let step_nr = loop {
             let step_nr = self.alloc_build_step(build_id).await?;
             if self

@@ -280,7 +280,7 @@ impl State {
             drv.to_owned(),
             step_info.resolved_drv_path.clone(),
         );
-        job.result.start_time = Some(jiff::Timestamp::now());
+        job.result.set_start_time_now();
         if self.check_cached_failure(step_info.step.clone()).await {
             job.result.step_status = BuildStatus::CachedFailure;
             self.inner_fail_job(drv, None, job, step_info.step.clone())
@@ -299,7 +299,7 @@ impl State {
 
             let step_nr = tx
                 .create_build_step(
-                    job.result.start_time.map(jiff::Timestamp::as_second),
+                    Some(job.result.get_start_time_as_i32()?),
                     build_id,
                     &self.store.print_store_path(step_info.step.get_drv_path()),
                     step_info.step.get_system().as_deref(),
@@ -955,7 +955,7 @@ impl State {
         self.queues.remove_job(&step_info, &queue).await;
 
         job.result.step_status = BuildStatus::Success;
-        job.result.stop_time = Some(jiff::Timestamp::now());
+        job.result.set_stop_time_now();
 
         let total_step_time = job.result.get_total_step_time_ms();
         machine.stats.track_build_success(
@@ -969,20 +969,15 @@ impl State {
             total_step_time,
         );
 
-        {
-            let mut db = self.db.get().await?;
-            let mut tx = db.begin_transaction().await?;
-            finish_build_step(
-                &mut tx,
-                &self.store,
-                job.build_id,
-                job.step_nr,
-                &job.result,
-                Some(machine.hostname.clone()),
-            )
-            .await?;
-            tx.commit().await?;
-        }
+        finish_build_step(
+            &self.db,
+            &self.store,
+            job.build_id,
+            job.step_nr,
+            &job.result,
+            Some(machine.hostname.clone()),
+        )
+        .await?;
 
         // TODO: redo gc roots, we only need to root until we are done with that build
         for (_, path) in &output.outputs {
@@ -1009,7 +1004,7 @@ impl State {
             if let Err(e) = self.uploader.schedule_upload(
                 outputs_to_upload,
                 format!("log/{}", job.path.base_name()),
-                job.result.log_file,
+                job.result.log_file.clone(),
             ) {
                 tracing::error!(
                     "Failed to schedule upload for build {} outputs: {}",
@@ -1027,23 +1022,15 @@ impl State {
         {
             let mut db = self.db.get().await?;
             let mut tx = db.begin_transaction().await?;
+            let start_time = job.result.get_start_time_as_i32()?;
+            let stop_time = job.result.get_stop_time_as_i32()?;
             for b in &direct {
                 let is_cached = job.build_id != b.id || job.result.is_cached;
                 tx.mark_succeeded_build(
                     get_mark_build_sccuess_data(&self.store, b, &output),
                     is_cached,
-                    i32::try_from(
-                        job.result
-                            .start_time
-                            .map(jiff::Timestamp::as_second)
-                            .unwrap_or_default(),
-                    )?, // TODO
-                    i32::try_from(
-                        job.result
-                            .stop_time
-                            .map(jiff::Timestamp::as_second)
-                            .unwrap_or_default(),
-                    )?, // TODO
+                    start_time,
+                    stop_time,
                 )
                 .await?;
                 self.metrics.nr_builds_done.inc();
@@ -1107,7 +1094,7 @@ impl State {
         job.result.step_status = BuildStatus::Failed;
         // this can override step_status to something more specific
         job.result.update_with_result_state(&state);
-        job.result.stop_time = Some(jiff::Timestamp::now());
+        job.result.set_stop_time_now();
 
         let total_step_time = job.result.get_total_step_time_ms();
         machine
@@ -1140,20 +1127,15 @@ impl State {
 
                 step_info.set_already_scheduled(false);
 
-                {
-                    let mut db = self.db.get().await?;
-                    let mut tx = db.begin_transaction().await?;
-                    finish_build_step(
-                        &mut tx,
-                        &self.store,
-                        job.build_id,
-                        job.step_nr,
-                        &job.result,
-                        Some(machine.hostname.clone()),
-                    )
-                    .await?;
-                    tx.commit().await?;
-                }
+                finish_build_step(
+                    &self.db,
+                    &self.store,
+                    job.build_id,
+                    job.step_nr,
+                    &job.result,
+                    Some(machine.hostname.clone()),
+                )
+                .await?;
                 self.trigger_dispatch();
                 return Ok(());
             }
@@ -1214,15 +1196,13 @@ impl State {
         mut job: machine::Job,
         step: Arc<Step>,
     ) -> anyhow::Result<()> {
-        if job.result.stop_time.is_none() {
-            job.result.stop_time = Some(jiff::Timestamp::now());
+        if !job.result.has_stop_time() {
+            job.result.set_stop_time_now();
         }
 
         if job.step_nr != 0 {
-            let mut db = self.db.get().await?;
-            let mut tx = db.begin_transaction().await?;
             finish_build_step(
-                &mut tx,
+                &self.db,
                 &self.store,
                 job.build_id,
                 job.step_nr,
@@ -1230,7 +1210,6 @@ impl State {
                 machine.as_ref().map(|m| m.hostname.clone()),
             )
             .await?;
-            tx.commit().await?;
         }
 
         let mut dependent_ids = Vec::new();
@@ -1290,6 +1269,8 @@ impl State {
                     }
 
                     tracing::info!("marking build {} as failed", b.id);
+                    let start_time = job.result.get_start_time_as_i32()?;
+                    let stop_time = job.result.get_stop_time_as_i32()?;
                     tx.update_build_after_failure(
                         b.id,
                         if &b.drv_path != step.get_drv_path()
@@ -1299,18 +1280,8 @@ impl State {
                         } else {
                             job.result.step_status
                         },
-                        i32::try_from(
-                            job.result
-                                .start_time
-                                .map(jiff::Timestamp::as_second)
-                                .unwrap_or_default(),
-                        )?, // TODO
-                        i32::try_from(
-                            job.result
-                                .stop_time
-                                .map(jiff::Timestamp::as_second)
-                                .unwrap_or_default(),
-                        )?, // TODO
+                        start_time,
+                        stop_time,
                         job.result.step_status == BuildStatus::CachedFailure,
                     )
                     .await?;
@@ -1960,8 +1931,7 @@ impl State {
             };
 
             let mut job = machine::Job::new(build.id, drv.to_owned(), None);
-            job.result.start_time = Some(now);
-            job.result.stop_time = Some(now);
+            job.result.set_start_and_stop(now);
             job.result.step_status = BuildStatus::Unsupported;
             job.result.error_msg = Some(format!(
                 "unsupported system type '{}'",

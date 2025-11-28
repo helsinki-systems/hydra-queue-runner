@@ -1,51 +1,39 @@
-use db::Transaction;
 use db::models::BuildID;
 use nix_utils::BaseStore as _;
 
 use crate::state::RemoteBuild;
 
-#[tracing::instrument(skip(tx, store, res), err)]
+#[tracing::instrument(skip(db, store, res), err)]
 pub async fn finish_build_step(
-    tx: &mut Transaction<'_>,
+    db: &db::Database,
     store: &nix_utils::LocalStore,
     build_id: BuildID,
     step_nr: i32,
     res: &RemoteBuild,
     machine: Option<String>,
 ) -> anyhow::Result<()> {
-    debug_assert!(res.start_time.is_some());
-    debug_assert!(res.stop_time.is_some());
+    let mut conn = db.get().await?;
+    let mut tx = conn.begin_transaction().await?;
+
+    debug_assert!(res.has_start_time());
+    debug_assert!(res.has_stop_time());
+    tracing::info!(
+        "Writing buildstep result in db. step_status={:?} start_time={:?} stop_time={:?}",
+        res.step_status,
+        res.get_start_time_as_i32(),
+        res.get_stop_time_as_i32(),
+    );
     tx.update_build_step_in_finish(db::models::UpdateBuildStepInFinish {
         build_id,
         step_nr,
         status: res.step_status,
         error_msg: res.error_msg.as_deref(),
-        start_time: i32::try_from(
-            res.start_time
-                .map(jiff::Timestamp::as_second)
-                .unwrap_or_default(),
-        )?,
-        stop_time: i32::try_from(
-            res.stop_time
-                .map(jiff::Timestamp::as_second)
-                .unwrap_or_default(),
-        )?,
+        start_time: res.get_start_time_as_i32()?,
+        stop_time: res.get_stop_time_as_i32()?,
         machine: machine.as_deref(),
-        overhead: if res.overhead != 0 {
-            Some(res.overhead)
-        } else {
-            None
-        },
-        times_built: if res.times_build > 0 {
-            Some(res.times_build)
-        } else {
-            None
-        },
-        is_non_deterministic: if res.times_build > 0 {
-            Some(res.is_non_deterministic)
-        } else {
-            None
-        },
+        overhead: res.get_overhead(),
+        times_built: res.get_times_built(),
+        is_non_deterministic: res.get_is_non_deterministic(),
     })
     .await?;
     debug_assert!(!res.log_file.is_empty());
@@ -76,6 +64,8 @@ pub async fn finish_build_step(
             }
         }
     }
+
+    tx.commit().await?;
     Ok(())
 }
 
