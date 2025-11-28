@@ -64,6 +64,15 @@ pub async fn finish_build_step(
             }
         }
     }
+    if let Some(fod_result) = &res.fod_result {
+        tx.update_build_step_fod_output(
+            build_id,
+            step_nr,
+            &fod_result.expected_hash,
+            fod_result.actual_hash.as_deref(),
+        )
+        .await?;
+    }
 
     tx.commit().await?;
     Ok(())
@@ -109,7 +118,12 @@ pub async fn substitute_output(
         stoptime,
         build_id,
         &store.print_store_path(drv_path),
-        (o.name.clone(), o.path.map(|p| store.print_store_path(&p))),
+        db::models::Output {
+            name: o.name.clone(),
+            path: o.path.map(|p| store.print_store_path(&p)),
+            expected_hash: None,
+            actual_hash: None,
+        },
     )
     .await?;
     tx.commit().await?;

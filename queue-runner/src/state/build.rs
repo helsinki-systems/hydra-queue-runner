@@ -613,6 +613,7 @@ pub fn get_mark_build_sccuess_data<'a>(
     store: &nix_utils::LocalStore,
     b: &'a Arc<crate::state::Build>,
     res: &'a crate::state::BuildOutput,
+    fod_output: Option<&FodOutput>,
 ) -> db::models::MarkBuildSuccessData<'a> {
     db::models::MarkBuildSuccessData {
         id: b.id,
@@ -628,7 +629,12 @@ pub fn get_mark_build_sccuess_data<'a>(
         outputs: res
             .outputs
             .iter()
-            .map(|(name, path)| (name.clone(), store.print_store_path(path)))
+            .map(|(name, path)| db::models::Output {
+                name: name.clone(),
+                path: Some(store.print_store_path(path)),
+                expected_hash: fod_output.map(|v| v.expected_hash.clone()),
+                actual_hash: fod_output.and_then(|v| v.actual_hash.clone()),
+            })
             .collect(),
         products: res
             .products

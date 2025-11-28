@@ -2,8 +2,8 @@ use sqlx::Acquire;
 
 use super::models::{
     Build, BuildSmall, BuildStatus, BuildSteps, BuildWithTimestamps, InsertBuildMetric,
-    InsertBuildProduct, InsertBuildStep, InsertBuildStepOutput, InsertFodCheck, InsertFodOutput,
-    Jobset, UpdateBuild, UpdateBuildStep, UpdateBuildStepInFinish,
+    InsertBuildOutput, InsertBuildProduct, InsertBuildStep, InsertBuildStepOutput, InsertFodCheck,
+    Jobset, Output, UpdateBuild, UpdateBuildStep, UpdateBuildStepInFinish,
 };
 
 pub struct Connection {
@@ -405,19 +405,72 @@ impl Transaction<'_> {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, name, path), err)]
+    #[tracing::instrument(skip(self, outputs), err)]
+    pub async fn insert_build_outputs(
+        &mut self,
+        outputs: &[InsertBuildOutput],
+    ) -> sqlx::Result<()> {
+        if outputs.is_empty() {
+            return Ok(());
+        }
+
+        let mut query_builder = sqlx::QueryBuilder::new(
+            "INSERT INTO buildoutputs (build, name, path, expectedHash, actualHash) ",
+        );
+
+        query_builder.push_values(outputs, |mut b, output| {
+            b.push_bind(output.build_id)
+                .push_bind(&output.name)
+                .push_bind(&output.path)
+                .push_bind(&output.expected_hash)
+                .push_bind(&output.actual_hash);
+        });
+        let query = query_builder.build();
+        query.execute(&mut *self.tx).await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, output), err)]
     pub async fn update_build_output(
         &mut self,
         build_id: i32,
-        name: &str,
-        path: &str,
+        output: &Output,
     ) -> sqlx::Result<()> {
         // TODO: support updating multiple at the same time
         sqlx::query!(
-            "UPDATE buildoutputs SET path = $3 WHERE build = $1 AND name = $2",
+            r#"
+            UPDATE
+              buildoutputs
+            SET path = $3, expectedHash = $4, actualHash = $5
+            WHERE build = $1 AND name = $2"#,
             build_id,
-            name,
-            path,
+            output.name,
+            output.path,
+            output.expected_hash,
+            output.actual_hash,
+        )
+        .execute(&mut *self.tx)
+        .await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, expected_hash, actual_hash), err)]
+    pub async fn update_build_fod_output(
+        &mut self,
+        build_id: i32,
+        expected_hash: &str,
+        actual_hash: Option<&str>,
+    ) -> sqlx::Result<()> {
+        // TODO: support updating multiple at the same time
+        sqlx::query!(
+            r#"
+            UPDATE
+              buildoutputs
+            SET expectedHash = $2, actualHash = $3
+            WHERE build = $1"#,
+            build_id,
+            expected_hash,
+            actual_hash,
         )
         .execute(&mut *self.tx)
         .await?;
@@ -553,27 +606,6 @@ impl Transaction<'_> {
         .await
     }
 
-    #[tracing::instrument(skip(self, outputs), err)]
-    pub async fn insert_fod_outputs(&mut self, outputs: &[InsertFodOutput]) -> sqlx::Result<()> {
-        if outputs.is_empty() {
-            return Ok(());
-        }
-
-        let mut query_builder = sqlx::QueryBuilder::new(
-            "INSERT INTO fodoutputs (build, timestamp, expectedHash, actualHash) ",
-        );
-
-        query_builder.push_values(outputs, |mut b, output| {
-            b.push_bind(output.build_id)
-                .push_bind(output.timestamp)
-                .push_bind(&output.expected_hash)
-                .push_bind(&output.actual_hash);
-        });
-        let query = query_builder.build();
-        query.execute(&mut *self.tx).await?;
-        Ok(())
-    }
-
     #[tracing::instrument(skip(self, step), err)]
     async fn insert_build_step(&mut self, step: InsertBuildStep<'_>) -> sqlx::Result<bool> {
         let success = sqlx::query!(
@@ -629,14 +661,17 @@ impl Transaction<'_> {
             return Ok(());
         }
 
-        let mut query_builder =
-            sqlx::QueryBuilder::new("INSERT INTO buildstepoutputs (build, stepnr, name, path) ");
+        let mut query_builder = sqlx::QueryBuilder::new(
+            "INSERT INTO buildstepoutputs (build, stepnr, name, path, expectedHash, actualHash) ",
+        );
 
         query_builder.push_values(outputs, |mut b, output| {
             b.push_bind(output.build_id)
                 .push_bind(output.step_nr)
                 .push_bind(&output.name)
-                .push_bind(&output.path);
+                .push_bind(&output.path)
+                .push_bind(&output.expected_hash)
+                .push_bind(&output.actual_hash);
         });
         let query = query_builder.build();
         query.execute(&mut *self.tx).await?;
@@ -658,6 +693,27 @@ impl Transaction<'_> {
             step_nr,
             name,
             path,
+        )
+        .execute(&mut *self.tx)
+        .await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, expected_hash, actual_hash), err)]
+    pub async fn update_build_step_fod_output(
+        &mut self,
+        build_id: i32,
+        step_nr: i32,
+        expected_hash: &str,
+        actual_hash: Option<&str>,
+    ) -> sqlx::Result<()> {
+        // TODO: support updating multiple at the same time
+        sqlx::query!(
+            "UPDATE buildstepoutputs SET expectedHash = $3, actualHash = $4 WHERE build = $1 AND stepnr = $2",
+            build_id,
+            step_nr,
+            expected_hash,
+            actual_hash,
         )
         .execute(&mut *self.tx)
         .await?;
@@ -852,7 +908,8 @@ impl Transaction<'_> {
             machine,
             status,
             error_msg,
-            propagated_from
+            propagated_from,
+            outputs,
         ),
         err
     )]
@@ -866,7 +923,7 @@ impl Transaction<'_> {
         status: crate::models::BuildStatus,
         error_msg: Option<String>,
         propagated_from: Option<crate::models::BuildID>,
-        outputs: Vec<(String, Option<String>)>,
+        outputs: Vec<Output>,
     ) -> sqlx::Result<i32> {
         let step_nr = loop {
             let step_nr = self.alloc_build_step(build_id).await?;
@@ -898,11 +955,13 @@ impl Transaction<'_> {
         self.insert_build_step_outputs(
             &outputs
                 .into_iter()
-                .map(|(name, path)| crate::models::InsertBuildStepOutput {
+                .map(|output| crate::models::InsertBuildStepOutput {
                     build_id,
                     step_nr,
-                    name,
-                    path,
+                    name: output.name,
+                    path: output.path,
+                    expected_hash: output.expected_hash,
+                    actual_hash: output.actual_hash,
                 })
                 .collect::<Vec<_>>(),
         )
@@ -926,7 +985,7 @@ impl Transaction<'_> {
         stop_time: i32,
         build_id: crate::models::BuildID,
         drv_path: &str,
-        output: (String, Option<String>),
+        output: Output,
     ) -> anyhow::Result<i32> {
         let step_nr = loop {
             let step_nr = self.alloc_build_step(build_id).await?;
@@ -954,8 +1013,10 @@ impl Transaction<'_> {
         self.insert_build_step_outputs(&[crate::models::InsertBuildStepOutput {
             build_id,
             step_nr,
-            name: output.0,
-            path: output.1,
+            name: output.name,
+            path: output.path,
+            expected_hash: output.expected_hash,
+            actual_hash: output.actual_hash,
         }])
         .await?;
 
@@ -996,8 +1057,8 @@ impl Transaction<'_> {
         )
         .await?;
 
-        for (name, path) in &build.outputs {
-            self.update_build_output(build.id, name, path).await?;
+        for output in build.outputs {
+            self.update_build_output(build.id, &output).await?;
         }
 
         self.delete_build_products_by_build_id(build.id).await?;
