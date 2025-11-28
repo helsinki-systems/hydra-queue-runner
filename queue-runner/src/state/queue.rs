@@ -146,14 +146,33 @@ impl BuildQueue {
     }
 }
 
+#[derive(Clone)]
+pub struct ScheduledItem {
+    pub step_info: Arc<StepInfo>,
+    pub build_queue: Arc<BuildQueue>,
+    pub machine: Arc<super::Machine>,
+}
+
+impl ScheduledItem {
+    fn new(
+        step_info: Arc<StepInfo>,
+        build_queue: Arc<BuildQueue>,
+        machine: Arc<super::Machine>,
+    ) -> Self {
+        Self {
+            step_info,
+            build_queue,
+            machine,
+        }
+    }
+}
+
 pub struct InnerQueues {
     // flat list of all step infos in queues, owning those steps inner queue dont own them
     jobs: HashMap<nix_utils::StorePath, Arc<StepInfo>>,
     inner: HashMap<System, Arc<BuildQueue>>,
     #[allow(clippy::type_complexity)]
-    scheduled: parking_lot::RwLock<
-        HashMap<nix_utils::StorePath, (Arc<StepInfo>, Arc<BuildQueue>, Arc<super::Machine>)>,
-    >,
+    scheduled: parking_lot::RwLock<HashMap<nix_utils::StorePath, ScheduledItem>>,
 }
 
 impl Default for InnerQueues {
@@ -232,22 +251,22 @@ impl InnerQueues {
         let mut scheduled = self.scheduled.write();
 
         let drv = step.step.get_drv_path();
-        scheduled.insert(drv.to_owned(), (step.clone(), queue.clone(), machine));
+        scheduled.insert(
+            drv.to_owned(),
+            ScheduledItem::new(step.clone(), queue.clone(), machine),
+        );
         step.set_already_scheduled(true);
         queue.incr_active();
     }
 
     #[tracing::instrument(skip(self), fields(%drv))]
-    fn remove_job_from_scheduled(
-        &self,
-        drv: &nix_utils::StorePath,
-    ) -> Option<(Arc<StepInfo>, Arc<BuildQueue>, Arc<super::Machine>)> {
+    fn remove_job_from_scheduled(&self, drv: &nix_utils::StorePath) -> Option<ScheduledItem> {
         let mut scheduled = self.scheduled.write();
 
-        let (step_info, queue, machine) = scheduled.remove(drv)?;
-        step_info.set_already_scheduled(false);
-        queue.decr_active();
-        Some((step_info, queue, machine))
+        let item = scheduled.remove(drv)?;
+        item.step_info.set_already_scheduled(false);
+        item.build_queue.decr_active();
+        Some(item)
     }
 
     fn remove_job_by_path(&mut self, drv: &nix_utils::StorePath) {
@@ -277,24 +296,28 @@ impl InnerQueues {
         };
 
         let mut cancelled_steps = vec![];
-        for (drv_path, (step_info, _, machine)) in &active {
-            if step_info.get_cancelled() {
+        for (drv_path, item) in &active {
+            if item.step_info.get_cancelled() {
                 continue;
             }
 
             let mut dependents = HashSet::new();
             let mut steps = HashSet::new();
-            step_info.step.get_dependents(&mut dependents, &mut steps);
+            item.step_info
+                .step
+                .get_dependents(&mut dependents, &mut steps);
             if !dependents.is_empty() {
                 continue;
             }
 
             {
                 tracing::info!("Cancelling step drv={drv_path}");
-                step_info.set_cancelled(true);
+                item.step_info.set_cancelled(true);
 
-                if let Some(internal_build_id) = machine.get_internal_build_id_for_drv(drv_path) {
-                    if let Err(e) = machine.abort_build(internal_build_id).await {
+                if let Some(internal_build_id) =
+                    item.machine.get_internal_build_id_for_drv(drv_path)
+                {
+                    if let Err(e) = item.machine.abort_build(internal_build_id).await {
                         tracing::error!(
                             "Failed to abort build drv_path={drv_path} build_id={internal_build_id} e={e}",
                         );
@@ -305,7 +328,7 @@ impl InnerQueues {
                     continue;
                 }
 
-                cancelled_steps.push((drv_path.to_owned(), machine.id));
+                cancelled_steps.push((drv_path.to_owned(), item.machine.id));
             }
         }
         cancelled_steps
@@ -325,7 +348,7 @@ impl InnerQueues {
 
     fn get_scheduled(&self) -> Vec<Arc<StepInfo>> {
         let s = self.scheduled.read();
-        s.iter().map(|(_, (s, _, _))| s.clone()).collect()
+        s.iter().map(|(_, item)| item.step_info.clone()).collect()
     }
 
     pub fn sort_queues(&self, sort_fn: StepSortFn) {
@@ -521,7 +544,7 @@ impl Queues {
     pub async fn remove_job_from_scheduled(
         &self,
         drv: &nix_utils::StorePath,
-    ) -> Option<(Arc<StepInfo>, Arc<BuildQueue>, Arc<super::Machine>)> {
+    ) -> Option<ScheduledItem> {
         let rq = self.inner.read().await;
         rq.remove_job_from_scheduled(drv)
     }

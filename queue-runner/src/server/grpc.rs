@@ -90,8 +90,6 @@ fn handle_message(state: &Arc<State>, msg: builder_request::Message) {
                 m.stats.store_ping(&msg);
             }
         }
-        #[allow(unreachable_patterns)]
-        _ => tracing::warn!("unhandled message: {msg:?}"),
     }
 }
 

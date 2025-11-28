@@ -32,7 +32,6 @@ fn retry_strategy() -> backon::ExponentialBuilder {
 }
 
 #[derive(thiserror::Error, Debug)]
-#[allow(clippy::enum_variant_names)]
 pub enum JobFailure {
     #[error("Build failure: `{0}`")]
     Build(anyhow::Error),

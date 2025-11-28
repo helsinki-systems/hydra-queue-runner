@@ -836,7 +836,6 @@ impl State {
         self.notify_dispatch.notify_one();
     }
 
-    #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self))]
     async fn do_dispatch_once(self: Arc<Self>) {
         // Prune old historical build step info from the jobsets.
@@ -936,28 +935,31 @@ impl State {
         output: BuildOutput,
     ) -> anyhow::Result<()> {
         tracing::info!("marking job as done: drv_path={drv_path}");
-        let (step_info, queue, machine) = self
+        let item = self
             .queues
             .remove_job_from_scheduled(drv_path)
             .await
             .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?;
 
-        step_info.step.set_finished(true);
+        item.step_info.step.set_finished(true);
         tracing::debug!(
             "removing job from machine: drv_path={drv_path} m={}",
-            machine.id
+            item.machine.id
         );
-        let mut job = machine.remove_job(drv_path).ok_or(anyhow::anyhow!(
-            "Job is missing in machine.jobs m={machine}",
+        let mut job = item.machine.remove_job(drv_path).ok_or(anyhow::anyhow!(
+            "Job is missing in machine.jobs m={}",
+            item.machine,
         ))?;
-        self.queues.remove_job(&step_info, &queue).await;
+        self.queues
+            .remove_job(&item.step_info, &item.build_queue)
+            .await;
 
         job.result.step_status = BuildStatus::Success;
         job.result.set_stop_time_now();
         job.result.set_overhead(output.timings.get_overhead())?;
 
         let total_step_time = job.result.get_total_step_time_ms();
-        machine
+        item.machine
             .stats
             .track_build_success(output.timings, total_step_time);
         self.metrics
@@ -969,7 +971,7 @@ impl State {
             job.build_id,
             job.step_nr,
             &job.result,
-            Some(machine.hostname.clone()),
+            Some(item.machine.hostname.clone()),
         )
         .await?;
 
@@ -1008,9 +1010,9 @@ impl State {
             }
         }
 
-        let direct = step_info.step.get_direct_builds();
+        let direct = item.step_info.step.get_direct_builds();
         if direct.is_empty() {
-            self.steps.remove(step_info.step.get_drv_path());
+            self.steps.remove(item.step_info.step.get_drv_path());
         }
 
         {
@@ -1050,7 +1052,7 @@ impl State {
             tx.commit().await?;
         }
 
-        step_info.step.make_rdeps_runnable();
+        item.step_info.step.make_rdeps_runnable();
 
         // always trigger dispatch, as we now might have a free machine again
         self.trigger_dispatch();
@@ -1058,7 +1060,6 @@ impl State {
         Ok(())
     }
 
-    #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self), fields(%machine_id, %drv_path), err)]
     pub async fn fail_step(
         &self,
@@ -1068,20 +1069,21 @@ impl State {
         timings: BuildTimings,
     ) -> anyhow::Result<()> {
         tracing::info!("removing job from running in system queue: drv_path={drv_path}");
-        let (step_info, queue, machine) = self
+        let item = self
             .queues
             .remove_job_from_scheduled(drv_path)
             .await
             .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?;
 
-        step_info.step.set_finished(false);
+        item.step_info.step.set_finished(false);
 
         tracing::debug!(
             "removing job from machine: drv_path={drv_path} m={}",
-            machine.id
+            item.machine.id
         );
-        let mut job = machine.remove_job(drv_path).ok_or(anyhow::anyhow!(
-            "Job is missing in machine.jobs m={machine}",
+        let mut job = item.machine.remove_job(drv_path).ok_or(anyhow::anyhow!(
+            "Job is missing in machine.jobs m={}",
+            item.machine
         ))?;
 
         job.result.step_status = BuildStatus::Failed;
@@ -1091,32 +1093,38 @@ impl State {
         job.result.set_overhead(timings.get_overhead())?;
 
         let total_step_time = job.result.get_total_step_time_ms();
-        machine.stats.track_build_failure(timings, total_step_time);
+        item.machine
+            .stats
+            .track_build_failure(timings, total_step_time);
         self.metrics.track_build_failure(timings, total_step_time);
 
         let (max_retries, retry_interval, retry_backoff) = self.config.get_retry();
 
         if job.result.can_retry {
-            step_info
+            item.step_info
                 .step
                 .atomic_state
                 .tries
                 .fetch_add(1, Ordering::Relaxed);
-            let tries = step_info.step.atomic_state.tries.load(Ordering::Relaxed);
+            let tries = item
+                .step_info
+                .step
+                .atomic_state
+                .tries
+                .load(Ordering::Relaxed);
             if tries < max_retries {
                 self.metrics.nr_retries.inc();
-                #[allow(clippy::cast_precision_loss)]
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
                 let delta = (retry_interval * retry_backoff.powf((tries - 1) as f32)) as i64;
                 tracing::info!("will retry '{drv_path}' after {delta}s");
-                step_info
+                item.step_info
                     .step
                     .set_after(jiff::Timestamp::now() + jiff::SignedDuration::from_secs(delta));
                 if i64::from(tries) > self.metrics.max_nr_retries.get() {
                     self.metrics.max_nr_retries.set(i64::from(tries));
                 }
 
-                step_info.set_already_scheduled(false);
+                item.step_info.set_already_scheduled(false);
 
                 finish_build_step(
                     &self.db,
@@ -1124,7 +1132,7 @@ impl State {
                     job.build_id,
                     job.step_nr,
                     &job.result,
-                    Some(machine.hostname.clone()),
+                    Some(item.machine.hostname.clone()),
                 )
                 .await?;
                 self.trigger_dispatch();
@@ -1133,10 +1141,17 @@ impl State {
         }
 
         // remove job from queues, aka actually fail the job
-        self.queues.remove_job(&step_info, &queue).await;
+        self.queues
+            .remove_job(&item.step_info, &item.build_queue)
+            .await;
 
-        self.inner_fail_job(drv_path, Some(machine), job, step_info.step.clone())
-            .await
+        self.inner_fail_job(
+            drv_path,
+            Some(item.machine),
+            job,
+            item.step_info.step.clone(),
+        )
+        .await
     }
 
     #[tracing::instrument(skip(self, output), fields(%machine_id, build_id=%build_id), err)]
@@ -1555,8 +1570,7 @@ impl State {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
     #[tracing::instrument(skip(
         self,
         build,

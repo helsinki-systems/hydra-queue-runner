@@ -1109,7 +1109,6 @@ impl PromMetrics {
         for (full_jobset_name, jobset) in &jobsets {
             let labels = &[full_jobset_name.as_str()];
 
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let v = i64::try_from(u64::from(jobset.shares)).unwrap_or(0);
             self.jobset_share_used.with_label_values(labels).set(v);
 
@@ -1123,7 +1122,7 @@ impl PromMetrics {
         let now = jiff::Timestamp::now();
 
         self.queue_runner_current_time_seconds.set(now.as_second());
-        #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+        #[allow(clippy::cast_possible_truncation)]
         self.queue_runner_uptime_seconds.set(
             (now - state.started_at)
                 .total(jiff::Unit::Second)
