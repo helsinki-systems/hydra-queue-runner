@@ -272,6 +272,9 @@ struct FodConfig {
     // seconds between fod checks of the same FOD derivation
     #[serde(default = "default_seconds_bettwen_fod_checks")]
     seconds_between_fod_checks: usize,
+
+    #[serde(default)]
+    upload_realisations: bool,
 }
 
 /// Prepared configuration of the application
@@ -308,6 +311,7 @@ pub struct PreparedApp {
 pub struct PreparedFodConfig {
     pub jobset_id: i32,
     pub duration_between_fod_checks: jiff::SignedDuration,
+    pub upload_realisations: bool,
 }
 
 impl PreparedFodConfig {
@@ -323,14 +327,20 @@ impl PreparedFodConfig {
                 // same default as default_seconds_bettwen_fod_checks => 14 days
                 i64::try_from(val.seconds_between_fod_checks).unwrap_or(60 * 60 * 24 * 14),
             ),
+            upload_realisations: val.upload_realisations,
         })
     }
 
     #[must_use]
-    pub fn init(jobset_id: i32, duration_between: jiff::SignedDuration) -> Self {
+    pub fn init(
+        jobset_id: i32,
+        duration_between: jiff::SignedDuration,
+        upload_realisations: bool,
+    ) -> Self {
         Self {
             jobset_id,
             duration_between_fod_checks: duration_between,
+            upload_realisations,
         }
     }
 }

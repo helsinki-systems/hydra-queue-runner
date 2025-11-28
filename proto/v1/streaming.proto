@@ -114,10 +114,12 @@ message RunnerRequest {
 message JoinResponse {
   string machine_id = 1; // UUIDv4
   uint32 max_concurrent_downloads = 2;
+  bool fod_checker_upload_realisations = 3;
 }
 
 message ConfigUpdate {
   uint32 max_concurrent_downloads = 1;
+  bool fod_checker_upload_realisations = 2;
 }
 
 message PresignedUploadOpts {

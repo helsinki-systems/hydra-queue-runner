@@ -11,11 +11,10 @@ use std::time::Instant;
 use bytes::Bytes;
 use moka::future::Cache;
 use object_store::{ObjectStore as _, ObjectStoreExt as _, signer::Signer as _};
-use secrecy::ExposeSecret;
+use secrecy::ExposeSecret as _;
 use smallvec::SmallVec;
 
-use nix_utils::BaseStore as _;
-use nix_utils::RealisationOperations as _;
+use nix_utils::{BaseStore as _, RealisationOperations as _};
 
 mod cfg;
 mod compression;

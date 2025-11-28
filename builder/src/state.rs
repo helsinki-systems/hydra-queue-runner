@@ -9,10 +9,11 @@ use hashbrown::HashMap;
 use tonic::Request;
 use tracing::Instrument as _;
 
+use crate::grpc::runner_v1::Realisation;
 use crate::grpc::{BuilderClient, runner_v1};
 use crate::types::BuildTimings;
 use binary_cache::{Compression, PresignedUpload, PresignedUploadClient};
-use nix_utils::BaseStore as _;
+use nix_utils::{BaseStore as _, RealisationOperations as _};
 use runner_v1::{
     AbortMessage, BuildMessage, BuildMetric, BuildProduct, BuildResultInfo, BuildResultState,
     FetchRequisitesRequest, FodOutput, JoinMessage, LogChunk, NarData, NixSupport, Output,
@@ -97,6 +98,7 @@ pub struct State {
     pub hostname: String,
     pub config: Config,
     pub max_concurrent_downloads: AtomicU32,
+    pub fod_checker_upload_realisations: AtomicBool,
 
     active_builds: parking_lot::RwLock<HashMap<uuid::Uuid, Arc<BuildInfo>>>,
     pub client: BuilderClient,
@@ -183,6 +185,7 @@ impl State {
                 use_substitutes: cli.use_substitutes,
             },
             max_concurrent_downloads: 5.into(),
+            fod_checker_upload_realisations: false.into(),
             client: crate::grpc::init_client(cli).await?,
             halt: false.into(),
             metrics: Arc::new(crate::metrics::Metrics::default()),
@@ -725,6 +728,50 @@ impl State {
         .await
         .map_err(JobFailure::Build)?;
         timings.build_elapsed = before_build.elapsed();
+
+        if self.fod_checker_upload_realisations.load(Ordering::Relaxed) {
+            if nix_utils::has_feature(nix_utils::ExperimentalFeature::CaDerivations) {
+                let _ = client // we ignore the error here, as this step status has no prio
+                    .build_step_update(StepUpdate {
+                        build_id: m.build_id.clone(),
+                        machine_id: machine_id.to_string(),
+                        step_status: StepStatus::ReceivingOutputs as i32,
+                    })
+                    .await;
+
+                let before_upload = Instant::now();
+                let hashes = store
+                    .static_output_hashes(&drv)
+                    .await
+                    .map_err(|e| JobFailure::Upload(e.into()))?;
+                for (output_name, drv_hash) in hashes {
+                    let raw_realisation = store
+                        .query_raw_realisation(&drv_hash, &output_name)
+                        .map_err(|e| JobFailure::Upload(e.into()))?;
+
+                    client
+                        .upload_realisation(Realisation {
+                            build_id: m.build_id.clone(),
+                            machine_id: machine_id.to_string(),
+                            serialized_realiation: raw_realisation.as_json(),
+                        })
+                        .await
+                        .map_err(|e| JobFailure::Upload(e.into()))?;
+                }
+
+                timings.upload_elapsed = before_upload.elapsed();
+            } else {
+                tracing::warn!("CaDerivations not enabled!");
+            }
+        }
+
+        let _ = client // we ignore the error here, as this step status has no prio
+            .build_step_update(StepUpdate {
+                build_id: m.build_id.clone(),
+                machine_id: machine_id.to_string(),
+                step_status: StepStatus::PostProcessing as i32,
+            })
+            .await;
 
         let build_results = match fod_result {
             crate::utils::FodResult::Ok { actual_sri, output } => {

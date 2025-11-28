@@ -447,7 +447,7 @@ mod tests {
         let fod = FodChecker::new(
             None,
             store,
-            crate::config::PreparedFodConfig::init(1, jiff::SignedDuration::from_secs(60)),
+            crate::config::PreparedFodConfig::init(1, jiff::SignedDuration::from_secs(60), false),
             None,
         );
         fod.to_traverse(&hello_drv);

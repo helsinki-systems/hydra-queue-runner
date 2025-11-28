@@ -543,6 +543,7 @@ impl From<PresignedUrlOpts> for crate::server::grpc::runner_v1::PresignedUploadO
 #[derive(Debug, Clone, Copy)]
 pub struct ConfigUpdate {
     pub max_concurrent_downloads: u32,
+    pub fod_checker_upload_realisations: bool,
 }
 
 #[derive(Debug)]
@@ -577,6 +578,7 @@ impl Message {
             Self::ConfigUpdate(m) => runner_request::Message::ConfigUpdate(
                 crate::server::grpc::runner_v1::ConfigUpdate {
                     max_concurrent_downloads: m.max_concurrent_downloads,
+                    fod_checker_upload_realisations: m.fod_checker_upload_realisations,
                 },
             ),
             Self::BuildMessage {

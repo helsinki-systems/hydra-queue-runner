@@ -171,6 +171,9 @@ impl State {
         self.machines
             .publish_new_config(machine::ConfigUpdate {
                 max_concurrent_downloads: new_config.max_concurrent_downloads,
+                fod_checker_upload_realisations: new_config
+                    .fod_checker
+                    .is_some_and(|v| v.upload_realisations),
             })
             .await;
 
@@ -2011,6 +2014,16 @@ impl State {
     }
 
     pub fn upload_realisation(&self, serialized_realisation: &str) {
+        // only do uploads for fod checked realisations right now
+        // reason for this is, that the realisations format is still not stable
+        if self
+            .config
+            .get_fod_checker_config()
+            .is_some_and(|v| v.upload_realisations)
+        {
+            return;
+        }
+
         self.uploader
             .schedule_realisation_upload(serialized_realisation.to_owned());
     }

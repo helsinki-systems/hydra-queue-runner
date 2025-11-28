@@ -30,6 +30,7 @@ rust::String get_this_system();
 rust::Vec<rust::String> get_extra_platforms();
 rust::Vec<rust::String> get_system_features();
 rust::Vec<rust::String> get_substituters();
+bool has_feature(ExperimentalFeature feature);
 
 bool get_use_cgroups();
 void set_verbosity(int32_t level);

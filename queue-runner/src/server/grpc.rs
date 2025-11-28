@@ -286,6 +286,10 @@ impl RunnerService for Server {
                 message: Some(runner_v1::runner_request::Message::Join(JoinResponse {
                     machine_id: machine_id.to_string(),
                     max_concurrent_downloads: state.config.get_max_concurrent_downloads(),
+                    fod_checker_upload_realisations: state
+                        .config
+                        .get_fod_checker_config()
+                        .is_some_and(|v| v.upload_realisations),
                 })),
             }))
             .await
