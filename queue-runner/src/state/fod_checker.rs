@@ -10,6 +10,28 @@ use crate::state::{AtomicDateTime, Jobsets, QueueType, Queues, Step, StepInfo, S
 struct FodItem {
     drv: nix_utils::Derivation,
     build_id: Option<i32>,
+    jobset_id: i32,
+}
+
+#[derive(Clone, Debug)]
+struct TraverseItem {
+    drv_path: nix_utils::StorePath,
+    jobset_id: i32,
+}
+
+impl PartialEq for TraverseItem {
+    fn eq(&self, other: &Self) -> bool {
+        self.drv_path == other.drv_path
+    }
+}
+
+impl Eq for TraverseItem {}
+
+impl std::hash::Hash for TraverseItem {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // ensure that drv_path is never mutable
+        self.drv_path.hash(state);
+    }
 }
 
 pub struct FodChecker {
@@ -18,7 +40,7 @@ pub struct FodChecker {
     config: crate::config::PreparedFodConfig,
 
     ca_derivations: parking_lot::RwLock<HashMap<StorePath, FodItem>>,
-    to_traverse: parking_lot::RwLock<HashSet<StorePath>>,
+    to_traverse: parking_lot::RwLock<HashSet<TraverseItem>>,
 
     notify_traverse: tokio::sync::Notify,
     notify_dispatch: tokio::sync::Notify,
@@ -29,23 +51,27 @@ pub struct FodChecker {
 
 async fn collect_ca_derivations(
     store: &LocalStore,
-    drv: &StorePath,
+    item: &TraverseItem,
     processed: Arc<parking_lot::RwLock<HashSet<StorePath>>>,
 ) -> HashMap<StorePath, FodItem> {
     use futures::StreamExt as _;
 
     {
         let p = processed.read();
-        if p.contains(drv) {
+        if p.contains(&item.drv_path) {
             return HashMap::new();
         }
     }
     {
         let mut p = processed.write();
-        p.insert(drv.clone());
+        p.insert(item.drv_path.clone());
     }
 
-    let Some(parsed) = nix_utils::query_drv(store, drv).await.ok().flatten() else {
+    let Some(parsed) = nix_utils::query_drv(store, &item.drv_path)
+        .await
+        .ok()
+        .flatten()
+    else {
         return HashMap::new();
     };
 
@@ -56,7 +82,10 @@ async fn collect_ca_derivations(
         futures::StreamExt::map(tokio_stream::iter(parsed.input_drvs.clone()), |i| {
             let processed = processed.clone();
             async move {
-                let i = StorePath::new(&i);
+                let i = TraverseItem {
+                    drv_path: StorePath::new(&i),
+                    jobset_id: item.jobset_id,
+                };
                 Box::pin(collect_ca_derivations(store, &i, processed)).await
             }
         })
@@ -66,11 +95,14 @@ async fn collect_ca_derivations(
         .await
     };
     if is_ca {
-        let item = FodItem {
-            drv: parsed,
-            build_id: None,
-        };
-        out.insert(drv.clone(), item);
+        out.insert(
+            item.drv_path.clone(),
+            FodItem {
+                drv: parsed,
+                build_id: None,
+                jobset_id: item.jobset_id,
+            },
+        );
     }
 
     out
@@ -92,7 +124,7 @@ impl FodChecker {
             config,
 
             ca_derivations: parking_lot::RwLock::new(HashMap::with_capacity(1000)),
-            to_traverse: parking_lot::RwLock::new(HashSet::new()),
+            to_traverse: parking_lot::RwLock::new(HashSet::with_capacity(1000)),
 
             notify_traverse: tokio::sync::Notify::new(),
             notify_dispatch: tokio::sync::Notify::new(),
@@ -102,27 +134,36 @@ impl FodChecker {
         }
     }
 
-    pub(super) fn add_ca_drv_parsed(&self, drv: &StorePath, parsed: &nix_utils::Derivation) {
+    pub(super) fn add_ca_drv_parsed(
+        &self,
+        drv: &StorePath,
+        parsed: &nix_utils::Derivation,
+        jobset_id: i32,
+    ) {
         if parsed.is_ca() {
             let mut ca = self.ca_derivations.write();
             if !ca.contains_key(drv) {
                 let item = FodItem {
                     drv: parsed.clone(),
                     build_id: None,
+                    jobset_id,
                 };
                 ca.insert(drv.clone(), item);
             }
         }
     }
 
-    pub fn to_traverse(&self, drv: &StorePath) {
+    pub fn to_traverse(&self, drv: &StorePath, jobset_id: i32) {
         let mut tt = self.to_traverse.write();
-        tt.insert(drv.clone());
+        tt.insert(TraverseItem {
+            drv_path: drv.to_owned(),
+            jobset_id,
+        });
     }
 
     pub fn clone_to_traverse(&self) -> Vec<StorePath> {
         let tt = self.to_traverse.read();
-        tt.iter().map(ToOwned::to_owned).collect()
+        tt.iter().map(|v| v.drv_path.clone()).collect()
     }
 
     pub fn clone_ca_derivations(&self) -> Vec<StorePath> {
@@ -139,16 +180,16 @@ impl FodChecker {
         };
         {
             let ca_derivations = self.ca_derivations.read();
-            drvs.retain(|p| !ca_derivations.contains_key(p));
+            drvs.retain(|v| !ca_derivations.contains_key(&v.drv_path));
         }
         if drvs.is_empty() {
             return;
         }
 
         let processed = Arc::new(parking_lot::RwLock::new(HashSet::<StorePath>::new()));
-        let out = futures::StreamExt::map(tokio_stream::iter(drvs), |i| {
+        let out = futures::StreamExt::map(tokio_stream::iter(drvs), |v| {
             let processed = processed.clone();
-            async move { Box::pin(collect_ca_derivations(&self.store, &i, processed)).await }
+            async move { Box::pin(collect_ca_derivations(&self.store, &v, processed)).await }
         })
         .buffered(10) // keep this low as it has no high prio
         .flat_map(futures::stream::iter)
@@ -271,7 +312,7 @@ impl FodChecker {
                 let build_id = tx
                     .create_fod_check(db::models::InsertFodCheck {
                         timestamp,
-                        jobset_id: self.config.jobset_id,
+                        jobset_id: item.jobset_id,
                         job: "fod-check",
                         nixname: drv.env.get_name(),
                         drv_path: &printed_store_path,
@@ -384,6 +425,7 @@ impl FodChecker {
                     FodItem {
                         drv,
                         build_id: Some(b.id),
+                        jobset_id: b.jobset_id,
                     },
                 );
                 c += 1;
@@ -460,10 +502,10 @@ mod tests {
         let fod = FodChecker::new(
             None,
             store,
-            crate::config::PreparedFodConfig::init(1, jiff::SignedDuration::from_secs(60), false),
+            crate::config::PreparedFodConfig::init(jiff::SignedDuration::from_secs(60), false),
             None,
         );
-        fod.to_traverse(&hello_drv);
+        fod.to_traverse(&hello_drv, 1);
         fod.traverse().await;
         assert_eq!(fod.ca_derivations.read().len(), 59);
     }

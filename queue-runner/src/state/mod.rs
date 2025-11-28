@@ -1678,7 +1678,7 @@ impl State {
             return CreateStepResult::None;
         };
         if let Some(fod_checker) = &self.fod_checker {
-            fod_checker.add_ca_drv_parsed(&drv_path, &drv);
+            fod_checker.add_ca_drv_parsed(&drv_path, &drv, build.jobset_id);
         }
 
         let system_type = drv.system.as_str();
@@ -1768,7 +1768,7 @@ impl State {
 
         if finished {
             if let Some(fod_checker) = &self.fod_checker {
-                fod_checker.to_traverse(&drv_path);
+                fod_checker.to_traverse(&drv_path, build.jobset_id);
             }
 
             finished_drvs.write().insert(drv_path.clone());
