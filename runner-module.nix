@@ -144,6 +144,28 @@ in
               type = lib.types.listOf lib.types.singleLineStr;
               default = [ ];
             };
+            fodChecker = lib.mkOption {
+              description = "Reloadable settings for queue runner";
+              type = lib.types.submodule {
+                options = {
+                  enable = lib.mkOption {
+                    description = "Enable FOD Checker";
+                    type = lib.types.bool;
+                    default = false;
+                  };
+                  secondsBetweenFodChecks = lib.mkOption {
+                    description = "Time in seconds between FOD Checker";
+                    type = lib.types.int;
+                    default = 60 * 60 * 24 * 7;
+                  };
+                  uploadRealisations = lib.mkOption {
+                    description = "Upload realisations outputs of FOD Checker to remote store.";
+                    type = lib.types.bool;
+                    default = false;
+                  };
+                };
+              };
+            };
           };
         };
         default = { };
