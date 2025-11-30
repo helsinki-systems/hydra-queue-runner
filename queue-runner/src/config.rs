@@ -257,7 +257,7 @@ struct AppConfig {
 
 fn default_seconds_bettwen_fod_checks() -> usize {
     // Check all 14 days
-    60 * 60 * 24 * 14
+    60 * 60 * 24 * 7
 }
 
 #[derive(Debug, serde::Deserialize)]
