@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE buildstepoutputs SET expectedHash = $3, actualHash = $4 WHERE build = $1 AND stepnr = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c0e6284bda93aa884165a611d571fec4eaae74de44ddd162d273724ea99894b4"
+}

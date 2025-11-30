@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE\n              buildoutputs\n            SET expectedHash = $2, actualHash = $3\n            WHERE build = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8588d8388354fb4a0cff3cc09530781abf71ba6ff9474dc9eb615e9839468e78"
+}
