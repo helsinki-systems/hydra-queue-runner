@@ -147,7 +147,7 @@ impl Server {
                     tower_http::trace::TraceLayer::new_for_grpc().make_span_with(
                         tower_http::trace::DefaultMakeSpan::new()
                             .level(tracing::Level::INFO)
-                            .include_headers(true),
+                            .include_headers(false),
                     ),
                 )
                 .map_request(hydra_tracing::propagate::accept_trace),
