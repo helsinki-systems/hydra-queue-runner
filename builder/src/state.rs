@@ -811,11 +811,39 @@ async fn upload_nars_regular(
     metrics: Arc<crate::metrics::Metrics>,
     nars: Vec<nix_utils::StorePath>,
 ) -> anyhow::Result<()> {
+    let nars = {
+        use futures::stream::StreamExt as _;
+
+        futures::StreamExt::map(tokio_stream::iter(nars), |p| {
+            let mut client = client.clone();
+            async move {
+                if client
+                    .has_path(runner_v1::StorePath {
+                        path: p.base_name().to_owned(),
+                    })
+                    .await
+                    .is_ok_and(|r| r.into_inner().has_path)
+                {
+                    None
+                } else {
+                    Some(p)
+                }
+            }
+        })
+        .buffered(10)
+        .filter_map(|o| async { o })
+        .collect::<Vec<_>>()
+        .await
+    };
+    if nars.is_empty() {
+        return Ok(());
+    }
+
     tracing::info!("Start uploading paths to queue runner directly");
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<NarData>();
-
     let before_upload = Instant::now();
     let nars_len = nars.len() as u64;
+
     metrics.add_uploading_path(nars_len);
     let closure = move |data: &[u8]| {
         let data = Vec::from(data);

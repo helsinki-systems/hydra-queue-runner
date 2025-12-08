@@ -14,6 +14,7 @@ service RunnerService {
   rpc BuildStepUpdate(StepUpdate) returns (Empty) {}
   rpc CompleteBuild(BuildResultInfo) returns (Empty) {}
   rpc FetchDrvRequisites(FetchRequisitesRequest) returns (DrvRequisitesMessage) {}
+  rpc HasPath(StorePath) returns (HasPathResponse) {}
   rpc StreamFile(StorePath) returns (stream NarData) {}
   rpc StreamFiles(StorePaths) returns (stream NarData) {}
   rpc RequestPresignedUrl(PresignedUrlRequest) returns (PresignedUrlResponse) {}
@@ -156,6 +157,10 @@ message StorePath {
 
 message StorePaths {
   repeated string paths = 1;
+}
+
+message HasPathResponse {
+  bool has_path = 1;
 }
 
 message NarData {

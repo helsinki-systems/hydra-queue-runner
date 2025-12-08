@@ -527,6 +527,20 @@ impl RunnerService for Server {
     }
 
     #[tracing::instrument(skip(self, req), err)]
+    async fn has_path(
+        &self,
+        req: tonic::Request<StorePath>,
+    ) -> BuilderResult<runner_v1::HasPathResponse> {
+        let path = nix_utils::StorePath::new(&req.into_inner().path);
+        let state = self.state.clone();
+        let has_path = state.store.is_valid_path(&path).await;
+
+        Ok(tonic::Response::new(runner_v1::HasPathResponse {
+            has_path,
+        }))
+    }
+
+    #[tracing::instrument(skip(self, req), err)]
     async fn stream_file(
         &self,
         req: tonic::Request<StorePath>,
