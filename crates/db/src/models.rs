@@ -17,6 +17,7 @@ pub enum BuildStatus {
     LogLimitExceeded = 10,
     NarSizeLimitExceeded = 11,
     NotDeterministic = 12,
+    HashMismatch = 13,
     Busy = 100, // not stored
 }
 
@@ -36,6 +37,7 @@ impl BuildStatus {
             10 => Some(Self::LogLimitExceeded),
             11 => Some(Self::NarSizeLimitExceeded),
             12 => Some(Self::NotDeterministic),
+            13 => Some(Self::HashMismatch),
             100 => Some(Self::Busy),
             _ => None,
         }
@@ -63,6 +65,14 @@ pub struct Jobset {
 pub struct BuildSmall {
     pub id: BuildID,
     pub globalpriority: i32,
+}
+
+pub struct BuildWithTimestamps {
+    pub id: BuildID,
+    pub timestamp: i32,
+    pub drvpath: String,
+    pub starttime: Option<i32>,
+    pub stoptime: Option<i32>,
 }
 
 pub struct Build {
@@ -100,6 +110,15 @@ pub struct UpdateBuild<'a> {
     pub is_cached_build: bool,
 }
 
+pub struct InsertFodCheck<'a> {
+    pub timestamp: i32, // TODO
+    pub jobset_id: i32,
+    pub job: &'a str,
+    pub nixname: Option<&'a str>,
+    pub drv_path: &'a str,
+    pub system: &'a str,
+}
+
 pub struct InsertBuildStep<'a> {
     pub build_id: BuildID,
     pub step_nr: i32,
@@ -115,11 +134,30 @@ pub struct InsertBuildStep<'a> {
     pub machine: &'a str,
 }
 
+pub struct InsertBuildOutput {
+    pub build_id: BuildID,
+    pub name: String,
+    pub path: Option<String>,
+
+    pub expected_hash: Option<String>,
+    pub actual_hash: Option<String>,
+}
+
+pub struct Output {
+    pub name: String,
+    pub path: Option<String>,
+    pub expected_hash: Option<String>,
+    pub actual_hash: Option<String>,
+}
+
 pub struct InsertBuildStepOutput {
     pub build_id: BuildID,
     pub step_nr: i32,
     pub name: String,
     pub path: Option<String>,
+
+    pub expected_hash: Option<String>,
+    pub actual_hash: Option<String>,
 }
 
 pub struct UpdateBuildStep {
@@ -216,7 +254,7 @@ pub struct MarkBuildSuccessData<'a> {
     pub closure_size: u64,
     pub size: u64,
     pub release_name: Option<&'a str>,
-    pub outputs: HashMap<String, String>,
+    pub outputs: Vec<Output>,
     pub products: Vec<BuildProduct<'a>>,
     pub metrics: HashMap<&'a str, BuildMetric<'a>>,
 }

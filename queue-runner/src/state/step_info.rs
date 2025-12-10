@@ -6,6 +6,7 @@ use nix_utils::BaseStore as _;
 
 use super::Step;
 
+#[derive(Debug)]
 pub struct StepInfo {
     pub step: Arc<Step>,
     pub resolved_drv_path: Option<nix_utils::StorePath>,
@@ -19,6 +20,18 @@ impl StepInfo {
     pub async fn new(store: &nix_utils::LocalStore, step: Arc<Step>) -> Self {
         Self {
             resolved_drv_path: store.try_resolve_drv(step.get_drv_path()).await,
+            already_scheduled: false.into(),
+            cancelled: false.into(),
+            runnable_since: step.get_runnable_since(),
+            lowest_share_used: step.get_lowest_share_used().into(),
+            step,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn dummy(step: Arc<Step>) -> Self {
+        Self {
+            resolved_drv_path: None,
             already_scheduled: false.into(),
             cancelled: false.into(),
             runnable_since: step.get_runnable_since(),

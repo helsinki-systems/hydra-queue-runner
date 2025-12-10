@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n              id, buildStatus, releaseName, closureSize, size\n            FROM builds b\n            JOIN buildoutputs o on b.id = o.build\n            WHERE finished = 1 and (buildStatus = 0 or buildStatus = 6) and path = $1;",
+  "query": "\n            SELECT id, buildStatus, releaseName, closureSize, size\n            FROM builds b\n            JOIN buildoutputs o on b.id = o.build\n            WHERE\n              finished = 1 AND\n              (buildStatus = 0 OR buildStatus = 6) AND\n              path = $1 AND\n              fodCheck = false;",
   "describe": {
     "columns": [
       {
@@ -42,5 +42,5 @@
       true
     ]
   },
-  "hash": "e418dcd190f68642391dc8793fc30ad500dc5d513fce55a901e1d4a400323cc8"
+  "hash": "591a44711a77c8985bc8046dadd29eae2d15b8c324d0f86207fc27774e4dedd0"
 }

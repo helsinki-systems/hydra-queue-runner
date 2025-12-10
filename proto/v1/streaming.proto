@@ -19,6 +19,8 @@ service RunnerService {
   rpc StreamFiles(StorePaths) returns (stream NarData) {}
   rpc RequestPresignedUrl(PresignedUrlRequest) returns (PresignedUrlResponse) {}
   rpc NotifyPresignedUploadComplete(PresignedUploadComplete) returns (Empty) {}
+
+  rpc UploadRealisation(Realisation) returns (Empty) {}
 }
 
 message Empty {}
@@ -105,16 +107,19 @@ message RunnerRequest {
     SimplePingMessage ping = 3;
     BuildMessage build = 4;
     AbortMessage abort = 5;
+    RebuildFodMessage fod = 6;
   }
 }
 
 message JoinResponse {
   string machine_id = 1; // UUIDv4
   uint32 max_concurrent_downloads = 2;
+  bool fod_checker_upload_realisations = 3;
 }
 
 message ConfigUpdate {
   uint32 max_concurrent_downloads = 1;
+  bool fod_checker_upload_realisations = 2;
 }
 
 message PresignedUploadOpts {
@@ -133,12 +138,22 @@ message BuildMessage {
   // bool enforce_determinism = 6;
 }
 
-message DrvRequisitesMessage {
-  repeated string requisites = 1;
-}
-
 message AbortMessage {
   string build_id = 1; // UUIDv4
+}
+
+message RebuildFodMessage {
+  string build_id = 1; // UUIDv4
+  string drv = 2;
+  optional string resolved_drv = 3;
+  uint64 max_log_size = 4;
+  int32 max_silent_time = 5;
+  int32 build_timeout = 6;
+  optional PresignedUploadOpts presigned_url_opts = 7; // None if presigned url upload is disabled
+}
+
+message DrvRequisitesMessage {
+  repeated string requisites = 1;
 }
 
 message LogChunk {
@@ -238,6 +253,13 @@ enum BuildResultState {
   ImportFailure = 3;
   UploadFailure = 4;
   PostProcessingFailure = 5;
+  HashMismatch = 6;
+}
+
+message FodOutput {
+  string expected_hash = 1;
+  optional string actual_hash = 2;
+  string output = 3;
 }
 
 message BuildResultInfo {
@@ -249,6 +271,7 @@ message BuildResultInfo {
   BuildResultState result_state = 6;
   NixSupport nix_support = 7;
   repeated Output outputs = 8;
+  optional FodOutput fod_output = 9;
 }
 
 message PresignedNarRequest {
@@ -295,4 +318,10 @@ message PresignedUploadComplete {
   repeated string references = 10;
   optional string deriver = 11;
   optional string ca = 12;
+}
+
+message Realisation {
+  string build_id = 1; // UUIDv4
+  string machine_id = 2; // UUIDv4
+  string serialized_realiation = 3;
 }
