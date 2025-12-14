@@ -57,6 +57,11 @@ rust::String get_store_dir() {
   init_nix();
   return nix::settings.nixStore;
 }
+rust::String get_build_dir() {
+  return nix::settings.buildDir.get().has_value()
+             ? *nix::settings.buildDir.get()
+             : nix::settings.nixStateDir + "/builds";
+}
 rust::String get_log_dir() { return nix::settings.nixLogDir; }
 rust::String get_state_dir() { return nix::settings.nixStateDir; }
 rust::String get_nix_version() { return nix::nixVersion; }

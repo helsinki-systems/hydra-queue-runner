@@ -76,7 +76,7 @@ pub struct Config {
     pub ping_interval: u64,
     pub speed_factor: f32,
     pub max_jobs: u32,
-    pub tmp_avail_threshold: f32,
+    pub build_dir_avail_threshold: f32,
     pub store_avail_threshold: f32,
     pub load1_threshold: f32,
     pub cpu_psi_threshold: f32,
@@ -156,7 +156,7 @@ impl State {
                 ping_interval: cli.ping_interval,
                 speed_factor: cli.speed_factor,
                 max_jobs: cli.max_jobs,
-                tmp_avail_threshold: cli.tmp_avail_threshold,
+                build_dir_avail_threshold: cli.build_dir_avail_threshold,
                 store_avail_threshold: cli.store_avail_threshold,
                 load1_threshold: cli.load1_threshold,
                 cpu_psi_threshold: cli.cpu_psi_threshold,
@@ -212,7 +212,7 @@ impl State {
             bogomips: sys.bogomips,
             speed_factor: self.config.speed_factor,
             max_jobs: self.config.max_jobs,
-            tmp_avail_threshold: self.config.tmp_avail_threshold,
+            build_dir_avail_threshold: self.config.build_dir_avail_threshold,
             store_avail_threshold: self.config.store_avail_threshold,
             load1_threshold: self.config.load1_threshold,
             cpu_psi_threshold: self.config.cpu_psi_threshold,
@@ -230,7 +230,7 @@ impl State {
 
     #[tracing::instrument(skip(self), err)]
     pub fn get_ping_message(&self) -> anyhow::Result<PingMessage> {
-        let sysinfo = crate::system::SystemLoad::new()?;
+        let sysinfo = crate::system::SystemLoad::new(&nix_utils::get_build_dir())?;
 
         Ok(PingMessage {
             machine_id: self.id.to_string(),
@@ -246,7 +246,7 @@ impl State {
                 io_full: p.io_full.map(Into::into),
                 irq_full: p.irq_full.map(Into::into),
             }),
-            tmp_free_percent: sysinfo.tmp_free_percent,
+            build_dir_free_percent: sysinfo.build_dir_free_percent,
             store_free_percent: sysinfo.store_free_percent,
             current_substituting_path_count: self.metrics.get_substituting_path_count(),
             current_uploading_path_count: self.metrics.get_uploading_path_count(),

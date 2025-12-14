@@ -62,7 +62,7 @@ pub struct Stats {
     load15: atomic_float::AtomicF32,
     mem_usage: std::sync::atomic::AtomicU64,
     pub pressure: arc_swap::ArcSwapOption<PressureState>,
-    tmp_free_percent: atomic_float::AtomicF64,
+    build_dir_free_percent: atomic_float::AtomicF64,
     store_free_percent: atomic_float::AtomicF64,
     current_uploading_path_count: std::sync::atomic::AtomicU64,
     current_downloading_count: std::sync::atomic::AtomicU64,
@@ -102,7 +102,7 @@ impl Stats {
             mem_usage: 0.into(),
 
             pressure: arc_swap::ArcSwapOption::from(None),
-            tmp_free_percent: 0.0.into(),
+            build_dir_free_percent: 0.0.into(),
             store_free_percent: 0.0.into(),
             current_uploading_path_count: 0.into(),
             current_downloading_count: 0.into(),
@@ -242,8 +242,8 @@ impl Stats {
             })));
         }
 
-        self.tmp_free_percent
-            .store(msg.tmp_free_percent, Ordering::Relaxed);
+        self.build_dir_free_percent
+            .store(msg.build_dir_free_percent, Ordering::Relaxed);
         self.store_free_percent
             .store(msg.store_free_percent, Ordering::Relaxed);
 
@@ -269,8 +269,8 @@ impl Stats {
         self.mem_usage.load(Ordering::Relaxed)
     }
 
-    pub fn get_tmp_free_percent(&self) -> f64 {
-        self.tmp_free_percent.load(Ordering::Relaxed)
+    pub fn get_build_dir_free_percent(&self) -> f64 {
+        self.build_dir_free_percent.load(Ordering::Relaxed)
     }
 
     pub fn get_store_free_percent(&self) -> f64 {
@@ -595,7 +595,7 @@ pub struct Machine {
     pub bogomips: f32,
     pub speed_factor: f32,
     pub max_jobs: u32,
-    pub tmp_avail_threshold: f64,
+    pub build_dir_avail_threshold: f64,
     pub store_avail_threshold: f64,
     pub load1_threshold: f32,
     pub cpu_psi_threshold: f32,
@@ -668,7 +668,7 @@ impl Machine {
             bogomips: msg.bogomips,
             speed_factor: msg.speed_factor,
             max_jobs: msg.max_jobs,
-            tmp_avail_threshold: msg.tmp_avail_threshold.into(),
+            build_dir_avail_threshold: msg.build_dir_avail_threshold.into(),
             store_avail_threshold: msg.store_avail_threshold.into(),
             load1_threshold: msg.load1_threshold,
             cpu_psi_threshold: msg.cpu_psi_threshold,
@@ -797,7 +797,7 @@ impl Machine {
                 .store(0, Ordering::Relaxed);
         }
 
-        if self.stats.get_tmp_free_percent() < self.tmp_avail_threshold {
+        if self.stats.get_build_dir_free_percent() < self.build_dir_avail_threshold {
             return false;
         }
 

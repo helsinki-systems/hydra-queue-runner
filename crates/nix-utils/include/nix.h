@@ -22,6 +22,7 @@ std::shared_ptr<StoreWrapper> init(rust::Str uri);
 
 rust::String get_nix_prefix();
 rust::String get_store_dir();
+rust::String get_build_dir();
 rust::String get_log_dir();
 rust::String get_state_dir();
 rust::String get_nix_version();

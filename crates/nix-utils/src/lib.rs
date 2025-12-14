@@ -121,6 +121,7 @@ mod ffi {
 
         fn get_nix_prefix() -> String;
         fn get_store_dir() -> String;
+        fn get_build_dir() -> String;
         fn get_log_dir() -> String;
         fn get_state_dir() -> String;
         fn get_nix_version() -> String;
@@ -250,6 +251,12 @@ pub fn get_nix_prefix() -> String {
 #[must_use]
 pub fn get_store_dir() -> String {
     ffi::get_store_dir()
+}
+
+#[inline]
+#[must_use]
+pub fn get_build_dir() -> String {
+    ffi::get_build_dir()
 }
 
 #[inline]

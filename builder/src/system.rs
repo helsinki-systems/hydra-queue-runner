@@ -165,7 +165,7 @@ pub struct SystemLoad {
     pub mem_usage: u64,
     pub pressure: Option<PressureState>,
 
-    pub tmp_free_percent: f64,
+    pub build_dir_free_percent: f64,
     pub store_free_percent: f64,
 }
 
@@ -182,7 +182,7 @@ pub fn get_mount_free_percent(dest: &str) -> anyhow::Result<f64> {
 impl SystemLoad {
     #[cfg(target_os = "linux")]
     #[tracing::instrument(err)]
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new(build_dir: &str) -> anyhow::Result<Self> {
         let meminfo = procfs_core::Meminfo::from_file("/proc/meminfo")?;
         let load = procfs_core::LoadAverage::from_file("/proc/loadavg")?;
 
@@ -195,14 +195,14 @@ impl SystemLoad {
             load_avg_15: load.fifteen,
             mem_usage: meminfo.mem_total - meminfo.mem_available.unwrap_or(0),
             pressure: PressureState::new(),
-            tmp_free_percent: get_mount_free_percent("/tmp").unwrap_or(0.),
+            build_dir_free_percent: get_mount_free_percent(build_dir).unwrap_or(0.),
             store_free_percent: get_mount_free_percent(&nix_store_dir).unwrap_or(0.),
         })
     }
 
     #[cfg(target_os = "macos")]
     #[tracing::instrument(err)]
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new(build_dir: &str) -> anyhow::Result<Self> {
         let mut sys = sysinfo::System::new_all();
         sys.refresh_memory();
         let load = sysinfo::System::load_average();
@@ -216,7 +216,7 @@ impl SystemLoad {
             load_avg_15: load.fifteen as f32,
             mem_usage: sys.used_memory(),
             pressure: None,
-            tmp_free_percent: get_mount_free_percent("/tmp").unwrap_or(0.),
+            build_dir_free_percent: get_mount_free_percent(build_dir).unwrap_or(0.),
             store_free_percent: get_mount_free_percent(&nix_store_dir).unwrap_or(0.),
         })
     }

@@ -24,11 +24,11 @@ pub struct Cli {
     #[clap(long, default_value_t = 4)]
     pub max_jobs: u32,
 
-    /// /tmp avail percentage Threshold
+    /// build dir available storage percentage Threshold
     #[clap(long, default_value_t = 10.)]
-    pub tmp_avail_threshold: f32,
+    pub build_dir_avail_threshold: f32,
 
-    /// prefix/store avail percentage Threshold
+    /// prefix/store available storage percentage Threshold
     #[clap(long, default_value_t = 10.)]
     pub store_avail_threshold: f32,
 

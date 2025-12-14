@@ -49,7 +49,7 @@ message JoinMessage {
   float bogomips = 5;
   float speed_factor = 6;
   uint32 max_jobs = 7;
-  float tmp_avail_threshold = 8;
+  float build_dir_avail_threshold = 8;
   float store_avail_threshold = 9;
   float load1_threshold = 10;
   float cpu_psi_threshold = 11;
@@ -87,7 +87,7 @@ message PingMessage {
   float load15 = 4;
   uint64 mem_usage = 5;
   optional PressureState pressure = 6;
-  double tmp_free_percent = 7;
+  double build_dir_free_percent = 7;
   double store_free_percent = 8;
   uint64 current_substituting_path_count = 9;
   uint64 current_uploading_path_count = 10;
