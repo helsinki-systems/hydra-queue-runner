@@ -80,21 +80,22 @@ trait FsOperations {
     ) -> impl std::future::Future<Output = tokio::io::Result<String>>;
 }
 
+#[derive(Debug, Clone)]
 struct FilesystemOperations {
-    nix_store_dir: String,
+    nix_store_dir: std::sync::Arc<String>,
 }
 
 impl FilesystemOperations {
     fn new() -> Self {
         Self {
-            nix_store_dir: nix_utils::get_store_dir(),
+            nix_store_dir: std::sync::Arc::new(nix_utils::get_store_dir()),
         }
     }
 }
 
 impl FsOperations for FilesystemOperations {
     fn is_inside_store(&self, path: &std::path::Path) -> bool {
-        nix_utils::is_subpath(std::path::Path::new(&self.nix_store_dir), path)
+        nix_utils::is_subpath(std::path::Path::new(self.nix_store_dir.as_str()), path)
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -163,12 +164,15 @@ fn parse_metric(
     })
 }
 
-async fn parse_build_product(
+async fn parse_build_product<Op>(
     store: &nix_utils::LocalStore,
-    handle: &impl FsOperations,
+    handle: Op,
     output: &StorePath,
     line: &str,
-) -> Option<BuildProduct> {
+) -> Option<BuildProduct>
+where
+    Op: FsOperations + Send + Sync + 'static,
+{
     let captures = BUILD_PRODUCT_PARSER.captures(line)?;
 
     let s = captures[3].to_string();
@@ -277,7 +281,7 @@ pub async fn parse_nix_support_from_outputs(
         if let Ok(v) = fs_err::tokio::read_to_string(file_path).await
             && let Some(v) = parse_release_name(&v)
         {
-            hydra_release_name = Some(v.clone());
+            hydra_release_name = Some(v);
             break;
         }
     }
@@ -298,7 +302,8 @@ pub async fn parse_nix_support_from_outputs(
         let mut lines = reader.lines();
         let fsop = FilesystemOperations::new();
         while let Some(line) = lines.next_line().await? {
-            if let Some(o) = Box::pin(parse_build_product(store, &fsop, output, &line)).await {
+            if let Some(o) = Box::pin(parse_build_product(store, fsop.clone(), output, &line)).await
+            {
                 products.push(o);
             }
         }
@@ -346,6 +351,7 @@ mod tests {
 
     use super::*;
 
+    #[derive(Debug, Clone)]
     struct DummyFsOperations {
         valid_file: bool,
         metadata: FileMetadata,
@@ -385,7 +391,7 @@ mod tests {
             },
             file_hash: "4306152c73d2a7a01dbac16ba48f45fa4ae5b746a1d282638524ae2ae93af210".into(),
         };
-        let build_product = parse_build_product(&store, &fsop, &output, &line)
+        let build_product = parse_build_product(&store, fsop, &output, &line)
             .await
             .unwrap();
         assert!(build_product.is_regular);

@@ -50,7 +50,7 @@ pub struct Pressure {
 
 #[cfg(target_os = "linux")]
 impl Pressure {
-    fn new(record: &procfs_core::PressureRecord) -> Self {
+    const fn new(record: &procfs_core::PressureRecord) -> Self {
         Self {
             avg10: record.avg10,
             avg60: record.avg60,
@@ -187,7 +187,8 @@ impl SystemLoad {
         let load = procfs_core::LoadAverage::from_file("/proc/loadavg")?;
 
         // TODO: prefix
-        let nix_store_dir = std::env::var("NIX_STORE_DIR").unwrap_or("/nix/store".to_owned());
+        let nix_store_dir =
+            std::env::var("NIX_STORE_DIR").unwrap_or_else(|_| "/nix/store".to_owned());
 
         Ok(Self {
             load_avg_1: load.one,

@@ -9,21 +9,21 @@ use nix_utils::BaseStore as _;
 use crate::CacheError;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct DebugInfoLink {
+pub struct DebugInfoLink {
     pub(crate) archive: String,
     pub(crate) member: String,
 }
 
 /// Processes debug info for a given store path using a custom full path.
 /// This is useful for testing with custom store prefixes.
-pub(crate) async fn process_debug_info<C>(
+pub async fn process_debug_info<C>(
     nar_url: &str,
     store: &nix_utils::LocalStore,
     store_path: &nix_utils::StorePath,
-    client: &C,
+    client: C,
 ) -> Result<(), CacheError>
 where
-    C: DebugInfoClient,
+    C: DebugInfoClient + Clone + Send + Sync + 'static,
 {
     use futures::stream::StreamExt as _;
 
@@ -36,16 +36,17 @@ where
     }
 
     let debug_files = find_debug_files(&build_id_path).await?;
-    let stream = tokio_stream::iter(debug_files)
-        .map(|(build_id, debug_path)| async move {
-            client
-                .create_debug_info_link(nar_url, &build_id, &debug_path)
-                .await
+    let mut stream = tokio_stream::iter(debug_files)
+        .map(|(build_id, debug_path)| {
+            let client = client.clone();
+            async move {
+                client
+                    .create_debug_info_link(nar_url, build_id, debug_path)
+                    .await
+            }
         })
         .buffered(25);
-
-    let results: Vec<Result<(), CacheError>> = stream.collect().await;
-    for result in results {
+    while let Some(result) = tokio_stream::StreamExt::next(&mut stream).await {
         result?;
     }
     Ok(())
@@ -117,12 +118,12 @@ async fn find_debug_files(
     Ok(debug_files)
 }
 
-pub(crate) trait DebugInfoClient {
+pub trait DebugInfoClient {
     async fn create_debug_info_link(
         &self,
         nar_url: &str,
-        build_id: &str,
-        debug_path: &str,
+        build_id: String,
+        debug_path: String,
     ) -> Result<(), CacheError>;
 }
 
@@ -132,14 +133,15 @@ mod tests {
 
     use super::*;
 
+    #[derive(Debug, Clone)]
     struct MockClient {
-        created_links: std::sync::Mutex<Vec<DebugInfoLink>>,
+        created_links: std::sync::Arc<std::sync::Mutex<Vec<DebugInfoLink>>>,
     }
 
     impl MockClient {
         fn new() -> Self {
             Self {
-                created_links: std::sync::Mutex::new(Vec::new()),
+                created_links: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             }
         }
 
@@ -152,12 +154,12 @@ mod tests {
         async fn create_debug_info_link(
             &self,
             nar_url: &str,
-            _build_id: &str,
-            debug_path: &str,
+            _build_id: String,
+            debug_path: String,
         ) -> Result<(), CacheError> {
             let link = DebugInfoLink {
                 archive: format!("../{nar_url}"),
-                member: debug_path.to_string(),
+                member: debug_path,
             };
 
             self.created_links.lock().unwrap().push(link);
@@ -236,7 +238,7 @@ mod tests {
         let mut local = nix_utils::LocalStore::init();
         local.unsafe_set_store_path_prefix(store_prefix.as_path().to_string_lossy().to_string());
 
-        process_debug_info("test.nar", &local, &store_path, &mock_client)
+        process_debug_info("test.nar", &local, &store_path, mock_client.clone())
             .await
             .unwrap();
 
@@ -378,7 +380,7 @@ mod tests {
         let mut local = nix_utils::LocalStore::init();
         local.unsafe_set_store_path_prefix(store_prefix.as_path().to_string_lossy().to_string());
 
-        process_debug_info("test.nar", &local, &store_path, &mock_client)
+        process_debug_info("test.nar", &local, &store_path, mock_client.clone())
             .await
             .unwrap();
 
@@ -405,7 +407,7 @@ mod tests {
         let mut local = nix_utils::LocalStore::init();
         local.unsafe_set_store_path_prefix(store_prefix.as_path().to_string_lossy().to_string());
 
-        process_debug_info("test.nar", &local, &store_path, &mock_client)
+        process_debug_info("test.nar", &local, &store_path, mock_client.clone())
             .await
             .unwrap();
 
@@ -446,7 +448,7 @@ mod tests {
         let mut local = nix_utils::LocalStore::init();
         local.unsafe_set_store_path_prefix(store_prefix.as_path().to_string_lossy().to_string());
 
-        process_debug_info("multi.nar", &local, &store_path, &mock_client)
+        process_debug_info("multi.nar", &local, &store_path, mock_client.clone())
             .await
             .unwrap();
 

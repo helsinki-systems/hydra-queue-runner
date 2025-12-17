@@ -18,9 +18,9 @@ impl std::str::FromStr for BindSocket {
             .map(BindSocket::Tcp)
             .or_else(|_| {
                 if s == "-" {
-                    Ok(BindSocket::ListenFd)
+                    Ok(Self::ListenFd)
                 } else {
-                    Ok(BindSocket::Unix(s.into()))
+                    Ok(Self::Unix(s.into()))
                 }
             })
     }
@@ -71,14 +71,14 @@ impl Cli {
     }
 
     #[must_use]
-    pub fn mtls_enabled(&self) -> bool {
+    pub const fn mtls_enabled(&self) -> bool {
         self.server_cert_path.is_some()
             && self.server_key_path.is_some()
             && self.client_ca_cert_path.is_some()
     }
 
     #[must_use]
-    pub fn mtls_configured_correctly(&self) -> bool {
+    pub const fn mtls_configured_correctly(&self) -> bool {
         self.mtls_enabled()
             || (self.server_cert_path.is_none()
                 && self.server_key_path.is_none()
@@ -92,16 +92,16 @@ impl Cli {
         let server_cert_path = self
             .server_cert_path
             .as_deref()
-            .ok_or(anyhow::anyhow!("server_cert_path not provided"))?;
+            .ok_or_else(|| anyhow::anyhow!("server_cert_path not provided"))?;
         let server_key_path = self
             .server_key_path
             .as_deref()
-            .ok_or(anyhow::anyhow!("server_key_path not provided"))?;
+            .ok_or_else(|| anyhow::anyhow!("server_key_path not provided"))?;
 
         let client_ca_cert_path = self
             .client_ca_cert_path
             .as_deref()
-            .ok_or(anyhow::anyhow!("client_ca_cert_path not provided"))?;
+            .ok_or_else(|| anyhow::anyhow!("client_ca_cert_path not provided"))?;
         let client_ca_cert = fs_err::tokio::read_to_string(client_ca_cert_path).await?;
         let client_ca_cert = tonic::transport::Certificate::from_pem(client_ca_cert);
 
@@ -120,47 +120,47 @@ fn default_pg_socket_url() -> secrecy::SecretString {
     "postgres://hydra@%2Frun%2Fpostgresql:5432/hydra".into()
 }
 
-fn default_max_db_connections() -> u32 {
+const fn default_max_db_connections() -> u32 {
     128
 }
 
-fn default_dispatch_trigger_timer_in_s() -> i64 {
+const fn default_dispatch_trigger_timer_in_s() -> i64 {
     120
 }
 
-fn default_queue_trigger_timer_in_s() -> i64 {
+const fn default_queue_trigger_timer_in_s() -> i64 {
     -1
 }
 
-fn default_max_tries() -> u32 {
+const fn default_max_tries() -> u32 {
     5
 }
 
-fn default_retry_interval() -> u32 {
+const fn default_retry_interval() -> u32 {
     60
 }
 
-fn default_retry_backoff() -> f32 {
+const fn default_retry_backoff() -> f32 {
     3.0
 }
 
-fn default_max_unsupported_time_in_s() -> i64 {
+const fn default_max_unsupported_time_in_s() -> i64 {
     120
 }
 
-fn default_stop_queue_run_after_in_s() -> i64 {
+const fn default_stop_queue_run_after_in_s() -> i64 {
     60
 }
 
-fn default_max_concurrent_downloads() -> u32 {
+const fn default_max_concurrent_downloads() -> u32 {
     5
 }
 
-fn default_concurrent_upload_limit() -> usize {
+const fn default_concurrent_upload_limit() -> usize {
     5
 }
 
-fn default_enable_fod_checker() -> bool {
+const fn default_enable_fod_checker() -> bool {
     false
 }
 
@@ -305,26 +305,27 @@ impl TryFrom<AppConfig> for PreparedApp {
             .collect();
 
         let logname = std::env::var("LOGNAME").context("LOGNAME env var missing")?;
-        let nix_state_dir = std::env::var("NIX_STATE_DIR").unwrap_or("/nix/var/nix/".to_owned());
-        let roots_dir = if let Some(roots_dir) = val.roots_dir {
-            roots_dir
-        } else {
-            std::path::PathBuf::from(nix_state_dir)
-                .join("gcroots/per-user")
-                .join(logname)
-                .join("hydra-roots")
-        };
+        let nix_state_dir =
+            std::env::var("NIX_STATE_DIR").unwrap_or_else(|_| "/nix/var/nix/".to_owned());
+        let roots_dir = val.roots_dir.map_or_else(
+            || {
+                std::path::PathBuf::from(nix_state_dir)
+                    .join("gcroots/per-user")
+                    .join(logname)
+                    .join("hydra-roots")
+            },
+            |roots_dir| roots_dir,
+        );
         fs_err::create_dir_all(&roots_dir)?;
 
         let hydra_log_dir = val.hydra_data_dir.join("build-logs");
         let lockfile = val.hydra_data_dir.join("queue-runner/lock");
-        let token_list = if let Some(p) = val.token_list_path {
+
+        let token_list = val.token_list_path.and_then(|p| {
             fs_err::read_to_string(p)
                 .map(|s| s.lines().map(|t| t.trim().to_string()).collect())
                 .ok()
-        } else {
-            None
-        };
+        });
 
         Ok(Self {
             hydra_data_dir: val.hydra_data_dir,

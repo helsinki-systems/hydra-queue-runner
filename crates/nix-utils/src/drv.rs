@@ -38,7 +38,7 @@ pub struct DerivationEnv {
 
 impl DerivationEnv {
     #[must_use]
-    pub fn new(v: HashMap<String, String>) -> Self {
+    pub const fn new(v: HashMap<String, String>) -> Self {
         Self { inner: v }
     }
 

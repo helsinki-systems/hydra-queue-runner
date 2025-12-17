@@ -22,7 +22,7 @@ pub enum BuildStatus {
 
 impl BuildStatus {
     #[must_use]
-    pub fn from_i32(v: i32) -> Option<Self> {
+    pub const fn from_i32(v: i32) -> Option<Self> {
         match v {
             0 => Some(Self::Success),
             1 => Some(Self::Failed),

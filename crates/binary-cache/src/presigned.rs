@@ -43,7 +43,7 @@ impl PresignedUpload {
     }
 
     #[must_use]
-    pub fn get_compression_level_as_i32(&self) -> i32 {
+    pub const fn get_compression_level_as_i32(&self) -> i32 {
         match self.compression_level {
             async_compression::Level::Fastest => 1,
             async_compression::Level::Precise(n) => n,
@@ -123,14 +123,14 @@ impl PresignedUploadClient {
 
         if !req.debug_info_upload.is_empty() {
             let debug_info_client = PresignedDebugInfoUpload {
-                client: self,
-                debug_info_urls: req.debug_info_upload,
+                client: self.clone(),
+                debug_info_urls: std::sync::Arc::new(req.debug_info_upload),
             };
             crate::debug_info::process_debug_info(
                 &narinfo.url,
                 store,
                 &narinfo.store_path,
-                &debug_info_client,
+                debug_info_client.clone(),
             )
             .await?;
         }
@@ -286,15 +286,15 @@ impl PresignedUploadClient {
 
         let (file_hash, file_size) = reader.finalize()?;
 
-        let file_hash = if let Ok(converted_hash) = nix_utils::convert_hash(
+        let file_hash = nix_utils::convert_hash(
             &format!("{file_hash:x}"),
             Some(nix_utils::HashAlgorithm::SHA256),
             nix_utils::HashFormat::Nix32,
-        ) {
-            format!("sha256:{converted_hash}")
-        } else {
-            format!("sha256:{file_hash:x}")
-        };
+        )
+        .map_or_else(
+            |_| format!("sha256:{file_hash:x}"),
+            |converted_hash| format!("sha256:{converted_hash}"),
+        );
 
         // Update metrics
         self.metrics
@@ -318,12 +318,13 @@ impl Default for PresignedUploadClient {
     }
 }
 
-struct PresignedDebugInfoUpload<'a> {
-    client: &'a PresignedUploadClient,
-    debug_info_urls: Vec<PresignedUpload>,
+#[derive(Debug, Clone)]
+struct PresignedDebugInfoUpload {
+    client: PresignedUploadClient,
+    debug_info_urls: std::sync::Arc<Vec<PresignedUpload>>,
 }
 
-impl crate::debug_info::DebugInfoClient for PresignedDebugInfoUpload<'_> {
+impl crate::debug_info::DebugInfoClient for PresignedDebugInfoUpload {
     /// Creates debug info links for build IDs found in NAR files.
     ///
     /// This function processes debug information from NIX store paths that contain
@@ -346,8 +347,8 @@ impl crate::debug_info::DebugInfoClient for PresignedDebugInfoUpload<'_> {
     async fn create_debug_info_link(
         &self,
         nar_url: &str,
-        build_id: &str,
-        debug_path: &str,
+        build_id: String,
+        debug_path: String,
     ) -> Result<(), CacheError> {
         let key = format!("debuginfo/{build_id}");
         let upload = self
@@ -361,7 +362,7 @@ impl crate::debug_info::DebugInfoClient for PresignedDebugInfoUpload<'_> {
 
         let json_content = crate::debug_info::DebugInfoLink {
             archive: format!("../{nar_url}"),
-            member: debug_path.to_string(),
+            member: debug_path,
         };
 
         tracing::debug!("Creating debuginfo link from '{}' to '{}'", key, nar_url);

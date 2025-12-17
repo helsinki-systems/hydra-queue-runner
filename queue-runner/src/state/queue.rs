@@ -99,26 +99,29 @@ impl BuildQueue {
     #[tracing::instrument(skip(self))]
     pub fn sort_jobs(&self, sort_fn: StepSortFn) -> u64 {
         let start_time = std::time::Instant::now();
-        let mut current_jobs = self.jobs.write();
-        for job in current_jobs.iter_mut() {
-            let Some(job) = job.upgrade() else { continue };
-            job.update_internal_stats();
-        }
         let cmp_fn = match sort_fn {
             StepSortFn::Legacy => StepInfo::legacy_compare,
             StepSortFn::WithRdeps => StepInfo::compare_with_rdeps,
         };
 
-        current_jobs.sort_by(|a, b| {
-            let a = a.upgrade();
-            let b = b.upgrade();
-            match (a, b) {
-                (Some(a), Some(b)) => cmp_fn(a.as_ref(), b.as_ref()),
-                (Some(_), None) => std::cmp::Ordering::Greater,
-                (None, Some(_)) => std::cmp::Ordering::Less,
-                (None, None) => std::cmp::Ordering::Equal,
+        {
+            let mut current_jobs = self.jobs.write();
+            for job in current_jobs.iter_mut() {
+                let Some(job) = job.upgrade() else { continue };
+                job.update_internal_stats();
             }
-        });
+
+            current_jobs.sort_by(|a, b| {
+                let a = a.upgrade();
+                let b = b.upgrade();
+                match (a, b) {
+                    (Some(a), Some(b)) => cmp_fn(a.as_ref(), b.as_ref()),
+                    (Some(_), None) => std::cmp::Ordering::Greater,
+                    (None, Some(_)) => std::cmp::Ordering::Less,
+                    (None, None) => std::cmp::Ordering::Equal,
+                }
+            });
+        }
         u64::try_from(start_time.elapsed().as_millis()).unwrap_or_default()
     }
 
@@ -154,7 +157,7 @@ pub struct ScheduledItem {
 }
 
 impl ScheduledItem {
-    fn new(
+    const fn new(
         step_info: Arc<StepInfo>,
         build_queue: Arc<BuildQueue>,
         machine: Arc<super::Machine>,
@@ -231,7 +234,7 @@ impl InnerQueues {
     }
 
     #[tracing::instrument(skip(self))]
-    fn remove_all_weak_pointer(&mut self) {
+    fn remove_all_weak_pointer(&self) {
         for queue in self.inner.values() {
             queue.scrube_jobs();
         }
@@ -248,11 +251,8 @@ impl InnerQueues {
         queue: &Arc<BuildQueue>,
         machine: Arc<super::Machine>,
     ) {
-        let mut scheduled = self.scheduled.write();
-
-        let drv = step.step.get_drv_path();
-        scheduled.insert(
-            drv.to_owned(),
+        self.scheduled.write().insert(
+            step.step.get_drv_path().to_owned(),
             ScheduledItem::new(step.clone(), queue.clone(), machine),
         );
         step.set_already_scheduled(true);
@@ -261,9 +261,7 @@ impl InnerQueues {
 
     #[tracing::instrument(skip(self), fields(%drv))]
     fn remove_job_from_scheduled(&self, drv: &nix_utils::StorePath) -> Option<ScheduledItem> {
-        let mut scheduled = self.scheduled.write();
-
-        let item = scheduled.remove(drv)?;
+        let item = self.scheduled.write().remove(drv)?;
         item.step_info.set_already_scheduled(false);
         item.build_queue.decr_active();
         Some(item)
@@ -365,7 +363,11 @@ pub struct JobConstraint {
 }
 
 impl JobConstraint {
-    pub fn new(job: Arc<StepInfo>, system: System, queue_features: SmallVec<[String; 4]>) -> Self {
+    pub const fn new(
+        job: Arc<StepInfo>,
+        system: System,
+        queue_features: SmallVec<[String; 4]>,
+    ) -> Self {
         Self {
             job,
             system,
@@ -424,15 +426,18 @@ impl Queues {
         sort_fn: StepSortFn,
         metrics: &super::metrics::PromMetrics,
     ) {
-        let mut wq = self.inner.write().await;
-        let sort_duration = wq.insert_new_jobs(system, jobs, now, sort_fn);
+        let sort_duration = self
+            .inner
+            .write()
+            .await
+            .insert_new_jobs(system, jobs, now, sort_fn);
         metrics.queue_sort_duration_ms_total.inc_by(sort_duration);
     }
 
     #[tracing::instrument(skip(self))]
     pub async fn remove_all_weak_pointer(&self) {
-        let mut wq = self.inner.write().await;
-        wq.remove_all_weak_pointer();
+        let rq = self.inner.write().await;
+        rq.remove_all_weak_pointer();
     }
 
     #[tracing::instrument(skip(self))]

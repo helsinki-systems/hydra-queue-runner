@@ -73,7 +73,7 @@ impl StepInfo {
         self.cancelled.load(Ordering::SeqCst)
     }
 
-    pub(super) fn legacy_compare(&self, other: &StepInfo) -> std::cmp::Ordering {
+    pub(super) fn legacy_compare(&self, other: &Self) -> std::cmp::Ordering {
         #[allow(irrefutable_let_patterns)]
         (if let c1 = self
             .get_highest_global_priority()
@@ -99,7 +99,7 @@ impl StepInfo {
         .reverse()
     }
 
-    pub(super) fn compare_with_rdeps(&self, other: &StepInfo) -> std::cmp::Ordering {
+    pub(super) fn compare_with_rdeps(&self, other: &Self) -> std::cmp::Ordering {
         #[allow(irrefutable_let_patterns)]
         (if let c1 = self
             .get_highest_global_priority()

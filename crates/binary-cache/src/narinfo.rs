@@ -40,13 +40,11 @@ impl NarInfo {
         } else {
             path_info.nar_hash
         };
-        let nar_hash_url = if let Some(h) = nar_hash.strip_prefix("sha256:") {
-            h
-        } else {
-            path.hash_part()
-        };
+        let nar_hash_url = nar_hash
+            .strip_prefix("sha256:")
+            .map_or_else(|| path.hash_part(), |h| h);
 
-        let narinfo = NarInfo {
+        let narinfo = Self {
             store_path: path.clone(),
             url: format!("nar/{}.{}", nar_hash_url, compression.ext()),
             compression,
@@ -84,13 +82,11 @@ impl NarInfo {
         } else {
             path_info.nar_hash
         };
-        let nar_hash_url = if let Some(h) = nar_hash.strip_prefix("sha256:") {
-            h
-        } else {
-            path.hash_part()
-        };
+        let nar_hash_url = nar_hash
+            .strip_prefix("sha256:")
+            .map_or_else(|| path.hash_part(), |h| h);
 
-        NarInfo {
+        Self {
             store_path: path.clone(),
             url: format!("nar/{}.{}", nar_hash_url, compression.ext()),
             compression,
@@ -100,7 +96,7 @@ impl NarInfo {
             nar_size: path_info.nar_size,
             references: path_info.refs,
             deriver: path_info.deriver,
-            ca: path_info.ca.clone(),
+            ca: path_info.ca,
             sigs: vec![],
         }
     }
@@ -256,12 +252,10 @@ impl std::str::FromStr for NarInfo {
                 });
             };
             let key = k.trim();
-            let mut val = v;
-
-            if let Some(stripped) = v.strip_prefix(' ') {
-                val = stripped;
-            }
-            let val = val.trim_end();
+            let val = v
+                .strip_prefix(' ')
+                .map_or(v, |stripped| stripped)
+                .trim_end();
 
             match key {
                 "StorePath" => {

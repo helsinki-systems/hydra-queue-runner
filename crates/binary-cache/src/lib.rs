@@ -106,9 +106,11 @@ impl S3Stats {
     #[must_use]
     pub fn cost_dollar_approx(&self) -> f64 {
         #[allow(clippy::cast_precision_loss)]
-        ((self.get as f64 + self.head as f64) / 10000.0 * 0.004
-            + self.put as f64 / 1000.0 * 0.005
-            + self.get_bytes as f64 / (1024.0 * 1024.0 * 1024.0) * 0.09)
+        (self.get_bytes as f64 / (1024.0 * 1024.0 * 1024.0)).mul_add(
+            0.09,
+            ((self.get as f64 + self.head as f64) / 10000.0)
+                .mul_add(0.004, self.put as f64 / 1000.0 * 0.005),
+        )
     }
 }
 
@@ -571,7 +573,8 @@ impl S3BinaryCacheClient {
         }
 
         if self.cfg.write_debug_info {
-            debug_info::process_debug_info(&narinfo.url, store, &narinfo.store_path, self).await?;
+            debug_info::process_debug_info(&narinfo.url, store, &narinfo.store_path, self.clone())
+                .await?;
         }
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Result<Bytes, std::io::Error>>();
@@ -756,10 +759,10 @@ impl S3BinaryCacheClient {
         &self,
         id: &nix_utils::DrvOutput,
     ) -> Result<Option<String>, CacheError> {
-        match self.get_object(&format!("realisations/{id}.doi")).await? {
-            Some(v) => Ok(Some(String::from_utf8_lossy(&v).to_string())),
-            None => Ok(None),
-        }
+        (self.get_object(&format!("realisations/{id}.doi")).await?).map_or_else(
+            || Ok(None),
+            |v| Ok(Some(String::from_utf8_lossy(&v).to_string())),
+        )
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -819,11 +822,9 @@ impl S3BinaryCacheClient {
         nix32_nar_hash: &str,
         debug_info_build_ids: Vec<String>,
     ) -> Result<PresignedUploadResponse, CacheError> {
-        let nar_hash_url = if let Some(h) = nix32_nar_hash.strip_prefix("sha256:") {
-            h
-        } else {
-            path.hash_part()
-        };
+        let nar_hash_url = nix32_nar_hash
+            .strip_prefix("sha256:")
+            .map_or_else(|| path.hash_part(), |h| h);
 
         let nar_url = format!("nar/{}.{}", nar_hash_url, self.cfg.compression.ext());
         let url = self
@@ -963,8 +964,8 @@ impl crate::debug_info::DebugInfoClient for S3BinaryCacheClient {
     async fn create_debug_info_link(
         &self,
         nar_url: &str,
-        build_id: &str,
-        debug_path: &str,
+        build_id: String,
+        debug_path: String,
     ) -> Result<(), CacheError> {
         let key = format!("debuginfo/{build_id}");
 
@@ -975,7 +976,7 @@ impl crate::debug_info::DebugInfoClient for S3BinaryCacheClient {
 
         let json_content = crate::debug_info::DebugInfoLink {
             archive: format!("../{nar_url}"),
-            member: debug_path.to_string(),
+            member: debug_path,
         };
 
         tracing::debug!("Creating debuginfo link from '{}' to '{}'", key, nar_url);

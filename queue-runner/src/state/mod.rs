@@ -263,7 +263,7 @@ impl State {
             let Some(build) = dependents
                 .iter()
                 .find(|b| &b.drv_path == drv)
-                .or(dependents.iter().next())
+                .or_else(|| dependents.iter().next())
             else {
                 // this should never happen, as we checked is_empty above and fallback is just any build
                 return Ok(RealiseStepResult::MaybeCancelled);
@@ -296,7 +296,7 @@ impl State {
         self.construct_log_file_path(drv)
             .await?
             .to_str()
-            .ok_or(anyhow::anyhow!("failed to construct log path string."))?
+            .ok_or_else(|| anyhow::anyhow!("failed to construct log path string."))?
             .clone_into(&mut job.result.log_file);
         let step_nr = {
             let mut db = self.db.get().await?;
@@ -406,12 +406,8 @@ impl State {
 
         let starttime = jiff::Timestamp::now();
         for id in new_ids {
-            let build = {
-                let new_builds_by_id = new_builds_by_id.read();
-                let Some(build) = new_builds_by_id.get(&id).cloned() else {
-                    continue;
-                };
-                build
+            let Some(build) = new_builds_by_id.read().get(&id).cloned() else {
+                continue;
             };
 
             let new_runnable = Arc::new(parking_lot::RwLock::new(HashSet::<Arc<Step>>::new()));
@@ -510,7 +506,7 @@ impl State {
         let mut db = self.db.get().await?;
         let drv = nix_utils::query_drv(&self.store, drv_path)
             .await?
-            .ok_or(anyhow::anyhow!("drv not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("drv not found"))?;
         db.insert_debug_build(
             jobset_id,
             &self.store.print_store_path(drv_path),
@@ -704,7 +700,7 @@ impl State {
     }
 
     #[tracing::instrument(skip(self), err)]
-    async fn dump_status_loop(self: Arc<State>) -> anyhow::Result<()> {
+    async fn dump_status_loop(self: Arc<Self>) -> anyhow::Result<()> {
         let mut listener = self.db.listener(vec!["dump_status"]).await?;
 
         let state = self.clone();
@@ -904,15 +900,13 @@ impl State {
         machine_id: uuid::Uuid,
         step_status: db::models::StepStatus,
     ) -> anyhow::Result<()> {
-        let build_id_and_step_nr = if let Some(m) = self.machines.get_machine_by_id(machine_id) {
+        let build_id_and_step_nr = self.machines.get_machine_by_id(machine_id).and_then(|m| {
             tracing::debug!(
                 "get job from machine by build_id: build_id={build_id} m={}",
                 m.id
             );
             m.get_build_id_and_step_nr_by_uuid(build_id)
-        } else {
-            None
-        };
+        });
 
         let Some((build_id, step_nr)) = build_id_and_step_nr else {
             tracing::warn!(
@@ -945,17 +939,17 @@ impl State {
             .queues
             .remove_job_from_scheduled(drv_path)
             .await
-            .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?;
+            .ok_or_else(|| anyhow::anyhow!("Step is missing in queues.scheduled"))?;
 
         item.step_info.step.set_finished(true);
         tracing::debug!(
             "removing job from machine: drv_path={drv_path} m={}",
             item.machine.id
         );
-        let mut job = item.machine.remove_job(drv_path).ok_or(anyhow::anyhow!(
-            "Job is missing in machine.jobs m={}",
-            item.machine,
-        ))?;
+        let mut job = item
+            .machine
+            .remove_job(drv_path)
+            .ok_or_else(|| anyhow::anyhow!("Job is missing in machine.jobs m={}", item.machine,))?;
         self.queues
             .remove_job(&item.step_info, &item.build_queue)
             .await;
@@ -1079,7 +1073,7 @@ impl State {
             .queues
             .remove_job_from_scheduled(drv_path)
             .await
-            .ok_or(anyhow::anyhow!("Step is missing in queues.scheduled"))?;
+            .ok_or_else(|| anyhow::anyhow!("Step is missing in queues.scheduled"))?;
 
         item.step_info.step.set_finished(false);
 
@@ -1087,10 +1081,10 @@ impl State {
             "removing job from machine: drv_path={drv_path} m={}",
             item.machine.id
         );
-        let mut job = item.machine.remove_job(drv_path).ok_or(anyhow::anyhow!(
-            "Job is missing in machine.jobs m={}",
-            item.machine
-        ))?;
+        let mut job = item
+            .machine
+            .remove_job(drv_path)
+            .ok_or_else(|| anyhow::anyhow!("Job is missing in machine.jobs m={}", item.machine))?;
 
         job.result.step_status = BuildStatus::Failed;
         // this can override step_status to something more specific
@@ -1170,10 +1164,10 @@ impl State {
         let machine = self
             .machines
             .get_machine_by_id(machine_id)
-            .ok_or(anyhow::anyhow!("Machine with machine_id not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("Machine with machine_id not found"))?;
         let drv_path = machine
             .get_job_drv_for_build_id(build_id)
-            .ok_or(anyhow::anyhow!("Job with build_id not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("Job with build_id not found"))?;
 
         self.succeed_step(machine_id, &drv_path, output).await
     }
@@ -1189,10 +1183,10 @@ impl State {
         let machine = self
             .machines
             .get_machine_by_id(machine_id)
-            .ok_or(anyhow::anyhow!("Machine with machine_id not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("Machine with machine_id not found"))?;
         let drv_path = machine
             .get_job_drv_for_build_id(build_id)
-            .ok_or(anyhow::anyhow!("Job with build_id not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("Job with build_id not found"))?;
 
         self.fail_step(machine_id, &drv_path, state, timings).await
     }
@@ -1530,11 +1524,11 @@ impl State {
                 let new_runnable = new_runnable.clone();
                 async move {
                     let j = {
-                        let new_builds_by_id = new_builds_by_id.read();
-                        let Some(j) = new_builds_by_id.get(&b) else {
+                        if let Some(j) = new_builds_by_id.read().get(&b) {
+                            j.clone()
+                        } else {
                             return;
-                        };
-                        j.clone()
+                        }
                     };
 
                     Box::pin(self.create_build(
@@ -1560,12 +1554,11 @@ impl State {
             build.set_toplevel_step(step.clone());
             build.propagate_priorities();
 
-            let new_steps = new_steps.read();
             tracing::info!(
                 "added build {} (top-level step {}, {} new steps)",
                 build.id,
                 step.get_drv_path(),
-                new_steps.len()
+                new_steps.read().len()
             );
         } else {
             // If we didn't get a step, it means the step's outputs are
@@ -1675,8 +1668,7 @@ impl State {
         }
 
         tracing::debug!("missing outputs: {missing_outputs:?}");
-        let mut finished = missing_outputs.is_empty();
-        if !missing_outputs.is_empty() && use_substitutes {
+        let finished = if !missing_outputs.is_empty() && use_substitutes {
             use futures::stream::StreamExt as _;
 
             let mut substituted = 0;
@@ -1709,16 +1701,17 @@ impl State {
                     }
                 }
             }
-            finished = substituted == missing_outputs_len;
-        }
+            substituted == missing_outputs_len
+        } else {
+            missing_outputs.is_empty()
+        };
 
         if finished {
             if let Some(fod_checker) = &self.fod_checker {
                 fod_checker.to_traverse(&drv_path);
             }
 
-            let mut finished_drvs = finished_drvs.write();
-            finished_drvs.insert(drv_path.clone());
+            finished_drvs.write().insert(drv_path.clone());
             step.set_finished(true);
             return CreateStepResult::None;
         }
@@ -1841,7 +1834,7 @@ impl State {
     ) -> anyhow::Result<BuildOutput> {
         let drv = nix_utils::query_drv(&self.store, drv_path)
             .await?
-            .ok_or(anyhow::anyhow!("Derivation not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("Derivation not found"))?;
 
         {
             let mut db = self.db.get().await?;
@@ -1933,7 +1926,7 @@ impl State {
             let Some(build) = dependents
                 .iter()
                 .find(|b| &b.drv_path == drv)
-                .or(dependents.iter().next())
+                .or_else(|| dependents.iter().next())
             else {
                 // this should never happen, as we checked is_empty above and fallback is just any build
                 continue;

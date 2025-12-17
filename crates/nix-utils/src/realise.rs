@@ -24,7 +24,7 @@ impl BuildOptions {
     }
 
     #[must_use]
-    pub fn complete(max_log_size: u64, max_silent_time: i32, build_timeout: i32) -> Self {
+    pub const fn complete(max_log_size: u64, max_silent_time: i32, build_timeout: i32) -> Self {
         Self {
             max_log_size,
             max_silent_time,
@@ -33,31 +33,31 @@ impl BuildOptions {
         }
     }
 
-    pub fn set_max_silent_time(&mut self, max_silent_time: i32) {
+    pub const fn set_max_silent_time(&mut self, max_silent_time: i32) {
         self.max_silent_time = max_silent_time;
     }
 
-    pub fn set_build_timeout(&mut self, build_timeout: i32) {
+    pub const fn set_build_timeout(&mut self, build_timeout: i32) {
         self.build_timeout = build_timeout;
     }
 
     #[must_use]
-    pub fn get_max_log_size(&self) -> u64 {
+    pub const fn get_max_log_size(&self) -> u64 {
         self.max_log_size
     }
 
     #[must_use]
-    pub fn get_max_silent_time(&self) -> i32 {
+    pub const fn get_max_silent_time(&self) -> i32 {
         self.max_silent_time
     }
 
     #[must_use]
-    pub fn get_build_timeout(&self) -> i32 {
+    pub const fn get_build_timeout(&self) -> i32 {
         self.build_timeout
     }
 
     #[must_use]
-    pub fn enable_check_build(mut self) -> Self {
+    pub const fn enable_check_build(mut self) -> Self {
         self.check = true;
         self
     }

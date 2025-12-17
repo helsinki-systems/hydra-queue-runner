@@ -48,7 +48,7 @@ impl S3CacheConfig {
     }
 
     #[must_use]
-    pub fn with_compression(mut self, compression: Option<Compression>) -> Self {
+    pub const fn with_compression(mut self, compression: Option<Compression>) -> Self {
         if let Some(compression) = compression {
             self.compression = compression;
         }
@@ -100,7 +100,7 @@ impl S3CacheConfig {
     }
 
     #[must_use]
-    pub fn with_compression_level(mut self, compression_level: Option<i32>) -> Self {
+    pub const fn with_compression_level(mut self, compression_level: Option<i32>) -> Self {
         if let Some(compression_level) = compression_level {
             self.compression_level = Some(compression_level);
         }
@@ -108,7 +108,7 @@ impl S3CacheConfig {
     }
 
     #[must_use]
-    pub fn with_narinfo_compression(mut self, compression: Option<Compression>) -> Self {
+    pub const fn with_narinfo_compression(mut self, compression: Option<Compression>) -> Self {
         if let Some(compression) = compression {
             self.narinfo_compression = compression;
         }
@@ -116,7 +116,7 @@ impl S3CacheConfig {
     }
 
     #[must_use]
-    pub fn with_ls_compression(mut self, compression: Option<Compression>) -> Self {
+    pub const fn with_ls_compression(mut self, compression: Option<Compression>) -> Self {
         if let Some(compression) = compression {
             self.ls_compression = compression;
         }
@@ -124,7 +124,7 @@ impl S3CacheConfig {
     }
 
     #[must_use]
-    pub fn with_log_compression(mut self, compression: Option<Compression>) -> Self {
+    pub const fn with_log_compression(mut self, compression: Option<Compression>) -> Self {
         if let Some(compression) = compression {
             self.log_compression = compression;
         }
@@ -132,7 +132,7 @@ impl S3CacheConfig {
     }
 
     #[must_use]
-    pub fn with_buffer_size(mut self, buffer_size: Option<usize>) -> Self {
+    pub const fn with_buffer_size(mut self, buffer_size: Option<usize>) -> Self {
         if let Some(buffer_size) = buffer_size {
             self.buffer_size = buffer_size;
         }
@@ -158,7 +158,7 @@ impl S3CacheConfig {
         Ok(self)
     }
 
-    pub(crate) fn get_compression_level(&self) -> async_compression::Level {
+    pub(crate) const fn get_compression_level(&self) -> async_compression::Level {
         if let Some(l) = self.compression_level {
             async_compression::Level::Precise(l)
         } else {
@@ -211,7 +211,7 @@ impl std::str::FromStr for S3CacheConfig {
             .with_endpoint(query.get("endpoint").map(std::string::String::as_str))
             .with_profile(query.get("profile").map(std::string::String::as_str));
 
-        S3CacheConfig::new(cfg)
+        Self::new(cfg)
             .with_compression(
                 query
                     .get("compression")
@@ -305,8 +305,8 @@ impl std::str::FromStr for S3Scheme {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().to_ascii_lowercase().as_str() {
-            "http" => Ok(S3Scheme::HTTP),
-            "https" => Ok(S3Scheme::HTTPS),
+            "http" => Ok(Self::HTTP),
+            "https" => Ok(Self::HTTPS),
             v => Err(v.to_owned()),
         }
     }
@@ -344,7 +344,7 @@ impl S3ClientConfig {
     }
 
     #[must_use]
-    pub fn with_scheme(mut self, scheme: Option<S3Scheme>) -> Self {
+    pub const fn with_scheme(mut self, scheme: Option<S3Scheme>) -> Self {
         if let Some(scheme) = scheme {
             self.scheme = scheme;
         }
@@ -388,9 +388,7 @@ pub enum ConfigReadError {
     ValueMissing(&'static str),
 }
 
-pub(crate) fn read_aws_credentials_file(
-    profile: &str,
-) -> Result<(String, String), ConfigReadError> {
+pub fn read_aws_credentials_file(profile: &str) -> Result<(String, String), ConfigReadError> {
     let home_dir = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE"))?;
     let credentials_path = format!("{home_dir}/.aws/credentials");
 
@@ -431,13 +429,11 @@ fn parse_aws_credentials_file(
     let access_key = profile_map
         .get("aws_access_key_id")
         .and_then(ToOwned::to_owned)
-        .ok_or(ConfigReadError::ValueMissing("aws_access_key_id"))?
-        .clone();
+        .ok_or(ConfigReadError::ValueMissing("aws_access_key_id"))?;
     let secret_key = profile_map
         .get("aws_secret_access_key")
         .and_then(ToOwned::to_owned)
-        .ok_or(ConfigReadError::ValueMissing("aws_secret_access_key"))?
-        .clone();
+        .ok_or(ConfigReadError::ValueMissing("aws_secret_access_key"))?;
 
     Ok((access_key, secret_key))
 }

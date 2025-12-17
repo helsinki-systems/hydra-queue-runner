@@ -85,7 +85,7 @@ impl FodChecker {
 
         let drvs = {
             let mut tt = self.to_traverse.write();
-            let v: Vec<_> = tt.iter().map(std::clone::Clone::clone).collect();
+            let v: Vec<_> = tt.iter().map(Clone::clone).collect();
             tt.clear();
             v
         };

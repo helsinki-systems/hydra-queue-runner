@@ -42,11 +42,9 @@ impl DumpResponse {
         local_store: &nix_utils::LocalStore,
         remote_stores: &[binary_cache::S3BinaryCacheClient],
     ) -> Self {
-        let store = if let Ok(s) = local_store.get_store_stats() {
-            Some(StoreStats::new(&s))
-        } else {
-            None
-        };
+        let store = local_store
+            .get_store_stats()
+            .map_or(None, |s| Some(StoreStats::new(&s)));
 
         Self {
             queue_runner,
@@ -92,7 +90,7 @@ pub struct BuildsResponse {
 
 impl BuildsResponse {
     #[must_use]
-    pub fn new(builds: Vec<Build>) -> Self {
+    pub const fn new(builds: Vec<Build>) -> Self {
         Self {
             build_count: builds.len(),
             builds,
@@ -109,7 +107,7 @@ pub struct StepsResponse {
 
 impl StepsResponse {
     #[must_use]
-    pub fn new(steps: Vec<Step>) -> Self {
+    pub const fn new(steps: Vec<Step>) -> Self {
         Self {
             step_count: steps.len(),
             steps,
@@ -125,7 +123,7 @@ pub struct QueueResponse {
 
 impl QueueResponse {
     #[must_use]
-    pub fn new(queues: HashMap<String, Vec<StepInfo>>) -> Self {
+    pub const fn new(queues: HashMap<String, Vec<StepInfo>>) -> Self {
         Self { queues }
     }
 }
@@ -139,7 +137,7 @@ pub struct StepInfoResponse {
 
 impl StepInfoResponse {
     #[must_use]
-    pub fn new(steps: Vec<StepInfo>) -> Self {
+    pub const fn new(steps: Vec<StepInfo>) -> Self {
         Self {
             step_count: steps.len(),
             steps,

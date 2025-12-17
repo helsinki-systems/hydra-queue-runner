@@ -136,7 +136,8 @@ impl State {
         nix_utils::set_verbosity(1);
 
         let logname = std::env::var("LOGNAME").context("LOGNAME not set")?;
-        let nix_state_dir = std::env::var("NIX_STATE_DIR").unwrap_or("/nix/var/nix/".to_owned());
+        let nix_state_dir =
+            std::env::var("NIX_STATE_DIR").unwrap_or_else(|_| "/nix/var/nix/".to_owned());
         let gcroots = std::path::PathBuf::from(nix_state_dir)
             .join("gcroots/per-user")
             .join(logname)
@@ -163,19 +164,19 @@ impl State {
                 mem_psi_threshold: cli.mem_psi_threshold,
                 io_psi_threshold: cli.io_psi_threshold,
                 gcroots,
-                systems: if let Some(s) = &cli.systems {
-                    s.clone()
-                } else {
-                    let mut out = Vec::with_capacity(8);
-                    out.push(nix_utils::get_this_system());
-                    out.extend(nix_utils::get_extra_platforms());
-                    out
-                },
-                supported_features: if let Some(s) = &cli.supported_features {
-                    s.clone()
-                } else {
-                    nix_utils::get_system_features()
-                },
+                systems: cli.systems.as_ref().map_or_else(
+                    || {
+                        let mut out = Vec::with_capacity(8);
+                        out.push(nix_utils::get_this_system());
+                        out.extend(nix_utils::get_extra_platforms());
+                        out
+                    },
+                    Clone::clone,
+                ),
+                supported_features: cli
+                    .supported_features
+                    .as_ref()
+                    .map_or_else(nix_utils::get_system_features, Clone::clone),
                 mandatory_features: cli.mandatory_features.clone().unwrap_or_default(),
                 cgroups: nix_utils::get_use_cgroups(),
                 use_substitutes: cli.use_substitutes,
@@ -974,7 +975,7 @@ async fn upload_single_nar_presigned(
     let nar_upload = presigned_response
         .nar_upload
         .as_ref()
-        .ok_or(anyhow::anyhow!("nar_upload information is missing"))?;
+        .ok_or_else(|| anyhow::anyhow!("nar_upload information is missing"))?;
 
     let presigned_request = binary_cache::PresignedUploadResponse {
         nar_url: presigned_response.nar_url.clone(),

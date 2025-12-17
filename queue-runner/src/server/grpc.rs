@@ -107,7 +107,7 @@ impl tonic::service::Interceptor for CheckAuthInterceptor {
                         t.to_str()
                             .map_err(|_| tonic::Status::unauthenticated("No valid auth token"))?
                             .strip_prefix("Bearer ")
-                            .ok_or(tonic::Status::unauthenticated("No valid auth token"))?,
+                            .ok_or_else(|| tonic::Status::unauthenticated("No valid auth token"))?,
                     ) =>
                 {
                     Ok(req)
@@ -186,7 +186,7 @@ impl Server {
             BindSocket::ListenFd => {
                 let listener = listenfd::ListenFd::from_env()
                     .take_unix_listener(0)?
-                    .ok_or(anyhow::anyhow!("No listenfd found in env"))?;
+                    .ok_or_else(|| anyhow::anyhow!("No listenfd found in env"))?;
                 listener.set_nonblocking(true)?;
                 let listener = tokio_stream::wrappers::UnixListenerStream::new(
                     tokio::net::UnixListener::from_std(listener)?,

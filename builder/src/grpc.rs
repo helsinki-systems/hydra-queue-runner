@@ -28,7 +28,7 @@ impl tonic::service::Interceptor for BuilderInterceptor {
     fn call(&mut self, request: tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> {
         let mut request = hydra_tracing::propagate::send_trace(request).map_err(|e| *e)?;
 
-        if let BuilderInterceptor::Token { token } = self {
+        if let Self::Token { token } = self {
             request
                 .metadata_mut()
                 .insert("authorization", token.clone());

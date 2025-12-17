@@ -16,7 +16,7 @@ pub struct Transaction<'a> {
 
 impl Connection {
     #[must_use]
-    pub fn new(conn: sqlx::pool::PoolConnection<sqlx::Postgres>) -> Self {
+    pub const fn new(conn: sqlx::pool::PoolConnection<sqlx::Postgres>) -> Self {
         Self { conn }
     }
 

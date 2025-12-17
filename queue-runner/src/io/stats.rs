@@ -160,7 +160,7 @@ impl CgroupStats {
             me.cgroups()?
                 .0
                 .first()
-                .ok_or(anyhow::anyhow!("cgroup information is missing in process."))?
+                .ok_or_else(|| anyhow::anyhow!("cgroup information is missing in process."))?
                 .pathname
         );
         let cgroups_path = std::path::Path::new(&cgroups_pathname);

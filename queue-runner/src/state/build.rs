@@ -207,7 +207,7 @@ impl Default for RemoteBuild {
 
 impl RemoteBuild {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             step_status: BuildStatus::Aborted,
             can_retry: false,
@@ -236,7 +236,7 @@ impl RemoteBuild {
         }
     }
 
-    pub fn update_with_result_state(&mut self, state: &BuildResultState) {
+    pub const fn update_with_result_state(&mut self, state: &BuildResultState) {
         match state {
             BuildResultState::BuildFailure => {
                 self.can_retry = false;
@@ -259,7 +259,7 @@ impl RemoteBuild {
         }
     }
 
-    pub fn set_start_and_stop(&mut self, v: jiff::Timestamp) {
+    pub const fn set_start_and_stop(&mut self, v: jiff::Timestamp) {
         self.start_time = Some(v);
         self.stop_time = Some(v);
     }
@@ -273,7 +273,7 @@ impl RemoteBuild {
     }
 
     #[must_use]
-    pub fn has_start_time(&self) -> bool {
+    pub const fn has_start_time(&self) -> bool {
         self.start_time.is_some()
     }
 
@@ -287,7 +287,7 @@ impl RemoteBuild {
     }
 
     #[must_use]
-    pub fn has_stop_time(&self) -> bool {
+    pub const fn has_stop_time(&self) -> bool {
         self.stop_time.is_some()
     }
 
@@ -301,7 +301,7 @@ impl RemoteBuild {
     }
 
     #[must_use]
-    pub fn get_overhead(&self) -> Option<i32> {
+    pub const fn get_overhead(&self) -> Option<i32> {
         if self.overhead != 0 {
             Some(self.overhead)
         } else {
@@ -310,7 +310,7 @@ impl RemoteBuild {
     }
 
     #[must_use]
-    pub fn get_times_built(&self) -> Option<i32> {
+    pub const fn get_times_built(&self) -> Option<i32> {
         if self.times_built != 0 {
             Some(self.times_built)
         } else {
@@ -319,7 +319,7 @@ impl RemoteBuild {
     }
 
     #[must_use]
-    pub fn get_is_non_deterministic(&self) -> Option<bool> {
+    pub const fn get_is_non_deterministic(&self) -> Option<bool> {
         if self.times_built != 0 {
             Some(self.is_non_deterministic)
         } else {
@@ -418,7 +418,7 @@ pub struct BuildTimings {
 
 impl BuildTimings {
     #[must_use]
-    pub fn new(import_time_ms: u64, build_time_ms: u64, upload_time_ms: u64) -> Self {
+    pub const fn new(import_time_ms: u64, build_time_ms: u64, upload_time_ms: u64) -> Self {
         Self {
             import_elapsed: std::time::Duration::from_millis(import_time_ms),
             build_elapsed: std::time::Duration::from_millis(build_time_ms),
@@ -427,7 +427,7 @@ impl BuildTimings {
     }
 
     #[must_use]
-    pub fn get_overhead(&self) -> u128 {
+    pub const fn get_overhead(&self) -> u128 {
         self.import_elapsed.as_millis() + self.upload_elapsed.as_millis()
     }
 }
@@ -451,9 +451,9 @@ impl TryFrom<db::models::BuildOutput> for BuildOutput {
     fn try_from(v: db::models::BuildOutput) -> anyhow::Result<Self> {
         let build_status = BuildStatus::from_i32(
             v.buildstatus
-                .ok_or(anyhow::anyhow!("buildstatus missing"))?,
+                .ok_or_else(|| anyhow::anyhow!("buildstatus missing"))?,
         )
-        .ok_or(anyhow::anyhow!("buildstatus did not map"))?;
+        .ok_or_else(|| anyhow::anyhow!("buildstatus did not map"))?;
         Ok(Self {
             failed: build_status != BuildStatus::Success,
             timings: BuildTimings::default(),

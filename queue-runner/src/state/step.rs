@@ -125,7 +125,7 @@ impl Step {
     }
 
     #[inline]
-    pub fn get_drv_path(&self) -> &nix_utils::StorePath {
+    pub const fn get_drv_path(&self) -> &nix_utils::StorePath {
         &self.drv_path
     }
 
@@ -212,7 +212,7 @@ impl Step {
     pub fn get_dependents(
         self: &Arc<Self>,
         builds: &mut HashSet<Arc<Build>>,
-        steps: &mut HashSet<Arc<Step>>,
+        steps: &mut HashSet<Arc<Self>>,
     ) {
         if steps.contains(self) {
             return;
@@ -317,7 +317,7 @@ impl Step {
         state.jobsets.insert(jobset);
     }
 
-    pub fn add_dep(&self, dep: Arc<Step>) {
+    pub fn add_dep(&self, dep: Arc<Self>) {
         let mut state = self.state.write();
         state.deps.insert(dep);
         self.atomic_state
@@ -328,7 +328,7 @@ impl Step {
     pub fn add_referring_data(
         &self,
         referring_build: Option<&Arc<crate::state::Build>>,
-        referring_step: Option<&Arc<Step>>,
+        referring_step: Option<&Arc<Self>>,
     ) {
         if referring_build.is_none() && referring_step.is_none() {
             return;
@@ -361,7 +361,7 @@ impl Step {
         direct
     }
 
-    pub fn get_all_deps_not_queued(&self, queued: &HashSet<Arc<Step>>) -> Vec<Arc<Step>> {
+    pub fn get_all_deps_not_queued(&self, queued: &HashSet<Arc<Self>>) -> Vec<Arc<Self>> {
         let state = self.state.read();
         state
             .deps
@@ -446,7 +446,7 @@ impl Steps {
                 return false;
             };
             if step.get_runnable() {
-                new_runnable.push(step.clone());
+                new_runnable.push(step);
             }
             true
         });
@@ -476,13 +476,14 @@ impl Steps {
         let mut is_new = false;
         let mut steps = self.inner.write();
         let step = if let Some(step) = steps.get(drv_path) {
-            if let Some(step) = step.upgrade() {
-                step
-            } else {
-                steps.remove(drv_path);
-                is_new = true;
-                Step::new(drv_path.to_owned())
-            }
+            step.upgrade().map_or_else(
+                || {
+                    steps.remove(drv_path);
+                    is_new = true;
+                    Step::new(drv_path.to_owned())
+                },
+                |step| step,
+            )
         } else {
             is_new = true;
             Step::new(drv_path.to_owned())

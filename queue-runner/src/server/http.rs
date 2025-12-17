@@ -37,7 +37,7 @@ pub enum Error {
 
 impl Error {
     #[must_use]
-    pub fn get_status(&self) -> hyper::StatusCode {
+    pub const fn get_status(&self) -> hyper::StatusCode {
         match *self {
             Self::Uuid(_)
             | Self::SerdeJson(_)

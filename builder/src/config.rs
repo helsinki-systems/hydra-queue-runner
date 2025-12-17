@@ -98,7 +98,7 @@ impl Cli {
     }
 
     #[must_use]
-    pub fn mtls_enabled(&self) -> bool {
+    pub const fn mtls_enabled(&self) -> bool {
         self.server_root_ca_cert_path.is_some()
             && self.client_cert_path.is_some()
             && self.client_key_path.is_some()
@@ -106,7 +106,7 @@ impl Cli {
     }
 
     #[must_use]
-    pub fn mtls_configured_correctly(&self) -> bool {
+    pub const fn mtls_configured_correctly(&self) -> bool {
         self.mtls_enabled()
             || (self.server_root_ca_cert_path.is_none()
                 && self.client_cert_path.is_none()
@@ -125,19 +125,19 @@ impl Cli {
         let server_root_ca_cert_path = self
             .server_root_ca_cert_path
             .as_deref()
-            .ok_or(anyhow::anyhow!("server_root_ca_cert_path not provided"))?;
+            .ok_or_else(|| anyhow::anyhow!("server_root_ca_cert_path not provided"))?;
         let client_cert_path = self
             .client_cert_path
             .as_deref()
-            .ok_or(anyhow::anyhow!("client_cert_path not provided"))?;
+            .ok_or_else(|| anyhow::anyhow!("client_cert_path not provided"))?;
         let client_key_path = self
             .client_key_path
             .as_deref()
-            .ok_or(anyhow::anyhow!("client_key_path not provided"))?;
+            .ok_or_else(|| anyhow::anyhow!("client_key_path not provided"))?;
         let domain_name = self
             .domain_name
             .as_deref()
-            .ok_or(anyhow::anyhow!("domain_name not provided"))?;
+            .ok_or_else(|| anyhow::anyhow!("domain_name not provided"))?;
 
         let server_root_ca_cert = fs_err::tokio::read_to_string(server_root_ca_cert_path).await?;
         let server_root_ca_cert = tonic::transport::Certificate::from_pem(server_root_ca_cert);

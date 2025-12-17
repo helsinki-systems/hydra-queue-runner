@@ -150,10 +150,11 @@ impl Uploader {
         limit: usize,
     ) {
         let mut messages: Vec<Message> = Vec::with_capacity(limit);
-        {
-            let mut rx = self.upload_queue_receiver.lock().await;
-            rx.recv_many(&mut messages, limit).await;
-        }
+        self.upload_queue_receiver
+            .lock()
+            .await
+            .recv_many(&mut messages, limit)
+            .await;
 
         let mut jobs = vec![];
         for msg in messages {

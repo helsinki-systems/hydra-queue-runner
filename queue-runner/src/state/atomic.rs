@@ -9,7 +9,7 @@ pub struct AtomicDateTime {
 
 impl Default for AtomicDateTime {
     fn default() -> Self {
-        AtomicDateTime::new(Timestamp::now())
+        Self::new(Timestamp::now())
     }
 }
 

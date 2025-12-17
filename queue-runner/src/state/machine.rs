@@ -18,14 +18,14 @@ pub struct Pressure {
     pub total: u64,
 }
 
-impl Pressure {
-    fn new(msg: Option<crate::server::grpc::runner_v1::Pressure>) -> Option<Self> {
-        msg.map(|v| Self {
+impl From<crate::server::grpc::runner_v1::Pressure> for Pressure {
+    fn from(v: crate::server::grpc::runner_v1::Pressure) -> Self {
+        Self {
             avg10: v.avg10,
             avg60: v.avg60,
             avg300: v.avg300,
             total: v.total,
-        })
+        }
     }
 }
 
@@ -233,12 +233,12 @@ impl Stats {
 
         if let Some(p) = msg.pressure {
             self.pressure.store(Some(Arc::new(PressureState {
-                cpu_some: Pressure::new(p.cpu_some),
-                mem_some: Pressure::new(p.mem_some),
-                mem_full: Pressure::new(p.mem_full),
-                io_some: Pressure::new(p.io_some),
-                io_full: Pressure::new(p.io_full),
-                irq_full: Pressure::new(p.irq_full),
+                cpu_some: p.cpu_some.map(Into::into),
+                mem_some: p.mem_some.map(Into::into),
+                mem_full: p.mem_full.map(Into::into),
+                io_some: p.io_some.map(Into::into),
+                io_full: p.io_full.map(Into::into),
+                irq_full: p.irq_full.map(Into::into),
             })));
         }
 
@@ -380,16 +380,17 @@ impl Machines {
     pub fn remove_machine(&self, machine_id: uuid::Uuid) -> Option<Arc<Machine>> {
         let m = {
             let mut inner = self.inner.write();
-            if let Some(m) = inner.by_uuid.remove(&machine_id) {
-                for system in &m.systems {
-                    if let Some(v) = inner.by_system.get_mut(system) {
-                        v.retain(|o| o.id != machine_id);
+            inner.by_uuid.remove(&machine_id).map_or_else(
+                || None,
+                |m| {
+                    for system in &m.systems {
+                        if let Some(v) = inner.by_system.get_mut(system) {
+                            v.retain(|o| o.id != machine_id);
+                        }
                     }
-                }
-                Some(m)
-            } else {
-                None
-            }
+                    Some(m)
+                },
+            )
         };
         self.reconstruct_supported_features();
         m
@@ -423,14 +424,10 @@ impl Machines {
                 .by_uuid
                 .values()
                 .find(|m| {
-                    (if let Some(free_fn) = free_fn {
-                        m.has_capacity(free_fn)
-                    } else {
-                        true
-                    }) && m
-                        .mandatory_features
-                        .iter()
-                        .all(|s| required_features.contains(s))
+                    free_fn.is_none_or(|free_fn| m.has_capacity(free_fn))
+                        && m.mandatory_features
+                            .iter()
+                            .all(|s| required_features.contains(s))
                         && m.supports_all_features(required_features)
                 })
                 .cloned()
@@ -439,14 +436,10 @@ impl Machines {
                 machines
                     .iter()
                     .find(|m| {
-                        (if let Some(free_fn) = free_fn {
-                            m.has_capacity(free_fn)
-                        } else {
-                            true
-                        }) && m
-                            .mandatory_features
-                            .iter()
-                            .all(|s| required_features.contains(s))
+                        free_fn.is_none_or(|free_fn| m.has_capacity(free_fn))
+                            && m.mandatory_features
+                                .iter()
+                                .all(|s| required_features.contains(s))
                             && m.supports_all_features(required_features)
                     })
                     .cloned()
@@ -555,12 +548,12 @@ pub enum Message {
 impl Message {
     pub fn into_request(self) -> crate::server::grpc::runner_v1::RunnerRequest {
         let msg = match self {
-            Message::ConfigUpdate(m) => runner_request::Message::ConfigUpdate(
+            Self::ConfigUpdate(m) => runner_request::Message::ConfigUpdate(
                 crate::server::grpc::runner_v1::ConfigUpdate {
                     max_concurrent_downloads: m.max_concurrent_downloads,
                 },
             ),
-            Message::BuildMessage {
+            Self::BuildMessage {
                 build_id,
                 drv,
                 resolved_drv,
@@ -577,7 +570,7 @@ impl Message {
                 build_timeout,
                 presigned_url_opts: presigned_url_opts.map(Into::into),
             }),
-            Message::AbortMessage { build_id } => runner_request::Message::Abort(AbortMessage {
+            Self::AbortMessage { build_id } => runner_request::Message::Abort(AbortMessage {
                 build_id: build_id.to_string(),
             }),
         };
@@ -882,11 +875,14 @@ impl Machine {
 
     #[tracing::instrument(skip(self), fields(%drv))]
     pub fn remove_job(&self, drv: &nix_utils::StorePath) -> Option<Job> {
-        let mut jobs = self.jobs.write();
-        let job = jobs.iter().find(|j| &j.path == drv).cloned();
-        jobs.retain(|j| &j.path != drv);
-        self.stats.store_current_jobs(jobs.len() as u64);
-        self.stats.incr_nr_steps_done();
+        let job = {
+            let mut jobs = self.jobs.write();
+            let job = jobs.iter().find(|j| &j.path == drv).cloned();
+            jobs.retain(|j| &j.path != drv);
+            self.stats.incr_nr_steps_done();
+            self.stats.store_current_jobs(jobs.len() as u64);
+            job
+        };
 
         {
             // if build finished fast we can subtract 1 here

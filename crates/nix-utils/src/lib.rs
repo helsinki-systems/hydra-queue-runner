@@ -833,7 +833,7 @@ impl LocalStore {
     }
 
     #[must_use]
-    pub fn as_base_store(&self) -> &BaseStoreImpl {
+    pub const fn as_base_store(&self) -> &BaseStoreImpl {
         &self.base
     }
 
@@ -862,7 +862,7 @@ impl LocalStore {
     }
 
     #[must_use]
-    pub fn get_store_path_prefix(&self) -> &str {
+    pub const fn get_store_path_prefix(&self) -> &str {
         self.base.store_path_prefix.as_str()
     }
 
@@ -1041,7 +1041,7 @@ impl RemoteStore {
     }
 
     #[must_use]
-    pub fn as_base_store(&self) -> &BaseStoreImpl {
+    pub const fn as_base_store(&self) -> &BaseStoreImpl {
         &self.base
     }
 

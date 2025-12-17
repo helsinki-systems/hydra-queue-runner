@@ -75,8 +75,7 @@ impl Jobset {
     }
 
     pub fn add_step(&self, start_time: i64, duration: i64) {
-        let mut steps = self.steps.write();
-        steps.insert(start_time, duration);
+        self.steps.write().insert(start_time, duration);
         self.seconds.fetch_add(duration, Ordering::Relaxed);
     }
 
@@ -174,9 +173,7 @@ impl Jobsets {
         let shares = conn
             .get_jobset_scheduling_shares(jobset_id)
             .await?
-            .ok_or(anyhow::anyhow!(
-                "Scheduling Shares not found for jobset not found."
-            ))?;
+            .ok_or_else(|| anyhow::anyhow!("Scheduling Shares not found for jobset not found."))?;
         let jobset = Jobset::new(jobset_id, project_name, jobset_name);
         jobset.set_shares(shares)?;
 
@@ -199,7 +196,7 @@ impl Jobsets {
             jobsets.insert(key, jobset.clone());
         }
 
-        Ok(jobset.clone())
+        Ok(jobset)
     }
 
     #[tracing::instrument(skip(self, conn), err)]

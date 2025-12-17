@@ -8,17 +8,20 @@ pub struct StorePath {
 impl StorePath {
     #[must_use]
     pub fn new(p: &str) -> Self {
-        if let Some(postfix) = p.strip_prefix("/nix/store/") {
-            debug_assert!(postfix.len() > HASH_LEN + 1);
-            Self {
-                base_name: postfix.to_string(),
-            }
-        } else {
-            debug_assert!(p.len() > HASH_LEN + 1);
-            Self {
-                base_name: p.to_string(),
-            }
-        }
+        p.strip_prefix("/nix/store/").map_or_else(
+            || {
+                debug_assert!(p.len() > HASH_LEN + 1);
+                Self {
+                    base_name: p.to_string(),
+                }
+            },
+            |postfix| {
+                debug_assert!(postfix.len() > HASH_LEN + 1);
+                Self {
+                    base_name: postfix.to_string(),
+                }
+            },
+        )
     }
 
     #[must_use]

@@ -55,16 +55,13 @@ pub enum HashAlgorithm {
 
 impl From<Option<HashAlgorithm>> for ffi::OptionalHashAlgorithm {
     fn from(value: Option<HashAlgorithm>) -> Self {
-        match value {
-            Some(v) => match v {
-                HashAlgorithm::MD5 => Self::MD5,
-                HashAlgorithm::SHA1 => Self::SHA1,
-                HashAlgorithm::SHA256 => Self::SHA256,
-                HashAlgorithm::SHA512 => Self::SHA512,
-                HashAlgorithm::BLAKE3 => Self::BLAKE3,
-            },
-            None => Self::None,
-        }
+        value.map_or(Self::None, |v| match v {
+            HashAlgorithm::MD5 => Self::MD5,
+            HashAlgorithm::SHA1 => Self::SHA1,
+            HashAlgorithm::SHA256 => Self::SHA256,
+            HashAlgorithm::SHA512 => Self::SHA512,
+            HashAlgorithm::BLAKE3 => Self::BLAKE3,
+        })
     }
 }
 
