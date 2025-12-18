@@ -382,7 +382,10 @@ mod tests {
     async fn test_build_products() {
         let store = nix_utils::LocalStore::init();
         let output = nix_utils::StorePath::new("ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
-        let line = format!("file iso {}", store.print_store_path(&output));
+        let line = format!(
+            "file iso {}/iso/custom.iso",
+            store.print_store_path(&output)
+        );
         let fsop = DummyFsOperations {
             valid_file: true,
             metadata: FileMetadata {

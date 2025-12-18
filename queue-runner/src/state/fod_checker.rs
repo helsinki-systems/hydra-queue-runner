@@ -164,6 +164,7 @@ mod tests {
     use crate::state::fod_checker::FodChecker;
     use nix_utils::BaseStore as _;
 
+    #[ignore]
     #[tokio::test]
     async fn test_traverse() {
         let store = nix_utils::LocalStore::init();

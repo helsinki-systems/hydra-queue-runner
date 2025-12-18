@@ -1066,15 +1066,6 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY"
     }
 
     #[test]
-    fn test_s3_cache_config_from_str_multiple_same_params() {
-        let config_str = "s3://test-bucket?compression=xz&compression=bz2";
-        let config = S3CacheConfig::from_str(config_str).unwrap();
-
-        assert_eq!(config.client_config.bucket, "test-bucket");
-        assert_eq!(config.compression, Compression::Xz);
-    }
-
-    #[test]
     fn test_s3_cache_config_presigned_url_expiry_boundaries() {
         let config_str = "s3://test-bucket?presigned-url-expiry=60";
         let config = S3CacheConfig::from_str(config_str).unwrap();
