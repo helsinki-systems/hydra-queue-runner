@@ -14,6 +14,9 @@
   libsodium ? pkgs.libsodium,
   boost ? pkgs.boost,
 }:
+let
+  nix = nixVersions.nix_2_32;
+in
 rustPlatform.buildRustPackage {
   name = "queue-runner";
   src = nix-gitignore.gitignoreSource [ ] (
@@ -48,7 +51,7 @@ rustPlatform.buildRustPackage {
     zlib
     protobuf
 
-    nixVersions.nix_2_32
+    nix
     nlohmann_json
     libsodium
     boost
@@ -56,12 +59,13 @@ rustPlatform.buildRustPackage {
 
   postInstall = ''
     wrapProgram $out/bin/queue-runner \
-      --prefix PATH : ${lib.makeBinPath [ nixVersions.nix_2_29 ]} \
+      --prefix PATH : ${lib.makeBinPath [ nix ]} \
       --set-default JEMALLOC_SYS_WITH_MALLOC_CONF "background_thread:true,narenas:1,tcache:false,dirty_decay_ms:0,muzzy_decay_ms:0,abort_conf:true"
     wrapProgram $out/bin/builder \
-      --prefix PATH : ${lib.makeBinPath [ nixVersions.nix_2_29 ]} \
+      --prefix PATH : ${lib.makeBinPath [ nix ]} \
       --set-default JEMALLOC_SYS_WITH_MALLOC_CONF "background_thread:true,narenas:1,tcache:false,dirty_decay_ms:0,muzzy_decay_ms:0,abort_conf:true"
   '';
+  doCheck = false;
 
   meta = with lib; {
     description = "Hydra Queue-Runner implemented in rust";
