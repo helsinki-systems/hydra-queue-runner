@@ -31,7 +31,12 @@ rustPlatform.buildRustPackage {
   __structuredAttrs = true;
   strictDeps = true;
 
-  cargoLock.lockFile = ./Cargo.lock;
+  cargoLock = {
+    lockFile = ./Cargo.lock;
+    outputHashes = {
+      "nix-diff-0.1.0" = "sha256-heUqcAnGmMogyVXskXc4FMORb8ZaK6vUX+mMOpbfSUw=";
+    };
+  };
 
   nativeBuildInputs = [
     pkg-config
@@ -43,7 +48,7 @@ rustPlatform.buildRustPackage {
     zlib
     protobuf
 
-    nixVersions.nix_2_29
+    nixVersions.nix_2_32
     nlohmann_json
     libsodium
     boost
