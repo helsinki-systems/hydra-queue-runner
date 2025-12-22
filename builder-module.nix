@@ -273,10 +273,8 @@ in
       settings = {
         allowed-users = [ "hydra-queue-builder" ];
         trusted-users = [ "hydra-queue-builder" ];
+        experimental-features = [ "nix-command" ];
       };
-      extraOptions = ''
-        experimental-features = nix-command
-      '';
     };
 
     users = {
