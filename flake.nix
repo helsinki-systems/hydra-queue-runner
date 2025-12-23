@@ -87,9 +87,12 @@
         formatter = treefmtEval.config.build.wrapper;
       }
     ) // {
+      darwinModules = {
+        queue-builder = ./darwin-builder-module.nix;
+      };
       nixosModules = {
         queue-runner = ./runner-module.nix;
-        queue-builder = ./builder-module.nix;
+        queue-builder = ./linux-builder-module.nix;
       };
     };
 }
