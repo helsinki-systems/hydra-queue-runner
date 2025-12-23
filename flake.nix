@@ -72,10 +72,6 @@
           queue-runner = pkgs.callPackage ./. { };
           default = self.packages.${system}.queue-runner;
         };
-        nixosModules = {
-          queue-runner = ./runner-module.nix;
-          queue-builder = ./builder-module.nix;
-        };
         checks =
           let
             testArgs = {
@@ -90,5 +86,13 @@
           };
         formatter = treefmtEval.config.build.wrapper;
       }
-    );
+    ) // {
+      darwinModules = {
+        queue-builder = ./darwin-builder-module.nix;
+      };
+      nixosModules = {
+        queue-runner = ./runner-module.nix;
+        queue-builder = ./linux-builder-module.nix;
+      };
+    };
 }

@@ -6,6 +6,7 @@
 }:
 let
   cfg = config.services.queue-builder-dev;
+  user = config.users.users.hydra-queue-builder;
 in
 {
   options = {
@@ -38,8 +39,8 @@ in
         default = 4;
       };
 
-      buildDirAvailThreshold = lib.mkOption {
-        description = "Threshold in percent for nix build dir before jobs are no longer scheduled on the machine";
+      tmpAvailThreshold = lib.mkOption {
+        description = "Threshold in percent for /tmp before jobs are no longer scheduled on the machine";
         type = lib.types.float;
         default = 10.0;
       };
@@ -135,157 +136,119 @@ in
         type = lib.types.package;
         default = pkgs.callPackage ./. { };
       };
+
+      logFile = lib.mkOption {
+        type = lib.types.path;
+        default = "/var/log/hydra-queue-builder.log";
+        description = "The logfile to use for the hydra-queue-builder service.";
+      };
     };
   };
 
   config = lib.mkIf cfg.enable {
-    systemd.services.queue-builder-dev = {
-      description = "queue-builder main service";
-
-      requires = [ "nix-daemon.socket" ];
-      after = [ "network.target" ];
-      wantedBy = [ "multi-user.target" ];
+    launchd.daemons.queue-builder-dev = {
+      script = ''
+        exec ${
+          lib.escapeShellArgs (
+            [
+              "${cfg.package}/bin/builder"
+              "--gateway-endpoint"
+              cfg.queueRunnerAddr
+              "--ping-interval"
+              cfg.pingInterval
+              "--speed-factor"
+              cfg.speedFactor
+              "--max-jobs"
+              cfg.maxJobs
+              "--tmp-avail-threshold"
+              cfg.tmpAvailThreshold
+              "--store-avail-threshold"
+              cfg.storeAvailThreshold
+              "--load1-threshold"
+              cfg.load1Threshold
+              "--cpu-psi-threshold"
+              cfg.cpuPsiThreshold
+              "--mem-psi-threshold"
+              cfg.memPsiThreshold
+            ]
+            ++ lib.optionals (cfg.ioPsiThreshold != null) [
+              "--io-psi-threshold"
+              cfg.ioPsiThreshold
+            ]
+            ++ (builtins.concatMap (v: [
+              "--systems"
+              v
+            ]) cfg.systems)
+            ++ (builtins.concatMap (v: [
+              "--supported-features"
+              v
+            ]) cfg.supportedFeatures)
+            ++ (builtins.concatMap (v: [
+              "--mandatory-features"
+              v
+            ]) cfg.mandatoryFeatures)
+            ++ lib.optionals (cfg.useSubstitutes != null) [
+              "--use-substitutes"
+            ]
+            ++ lib.optionals (cfg.authorizationFile != null) [
+              "--authorization-file"
+              cfg.authorizationFile
+            ]
+            ++ lib.optionals (cfg.mtls != null) [
+              "--server-root-ca-cert-path"
+              cfg.mtls.serverRootCaCertPath
+              "--client-cert-path"
+              cfg.mtls.clientCertPath
+              "--client-key-path"
+              cfg.mtls.clientKeyPath
+              "--domain-name"
+              cfg.mtls.domainName
+            ]
+          )
+        }
+      '';
 
       environment = {
-        NIX_REMOTE = "daemon";
-        LIBEV_FLAGS = "4"; # go ahead and mandate epoll(2)
         RUST_BACKTRACE = "1";
-
-        # Note: it's important to set this for nix-store, because it wants to use
-        # $HOME in order to use a temporary cache dir. bizarre failures will occur
-        # otherwise
-        HOME = "/run/queue-builder";
+        NIX_SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
       };
 
       serviceConfig = {
-        Type = "notify";
-        Restart = "always";
-        RestartSec = "5s";
+        KeepAlive = true;
+        StandardErrorPath = cfg.logFile;
+        StandardOutPath = cfg.logFile;
 
-        ExecStart = lib.escapeShellArgs (
-          [
-            "${cfg.package}/bin/builder"
-            "--gateway-endpoint"
-            cfg.queueRunnerAddr
-            "--ping-interval"
-            cfg.pingInterval
-            "--speed-factor"
-            cfg.speedFactor
-            "--max-jobs"
-            cfg.maxJobs
-            "--build-dir-avail-threshold"
-            cfg.buildDirAvailThreshold
-            "--store-avail-threshold"
-            cfg.storeAvailThreshold
-            "--load1-threshold"
-            cfg.load1Threshold
-            "--cpu-psi-threshold"
-            cfg.cpuPsiThreshold
-            "--mem-psi-threshold"
-            cfg.memPsiThreshold
-          ]
-          ++ lib.optionals (cfg.ioPsiThreshold != null) [
-            "--io-psi-threshold"
-            cfg.ioPsiThreshold
-          ]
-          ++ (builtins.concatMap (v: [
-            "--systems"
-            v
-          ]) cfg.systems)
-          ++ (builtins.concatMap (v: [
-            "--supported-features"
-            v
-          ]) cfg.supportedFeatures)
-          ++ (builtins.concatMap (v: [
-            "--mandatory-features"
-            v
-          ]) cfg.mandatoryFeatures)
-          ++ lib.optionals (cfg.useSubstitutes != null) [
-            "--use-substitutes"
-          ]
-          ++ lib.optionals (cfg.authorizationFile != null) [
-            "--authorization-file"
-            cfg.authorizationFile
-          ]
-          ++ lib.optionals (cfg.mtls != null) [
-            "--server-root-ca-cert-path"
-            cfg.mtls.serverRootCaCertPath
-            "--client-cert-path"
-            cfg.mtls.clientCertPath
-            "--client-key-path"
-            cfg.mtls.clientKeyPath
-            "--domain-name"
-            cfg.mtls.domainName
-          ]
-        );
-
-        User = "hydra-queue-builder";
-        Group = "hydra";
-
-        PrivateNetwork = false;
-        SystemCallFilter = [
-          "@system-service"
-          "~@privileged"
-          "~@resources"
-        ];
-
-        ReadWritePaths = [
-          "/nix/var/nix/gcroots/"
-          "/nix/var/nix/daemon-socket/socket"
-        ];
-        ReadOnlyPaths = [ "/nix/" ];
-        RuntimeDirectory = "queue-builder";
-
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        PrivateTmp = true;
-        PrivateDevices = true;
-        ProtectKernelTunables = true;
-        ProtectControlGroups = true;
-        RestrictSUIDSGID = true;
-        PrivateMounts = true;
-        RemoveIPC = true;
-        UMask = "0077";
-
-        CapabilityBoundingSet = "";
-        NoNewPrivileges = true;
-
-        ProtectKernelModules = true;
-        SystemCallArchitectures = "native";
-        ProtectKernelLogs = true;
-        ProtectClock = true;
-
-        RestrictAddressFamilies = "";
-
-        LockPersonality = true;
-        ProtectHostname = true;
-        RestrictRealtime = true;
-        MemoryDenyWriteExecute = true;
-        PrivateUsers = true;
-        RestrictNamespaces = true;
+        GroupName = "hydra";
+        UserName = "hydra-queue-builder";
+        WorkingDirectory = user.home;
       };
     };
-
-    systemd.tmpfiles.rules = [
-      "d /nix/var/nix/gcroots/per-user/hydra-queue-builder 0755 hydra-queue-builder hydra -"
-    ];
-    nix = {
-      settings = {
-        allowed-users = [ "hydra-queue-builder" ];
-        trusted-users = [ "hydra-queue-builder" ];
-      };
-      extraOptions = ''
-        experimental-features = nix-command
-      '';
-    };
-
     users = {
-      groups.hydra = { };
       users.hydra-queue-builder = {
-        group = "hydra";
-        isSystemUser = true;
+        uid = lib.mkDefault 535;
+        gid = lib.mkDefault config.users.groups.hydra.gid;
+        home = lib.mkDefault "/var/lib/hydra-queue-builder";
+        shell = "/bin/bash";
+        description = "hydra-queue-builder service user";
       };
+      knownUsers = [ "hydra-queue-builder" ];
+      groups.hydra = {
+        gid = lib.mkDefault 535;
+        description = "Nix group for hydra-queue-builder service";
+      };
+      knownGroups = [ "hydra" ];
     };
 
+    # FIXME: create logfiles automatically if defined.
+    system.activationScripts.preActivation.text = ''
+      mkdir -p '${user.home}'
+      touch '${cfg.logFile}'
+      chown ${toString user.uid}:${toString user.gid} '${user.home}' '${cfg.logFile}'
+
+      # create gcroots
+      mkdir -p /nix/var/nix/gcroots/per-user/hydra-queue-builder
+      chown ${toString user.uid}:${toString user.gid} /nix/var/nix/gcroots/per-user/hydra-queue-builder
+      chmod 0755 /nix/var/nix/gcroots/per-user/hydra-queue-builder
+    '';
   };
 }
