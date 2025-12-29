@@ -10,8 +10,7 @@ use std::time::Instant;
 
 use bytes::Bytes;
 use moka::future::Cache;
-use object_store::ObjectStore as _;
-use object_store::signer::Signer as _;
+use object_store::{ObjectStore as _, ObjectStoreExt as _, signer::Signer as _};
 use secrecy::ExposeSecret;
 use smallvec::SmallVec;
 
