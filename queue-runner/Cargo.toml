@@ -33,7 +33,7 @@ byte-unit.workspace = true
 
 tokio-stream.workspace = true
 prost.workspace = true
-tonic = { workspace = true, features = ["zstd", "tls-ring"] }
+tonic = { workspace = true, features = ["zstd", "tls-webpki-roots"] }
 tonic-health.workspace = true
 tonic-reflection.workspace = true
 tonic-prost.workspace = true

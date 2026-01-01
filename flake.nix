@@ -46,7 +46,6 @@
           sqlx-cli
         ];
         buildInputs = with pkgs; [
-          unstable.openssl
           zlib
           protobuf
 
@@ -86,7 +85,8 @@
           };
         formatter = treefmtEval.config.build.wrapper;
       }
-    ) // {
+    )
+    // {
       darwinModules = {
         queue-builder = ./darwin-builder-module.nix;
       };

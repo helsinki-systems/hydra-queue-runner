@@ -5,7 +5,6 @@
   nix-gitignore ? pkgs.nix-gitignore,
   lib ? pkgs.lib,
   pkg-config ? pkgs.pkg-config,
-  openssl ? pkgs.openssl,
   zlib ? pkgs.zlib,
   protobuf ? pkgs.protobuf,
   makeWrapper ? pkgs.makeWrapper,
@@ -47,7 +46,6 @@ rustPlatform.buildRustPackage {
     makeWrapper
   ];
   buildInputs = [
-    openssl
     zlib
     protobuf
 

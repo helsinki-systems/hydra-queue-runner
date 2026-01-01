@@ -50,7 +50,7 @@ procfs-core = "0.18"
 prometheus = { version = "0.14.0", default-features = false }
 prost = "0.14"
 regex = "1"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["http2", "charset", "rustls-tls-webpki-roots", "system-proxy"] }
 sd-notify = "0.4.5"
 secrecy = "0.10"
 serde = "1.0"
