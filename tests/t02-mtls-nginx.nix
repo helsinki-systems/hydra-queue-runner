@@ -54,7 +54,7 @@
     builder01 =
       { ... }:
       {
-        imports = [ ../builder-module.nix ];
+        imports = [ ../linux-builder-module.nix ];
 
         services.queue-builder-dev = {
           enable = true;
