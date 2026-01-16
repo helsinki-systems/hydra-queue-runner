@@ -1,4 +1,4 @@
-use hashbrown::HashMap;
+#[cfg(target_os = "linux")]
 use procfs_core::FromRead as _;
 
 pub struct BaseSystemInfo {
@@ -84,7 +84,7 @@ pub struct PressureState {
 // Next 3 Functions are copied from https://github.com/eminence/procfs/blob/v0.17.0/procfs-core/src/pressure.rs#L93
 // LICENSE is Apache2.0/MIT
 #[cfg(target_os = "linux")]
-fn get_f32(map: &HashMap<&str, &str>, value: &str) -> procfs_core::ProcResult<f32> {
+fn get_f32(map: &hashbrown::HashMap<&str, &str>, value: &str) -> procfs_core::ProcResult<f32> {
     map.get(value).map_or_else(
         || Err(procfs_core::ProcError::Incomplete(None)),
         |v| {
@@ -95,7 +95,7 @@ fn get_f32(map: &HashMap<&str, &str>, value: &str) -> procfs_core::ProcResult<f3
 }
 
 #[cfg(target_os = "linux")]
-fn get_total(map: &HashMap<&str, &str>) -> procfs_core::ProcResult<u64> {
+fn get_total(map: &hashbrown::HashMap<&str, &str>) -> procfs_core::ProcResult<u64> {
     map.get("total").map_or_else(
         || Err(procfs_core::ProcError::Incomplete(None)),
         |v| {
@@ -107,7 +107,7 @@ fn get_total(map: &HashMap<&str, &str>) -> procfs_core::ProcResult<u64> {
 
 #[cfg(target_os = "linux")]
 fn parse_pressure_record(line: &str) -> procfs_core::ProcResult<procfs_core::PressureRecord> {
-    let mut parsed = HashMap::with_capacity(4);
+    let mut parsed = hashbrown::HashMap::with_capacity(4);
 
     if !line.starts_with("some") && !line.starts_with("full") {
         return Err(procfs_core::ProcError::Incomplete(None));
