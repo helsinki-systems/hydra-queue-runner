@@ -1,7 +1,10 @@
 {
   pkgs ?
     (builtins.getFlake (builtins.toString ./.)).inputs.nixpkgs.legacyPackages.${builtins.currentSystem},
-  rustPlatform ? pkgs.rustPlatform,
+  unstable ?
+    (builtins.getFlake (builtins.toString ./.))
+    .inputs.nixpkgs-unstable.legacyPackages.${builtins.currentSystem},
+  rustPackages ? unstable.rustPackages,
   nix-gitignore ? pkgs.nix-gitignore,
   lib ? pkgs.lib,
   pkg-config ? pkgs.pkg-config,
@@ -16,7 +19,7 @@
 let
   nix = nixVersions.nix_2_32;
 in
-rustPlatform.buildRustPackage {
+rustPackages.rustPlatform.buildRustPackage {
   name = "queue-runner";
   src = nix-gitignore.gitignoreSource [ ] (
     lib.sources.sourceFilesBySuffices (lib.cleanSource ./.) [

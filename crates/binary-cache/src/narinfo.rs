@@ -42,7 +42,7 @@ impl NarInfo {
         };
         let nar_hash_url = nar_hash
             .strip_prefix("sha256:")
-            .map_or_else(|| path.hash_part(), |h| h);
+            .unwrap_or_else(|| path.hash_part());
 
         let narinfo = Self {
             store_path: path.clone(),
@@ -84,7 +84,7 @@ impl NarInfo {
         };
         let nar_hash_url = nar_hash
             .strip_prefix("sha256:")
-            .map_or_else(|| path.hash_part(), |h| h);
+            .unwrap_or_else(|| path.hash_part());
 
         Self {
             store_path: path.clone(),

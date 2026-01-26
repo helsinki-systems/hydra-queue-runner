@@ -307,15 +307,12 @@ impl TryFrom<AppConfig> for PreparedApp {
         let logname = std::env::var("LOGNAME").context("LOGNAME env var missing")?;
         let nix_state_dir =
             std::env::var("NIX_STATE_DIR").unwrap_or_else(|_| "/nix/var/nix/".to_owned());
-        let roots_dir = val.roots_dir.map_or_else(
-            || {
-                std::path::PathBuf::from(nix_state_dir)
-                    .join("gcroots/per-user")
-                    .join(logname)
-                    .join("hydra-roots")
-            },
-            |roots_dir| roots_dir,
-        );
+        let roots_dir = val.roots_dir.unwrap_or_else(|| {
+            std::path::PathBuf::from(nix_state_dir)
+                .join("gcroots/per-user")
+                .join(logname)
+                .join("hydra-roots")
+        });
         fs_err::create_dir_all(&roots_dir)?;
 
         let hydra_log_dir = val.hydra_data_dir.join("build-logs");

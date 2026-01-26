@@ -823,7 +823,7 @@ impl S3BinaryCacheClient {
     ) -> Result<PresignedUploadResponse, CacheError> {
         let nar_hash_url = nix32_nar_hash
             .strip_prefix("sha256:")
-            .map_or_else(|| path.hash_part(), |h| h);
+            .unwrap_or_else(|| path.hash_part());
 
         let nar_url = format!("nar/{}.{}", nar_hash_url, self.cfg.compression.ext());
         let url = self
