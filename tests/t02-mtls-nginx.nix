@@ -3,10 +3,10 @@
 
   nodes = {
     runner =
-      { ... }:
+      { inputs, ... }:
       {
         imports = [
-          ../runner-module.nix
+          inputs.self.outputs.nixosModules.queue-runner
           ./hydra_postgresql.nix
         ];
 
@@ -52,9 +52,11 @@
       };
 
     builder01 =
-      { ... }:
+      { inputs, ... }:
       {
-        imports = [ ../linux-builder-module.nix ];
+        imports = [
+          inputs.self.outputs.nixosModules.queue-builder
+        ];
 
         services.queue-builder-dev = {
           enable = true;

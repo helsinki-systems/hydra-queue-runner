@@ -1,3 +1,4 @@
+{ self }:
 {
   config,
   pkgs,
@@ -7,6 +8,7 @@
 let
   cfg = config.services.queue-builder-dev;
   user = config.users.users.hydra-queue-builder;
+
 in
 {
   options = {
@@ -134,7 +136,7 @@ in
 
       package = lib.mkOption {
         type = lib.types.package;
-        default = pkgs.callPackage ./. { };
+        default = self.packages.${pkgs.stdenv.hostPlatform.system}.hydra-queue-builder;
       };
 
       logFile = lib.mkOption {

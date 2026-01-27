@@ -181,11 +181,11 @@
     )
     // {
       darwinModules = {
-        queue-builder = ./darwin-builder-module.nix;
+        queue-builder = import ./darwin-builder-module.nix { inherit self; };
       };
       nixosModules = {
-        queue-runner = ./runner-module.nix;
-        queue-builder = ./linux-builder-module.nix;
+        queue-runner = import ./runner-module.nix { inherit self; };
+        queue-builder = import ./linux-builder-module.nix { inherit self; };
       };
     };
 }

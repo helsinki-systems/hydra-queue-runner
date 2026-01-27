@@ -1,3 +1,4 @@
+{ self, ... }:
 {
   config,
   pkgs,
@@ -133,7 +134,7 @@ in
 
       package = lib.mkOption {
         type = lib.types.package;
-        default = pkgs.callPackage ./. { };
+        default = self.packages.${pkgs.stdenv.hostPlatform.system}.hydra-queue-builder;
       };
     };
   };
