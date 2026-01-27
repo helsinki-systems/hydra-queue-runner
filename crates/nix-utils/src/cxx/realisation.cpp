@@ -53,13 +53,13 @@ DrvOutput InternalRealisation::get_drv_output() const {
 }
 
 rust::String InternalRealisation::fingerprint() const {
-  return _realisation->fingerprint();
+  return _realisation->fingerprint(_realisation->id);
 }
 
 void InternalRealisation::sign(rust::Str secret_key) {
   nix::SecretKey s(AS_VIEW(secret_key));
   nix::LocalSigner signer(std::move(s));
-  _realisation->sign(signer);
+  _realisation->sign(_realisation->id, signer);
 }
 
 void InternalRealisation::clear_signatures() {

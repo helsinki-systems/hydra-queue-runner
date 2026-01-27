@@ -14,8 +14,8 @@
 #include <nix/main/shared.hh>
 #include <nix/store/binary-cache-store.hh>
 #include <nix/store/globals.hh>
-#include <nix/store/nar-accessor.hh>
 #include <nix/store/s3-binary-cache-store.hh>
+#include <nix/util/nar-accessor.hh>
 
 #include <nlohmann/json.hpp>
 
@@ -215,20 +215,6 @@ StoreStats get_store_stats(const StoreWrapper &wrapper) {
   };
 }
 
-S3Stats get_s3_stats(const StoreWrapper &wrapper) {
-  auto store = wrapper._store;
-  auto s3Store = dynamic_cast<nix::S3BinaryCacheStore *>(&*store);
-  if (!s3Store) {
-    throw nix::Error("Not a s3 binary chache store");
-  }
-  auto &stats = s3Store->getS3Stats();
-  return S3Stats{
-      stats.put.load(),  stats.putBytes.load(), stats.putTimeMs.load(),
-      stats.get.load(),  stats.getBytes.load(), stats.getTimeMs.load(),
-      stats.head.load(),
-  };
-}
-
 void copy_paths(const StoreWrapper &src_store, const StoreWrapper &dst_store,
                 rust::Slice<const rust::Str> paths, bool repair,
                 bool check_sigs, bool substitute) {
@@ -319,17 +305,15 @@ void nar_from_path(const StoreWrapper &wrapper, rust::Str path,
   }
 }
 
-rust::String list_nar(const StoreWrapper &wrapper, rust::Str path,
-                      bool recursive) {
+rust::String list_nar_deep(const StoreWrapper &wrapper, rust::Str path) {
   auto store = wrapper._store;
   auto [store_path, rest] = store->toStorePath(AS_VIEW(path));
 
   nlohmann::json j = {
       {"version", 1},
-      {"root", nix::listNar(store->getFSAccessor(),
-                            nix::CanonPath{store_path.to_string()} /
-                                nix::CanonPath{rest},
-                            recursive)},
+      {"root", nix::listNarDeep(*store->getFSAccessor(),
+                                nix::CanonPath{store_path.to_string()} /
+                                    nix::CanonPath{rest})},
   };
 
   return j.dump();

@@ -567,7 +567,7 @@ impl S3BinaryCacheClient {
 
         let mut narinfo = self.path_to_narinfo(store, path).await?;
         if self.cfg.write_nar_listing {
-            let ls = store.list_nar(&narinfo.store_path, true).await?;
+            let ls = store.list_nar_deep(&narinfo.store_path).await?;
             self.upload_listing(&narinfo.get_ls_path(), ls).await?;
         }
 

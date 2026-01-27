@@ -25,7 +25,7 @@
         treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
 
         inherit (unstable) rustPackages;
-        nix = unstable.nixVersions.nix_2_32;
+        nix = unstable.nixVersions.nix_2_33;
         inherit (pkgs) lib;
 
         nativeBuildInputs = with pkgs; [

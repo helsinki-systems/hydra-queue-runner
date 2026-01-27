@@ -16,7 +16,4 @@ async fn main() {
         .await;
 
     println!("upsert res={res:?}",);
-
-    let stats = store.get_s3_stats().unwrap();
-    println!("stats {stats:?}",);
 }
