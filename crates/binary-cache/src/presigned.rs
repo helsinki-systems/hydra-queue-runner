@@ -207,7 +207,7 @@ impl PresignedUploadClient {
     ) -> Result<PresignedUploadResult, CacheError> {
         let start = std::time::Instant::now();
 
-        let ls = store.list_nar(store_path, true).await?;
+        let ls = store.list_nar_deep(store_path).await?;
         let stream = Box::new(std::io::Cursor::new(Bytes::from(ls)));
         let compressor = upload
             .compression

@@ -50,7 +50,6 @@ compute_fs_closures(const StoreWrapper &wrapper,
 void upsert_file(const StoreWrapper &wrapper, rust::Str path, rust::Str data,
                  rust::Str mime_type);
 StoreStats get_store_stats(const StoreWrapper &wrapper);
-S3Stats get_s3_stats(const StoreWrapper &wrapper);
 void copy_paths(const StoreWrapper &src_store, const StoreWrapper &dst_store,
                 rust::Slice<const rust::Str> paths, bool repair,
                 bool check_sigs, bool substitute);
@@ -69,8 +68,7 @@ void nar_from_path(const StoreWrapper &src_store, rust::Str path,
                    rust::Fn<bool(rust::Slice<const uint8_t>, size_t)> callback,
                    size_t userdata);
 
-rust::String list_nar(const StoreWrapper &wrapper, rust::Str path,
-                      bool recursive);
+rust::String list_nar_deep(const StoreWrapper &wrapper, rust::Str path);
 
 void ensure_path(const StoreWrapper &wrapper, rust::Str path);
 rust::String try_resolve_drv(const StoreWrapper &wrapper, rust::Str path);

@@ -158,7 +158,6 @@ mod ffi {
         fn upsert_file(store: &StoreWrapper, path: &str, data: &str, mime_type: &str)
         -> Result<()>;
         fn get_store_stats(store: &StoreWrapper) -> Result<StoreStats>;
-        fn get_s3_stats(store: &StoreWrapper) -> Result<S3Stats>;
         fn copy_paths(
             src_store: &StoreWrapper,
             dst_store: &StoreWrapper,
@@ -195,7 +194,7 @@ mod ffi {
             user_data: usize,
         ) -> Result<()>;
 
-        fn list_nar(store: &StoreWrapper, path: &str, recursive: bool) -> Result<String>;
+        fn list_nar_deep(store: &StoreWrapper, path: &str) -> Result<String>;
 
         fn ensure_path(store: &StoreWrapper, path: &str) -> Result<()>;
         fn try_resolve_drv(store: &StoreWrapper, path: &str) -> Result<String>;
@@ -461,10 +460,9 @@ pub trait BaseStore {
     where
         F: FnMut(&[u8]) -> bool;
 
-    fn list_nar(
+    fn list_nar_deep(
         &self,
         path: &StorePath,
-        recursive: bool,
     ) -> impl std::future::Future<Output = Result<String, crate::Error>>;
 
     fn ensure_path(&self, path: &StorePath)
@@ -735,10 +733,10 @@ impl BaseStore for BaseStoreImpl {
 
     #[inline]
     #[tracing::instrument(skip(self), err)]
-    async fn list_nar(&self, path: &StorePath, recursive: bool) -> Result<String, crate::Error> {
+    async fn list_nar_deep(&self, path: &StorePath) -> Result<String, crate::Error> {
         let store = self.wrapper.clone();
         let path = self.print_store_path(path);
-        asyncify(move || ffi::list_nar(&store, &path, recursive)).await
+        asyncify(move || ffi::list_nar_deep(&store, &path)).await
     }
 
     #[inline]
@@ -987,8 +985,8 @@ impl BaseStore for LocalStore {
 
     #[inline]
     #[tracing::instrument(skip(self), err)]
-    async fn list_nar(&self, path: &StorePath, recursive: bool) -> Result<String, crate::Error> {
-        self.base.list_nar(path, recursive).await
+    async fn list_nar_deep(&self, path: &StorePath) -> Result<String, crate::Error> {
+        self.base.list_nar_deep(path).await
     }
 
     #[inline]
@@ -1060,11 +1058,6 @@ impl RemoteStore {
             Ok(())
         })
         .await
-    }
-
-    #[inline]
-    pub fn get_s3_stats(&self) -> Result<crate::ffi::S3Stats, cxx::Exception> {
-        ffi::get_s3_stats(&self.base.wrapper)
     }
 
     #[tracing::instrument(skip(self, paths))]
@@ -1226,8 +1219,8 @@ impl BaseStore for RemoteStore {
 
     #[inline]
     #[tracing::instrument(skip(self), err)]
-    async fn list_nar(&self, path: &StorePath, recursive: bool) -> Result<String, crate::Error> {
-        self.base.list_nar(path, recursive).await
+    async fn list_nar_deep(&self, path: &StorePath) -> Result<String, crate::Error> {
+        self.base.list_nar_deep(path).await
     }
 
     #[inline]
