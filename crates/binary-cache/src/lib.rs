@@ -227,22 +227,25 @@ impl S3BinaryCacheClient {
         if let Some(credentials) = &cfg.credentials {
             builder = builder
                 .with_access_key_id(&credentials.access_key_id)
-                .with_secret_access_key(&credentials.secret_access_key);
+                .with_secret_access_key(credentials.secret_access_key.expose_secret());
         } else if std::env::var("AWS_ACCESS_KEY_ID").ok().is_none()
             && std::env::var("AWS_SECRET_ACCESS_KEY").ok().is_none()
         {
             let profile = cfg.profile.as_deref().unwrap_or("default");
-            if let Ok((access_key, secret_key)) = crate::cfg::read_aws_credentials_file(profile) {
-                tracing::info!(
-                    "Using AWS credentials from credentials file for profile: {profile}",
-                );
-                builder = builder
-                    .with_access_key_id(&access_key)
-                    .with_secret_access_key(&secret_key);
-            } else {
-                tracing::warn!(
-                    "AWS credentials not found in environment variables or credentials file for profile: {profile}",
-                );
+            match crate::cfg::read_aws_credentials_file(profile) {
+                Ok((access_key, secret_key)) => {
+                    tracing::info!(
+                        "Using AWS credentials from credentials file for profile: {profile}",
+                    );
+                    builder = builder
+                        .with_access_key_id(&access_key)
+                        .with_secret_access_key(secret_key.expose_secret());
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "AWS credentials not found in environment variables or credentials file for profile: {profile}. error={e}",
+                    );
+                }
             }
         }
 

@@ -373,7 +373,7 @@ impl S3ClientConfig {
 #[derive(Debug, Clone)]
 pub struct S3CredentialsConfig {
     pub access_key_id: String,
-    pub secret_access_key: String,
+    pub secret_access_key: secrecy::SecretString,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -388,7 +388,9 @@ pub enum ConfigReadError {
     ValueMissing(&'static str),
 }
 
-pub fn read_aws_credentials_file(profile: &str) -> Result<(String, String), ConfigReadError> {
+pub fn read_aws_credentials_file(
+    profile: &str,
+) -> Result<(String, secrecy::SecretString), ConfigReadError> {
     let home_dir = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE"))?;
     let credentials_path = format!("{home_dir}/.aws/credentials");
 
@@ -405,7 +407,8 @@ fn parse_aws_credentials_file(
         std::collections::HashMap<String, Option<String>>,
     >,
     profile: &str,
-) -> Result<(String, String), ConfigReadError> {
+) -> Result<(String, secrecy::SecretString), ConfigReadError> {
+    println!("config_map: {config_map:?}");
     let profile_map = if let Some(profile_map) = config_map.get(profile) {
         profile_map
     } else if let Some(profile_map) = config_map.get(&format!("profile {profile}")) {
@@ -433,7 +436,8 @@ fn parse_aws_credentials_file(
     let secret_key = profile_map
         .get("aws_secret_access_key")
         .and_then(ToOwned::to_owned)
-        .ok_or(ConfigReadError::ValueMissing("aws_secret_access_key"))?;
+        .ok_or(ConfigReadError::ValueMissing("aws_secret_access_key"))?
+        .into();
 
     Ok((access_key, secret_key))
 }
@@ -441,6 +445,8 @@ fn parse_aws_credentials_file(
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
+
+    use secrecy::ExposeSecret as _;
 
     use super::{
         Compression, ConfigReadError, S3CacheConfig, S3ClientConfig, S3CredentialsConfig, S3Scheme,
@@ -469,7 +475,7 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvbEXAMPLEKEY"
 
         let (access_key, secret_key) = parse_aws_credentials_file(&config_map, "default").unwrap();
         assert_eq!(access_key, "AKIAIOSFODNN7EXAMPLE");
-        assert_eq!(secret_key, "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        assert_eq!(secret_key.expose_secret(), "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
     }
 
     #[test]
@@ -505,15 +511,15 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvbSTAGINGKEY"
 
         let (access_key, secret_key) = parse_aws_credentials_file(&config_map, "default").unwrap();
         assert_eq!(access_key, "AKIAIOSFODNN7EXAMPLE");
-        assert_eq!(secret_key, "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        assert_eq!(secret_key.expose_secret(), "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
 
         let (access_key, secret_key) = parse_aws_credentials_file(&config_map, "test").unwrap();
         assert_eq!(access_key, "AKIAI44QH8DHBEXAMPLE");
-        assert_eq!(secret_key, "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbEXAMPLEKEY");
+        assert_eq!(secret_key.expose_secret(), "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbEXAMPLEKEY");
 
         let (access_key, secret_key) = parse_aws_credentials_file(&config_map, "staging").unwrap();
         assert_eq!(access_key, "AKIAI44QH8DHBSTAGING");
-        assert_eq!(secret_key, "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbSTAGINGKEY");
+        assert_eq!(secret_key.expose_secret(), "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbSTAGINGKEY");
     }
 
     #[test]
@@ -614,12 +620,12 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY"
         let (access_key, secret_key) =
             parse_aws_credentials_file(&config_map, "my-test_profile").unwrap();
         assert_eq!(access_key, "AKIAI44QH8DHBTEST");
-        assert_eq!(secret_key, "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbTESTKEY");
+        assert_eq!(secret_key.expose_secret(), "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbTESTKEY");
 
         let (access_key, secret_key) =
             parse_aws_credentials_file(&config_map, "profile_123").unwrap();
         assert_eq!(access_key, "AKIAI44QH8DHB123");
-        assert_eq!(secret_key, "je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY");
+        assert_eq!(secret_key.expose_secret(), "je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY");
     }
 
     #[test]
@@ -968,7 +974,7 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY"
             .with_profile(Some("myprofile"))
             .with_credentials(Some(S3CredentialsConfig {
                 access_key_id: "test-key".to_string(),
-                secret_access_key: "test-secret".to_string(),
+                secret_access_key: "test-secret".into(),
             }));
 
         assert_eq!(config.region, "eu-west-1");
@@ -979,7 +985,7 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY"
 
         let credentials = config.credentials.as_ref().unwrap();
         assert_eq!(credentials.access_key_id, "test-key");
-        assert_eq!(credentials.secret_access_key, "test-secret");
+        assert_eq!(credentials.secret_access_key.expose_secret(), "test-secret");
 
         let config = config
             .with_region(None)
