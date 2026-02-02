@@ -56,7 +56,9 @@ impl Uploader {
         remote_stores: Vec<binary_cache::S3BinaryCacheClient>,
         msg: Message,
     ) {
-        tracing::info!("Uploading {} paths", msg.store_paths.len());
+        let span = tracing::info_span!("upload_msg", msg = ?msg);
+        let _ = span.enter();
+        tracing::info!("Start uploading {} paths", msg.store_paths.len());
 
         let paths_to_copy = match local_store
             .query_requisites(&msg.store_paths.iter().collect::<Vec<_>>(), false)
