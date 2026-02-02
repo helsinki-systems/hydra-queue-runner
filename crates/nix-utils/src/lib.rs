@@ -111,6 +111,31 @@ mod ffi {
         drv_hash: String,
     }
 
+    enum ExperimentalFeature {
+        CaDerivations,
+        ImpureDerivations,
+        Flakes,
+        FetchTree,
+        NixCommand,
+        GitHashing,
+        RecursiveNix,
+        NoUrlLiterals,
+        FetchClosure,
+        AutoAllocateUids,
+        Cgroups,
+        DaemonTrustOverride,
+        DynamicDerivations,
+        ParseTomlTimestamps,
+        ReadOnlyLocalStore,
+        LocalOverlayStore,
+        ConfigurableImpureEnv,
+        MountedSSHStore,
+        VerifiedFetches,
+        PipeOperators,
+        ExternalBuilders,
+        BLAKE3Hashes,
+    }
+
     unsafe extern "C++" {
         include!("nix-utils/include/nix.h");
 
@@ -129,6 +154,7 @@ mod ffi {
         fn get_extra_platforms() -> Vec<String>;
         fn get_system_features() -> Vec<String>;
         fn get_substituters() -> Vec<String>;
+        fn has_feature(feature: ExperimentalFeature) -> bool;
 
         fn get_use_cgroups() -> bool;
         fn set_verbosity(level: i32);
@@ -205,7 +231,7 @@ mod ffi {
     }
 }
 
-pub use ffi::{S3Stats, StoreStats};
+pub use ffi::{ExperimentalFeature, S3Stats, StoreStats};
 
 impl StoreStats {
     #[must_use]
@@ -298,6 +324,12 @@ pub fn get_system_features() -> Vec<String> {
 #[must_use]
 pub fn get_substituters() -> Vec<String> {
     ffi::get_substituters()
+}
+
+#[inline]
+#[must_use]
+pub fn has_feature(feature: ExperimentalFeature) -> bool {
+    ffi::has_feature(feature)
 }
 
 #[inline]

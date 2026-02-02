@@ -13,7 +13,7 @@ pub use atomic::AtomicDateTime;
 pub use build::{Build, BuildOutput, BuildResultState, BuildTimings, Builds, RemoteBuild};
 pub use jobset::{Jobset, JobsetID, Jobsets};
 pub use machine::{Machine, Message as MachineMessage, Pressure, Stats as MachineStats};
-pub use queue::{BuildQueueStats, Queues};
+pub use queue::{BuildQueueStats, QueueType, Queues};
 pub use step::{Step, Steps};
 pub use step_info::StepInfo;
 
@@ -100,21 +100,25 @@ impl State {
         }
 
         Ok(Arc::new(Self {
-            store,
+            store: store.clone(),
             remote_stores: parking_lot::RwLock::new(remote_stores),
             cli,
-            db,
+            db: db.clone(),
             machines: Machines::new(),
             log_dir,
             builds: Builds::new(),
             jobsets: Jobsets::new(),
             steps: Steps::new(),
             queues: Queues::new(),
-            fod_checker: if config.get_enable_fod_checker() {
-                Some(Arc::new(FodChecker::new(None)))
-            } else {
-                None
-            },
+            fod_checker: config.get_fod_checker_config().map(|fod_config| {
+                Arc::new(FodChecker::new(
+                    Some(db),
+                    store,
+                    // TODO: we need reload for this here
+                    fod_config,
+                    None,
+                ))
+            }),
             started_at: jiff::Timestamp::now(),
             metrics: metrics::PromMetrics::new()?,
             notify_dispatch: tokio::sync::Notify::new(),
@@ -136,7 +140,7 @@ impl State {
         let curr_machine_sort_fn = self.config.get_machine_sort_fn();
         let curr_step_sort_fn = self.config.get_step_sort_fn();
         let curr_remote_stores = self.config.get_remote_store_addrs();
-        let curr_enable_fod_checker = self.config.get_enable_fod_checker();
+        let curr_enable_fod_checker = self.config.get_fod_checker_config();
         let mut new_remote_stores = vec![];
         if curr_remote_stores != new_config.remote_store_addr {
             for uri in &new_config.remote_store_addr {
@@ -159,15 +163,16 @@ impl State {
             *remote_stores = new_remote_stores;
         }
 
-        if curr_enable_fod_checker != new_config.enable_fod_checker {
-            tracing::warn!(
-                "Changing the value of enable_fod_checker currently requires a restart!"
-            );
+        if curr_enable_fod_checker != new_config.fod_checker {
+            tracing::warn!("Changing the value of fod currently requires a restart!");
         }
 
         self.machines
             .publish_new_config(machine::ConfigUpdate {
                 max_concurrent_downloads: new_config.max_concurrent_downloads,
+                fod_checker_upload_realisations: new_config
+                    .fod_checker
+                    .is_some_and(|v| v.upload_realisations),
             })
             .await;
 
@@ -201,10 +206,12 @@ impl State {
                     .fail_step(
                         machine_id,
                         &job.path,
+                        job.queue_type,
                         // we fail this with preparing because we kinda want to restart all jobs if
                         // a machine is removed
                         BuildResultState::PreparingFailure,
                         BuildTimings::default(),
+                        None,
                     )
                     .await
                 {
@@ -234,20 +241,23 @@ impl State {
     #[allow(clippy::too_many_lines)]
     async fn realise_drv_on_valid_machine(
         self: Arc<Self>,
-        constraint: queue::JobConstraint,
+        constraint: queue::JobConstraint<'_>,
     ) -> anyhow::Result<RealiseStepResult> {
         let free_fn = self.config.get_machine_free_fn();
 
-        let Some((machine, step_info)) = constraint.resolve(&self.machines, free_fn) else {
+        let Some(resolved) = constraint.resolve(&self.machines, free_fn) else {
             return Ok(RealiseStepResult::None);
         };
-        let drv = step_info.step.get_drv_path();
+        let drv = resolved.step_info.step.get_drv_path();
         let mut build_options = nix_utils::BuildOptions::new(None);
 
         let build_id = {
             let mut dependents = HashSet::new();
             let mut steps = HashSet::new();
-            step_info.step.get_dependents(&mut dependents, &mut steps);
+            resolved
+                .step_info
+                .step
+                .get_dependents(&mut dependents, &mut steps);
 
             if dependents.is_empty() {
                 // Apparently all builds that depend on this derivation are gone (e.g. cancelled). So
@@ -283,12 +293,16 @@ impl State {
         let mut job = machine::Job::new(
             build_id,
             drv.to_owned(),
-            step_info.resolved_drv_path.clone(),
+            resolved.queue_type,
+            resolved.step_info.resolved_drv_path.clone(),
         );
         job.result.set_start_time_now();
-        if self.check_cached_failure(step_info.step.clone()).await {
+        if self
+            .check_cached_failure(resolved.step_info.step.clone())
+            .await
+        {
             job.result.step_status = BuildStatus::CachedFailure;
-            self.inner_fail_job(drv, None, job, step_info.step.clone())
+            self.inner_fail_job(drv, None, job, resolved.step_info.step.clone())
                 .await?;
             return Ok(RealiseStepResult::CachedFailure);
         }
@@ -306,18 +320,26 @@ impl State {
                 .create_build_step(
                     Some(job.result.get_start_time_as_i32()?),
                     build_id,
-                    &self.store.print_store_path(step_info.step.get_drv_path()),
-                    step_info.step.get_system().as_deref(),
-                    machine.hostname.clone(),
+                    &self
+                        .store
+                        .print_store_path(resolved.step_info.step.get_drv_path()),
+                    resolved.step_info.step.get_system().as_deref(),
+                    resolved.machine.hostname.clone(),
                     BuildStatus::Busy,
                     None,
                     None,
-                    step_info
+                    resolved
+                        .step_info
                         .step
                         .get_outputs()
                         .unwrap_or_default()
                         .into_iter()
-                        .map(|o| (o.name, o.path.map(|s| self.store.print_store_path(&s))))
+                        .map(|o| db::models::Output {
+                            name: o.name,
+                            path: o.path.map(|s| self.store.print_store_path(&s)),
+                            expected_hash: None,
+                            actual_hash: None,
+                        })
                         .collect(),
                 )
                 .await?;
@@ -328,8 +350,8 @@ impl State {
 
         tracing::info!(
             "Submitting build drv={drv} on machine={} hostname={} build_id={build_id} step_nr={step_nr}",
-            machine.id,
-            machine.hostname
+            resolved.machine.id,
+            resolved.machine.hostname
         );
         self.db
             .get()
@@ -340,8 +362,10 @@ impl State {
                 status: db::models::StepStatus::Connecting,
             })
             .await?;
-        machine
+        resolved
+            .machine
             .build_drv(
+                resolved.build_message_generator,
                 job,
                 &build_options,
                 // TODO: cleanup
@@ -359,7 +383,7 @@ impl State {
             .await?;
         self.metrics.nr_steps_started.inc();
         self.metrics.nr_steps_building.add(1);
-        Ok(RealiseStepResult::Valid(machine))
+        Ok(RealiseStepResult::Valid(resolved.machine))
     }
 
     #[tracing::instrument(skip(self), fields(%drv), err)]
@@ -479,13 +503,15 @@ impl State {
         self.builds.update_priorities(&curr_ids);
 
         let cancelled_steps = self.queues.kill_active_steps().await;
-        for (drv_path, machine_id) in cancelled_steps {
+        for (drv_path, machine_id, queue_type) in cancelled_steps {
             if let Err(e) = self
                 .fail_step(
                     machine_id,
                     &drv_path,
+                    queue_type,
                     BuildResultState::Cancelled,
                     BuildTimings::default(),
+                    None,
                 )
                 .await
             {
@@ -671,7 +697,7 @@ impl State {
                     } else {
                         self.notify_dispatch.notified().await;
                     }
-                    tracing::info!("starting dispatch");
+                    tracing::info!("starting main dispatch");
 
                     #[allow(clippy::cast_possible_truncation)]
                     self.metrics
@@ -863,7 +889,7 @@ impl State {
 
         for (system, jobs) in new_queues {
             self.queues
-                .insert_new_jobs(
+                .insert_new_jobs_into_main(
                     system,
                     jobs,
                     &now,
@@ -872,7 +898,7 @@ impl State {
                 )
                 .await;
         }
-        self.queues.remove_all_weak_pointer().await;
+        self.queues.remove_all_weak_pointer(None).await;
 
         let nr_steps_waiting_all_queues = self
             .queues
@@ -928,16 +954,17 @@ impl State {
 
     #[allow(clippy::too_many_lines)]
     #[tracing::instrument(skip(self, output), fields(%machine_id, %drv_path), err)]
-    pub async fn succeed_step(
+    async fn succeed_step(
         &self,
         machine_id: uuid::Uuid,
         drv_path: &nix_utils::StorePath,
+        queue_type: QueueType,
         output: BuildOutput,
     ) -> anyhow::Result<()> {
         tracing::info!("marking job as done: drv_path={drv_path}");
         let item = self
             .queues
-            .remove_job_from_scheduled(drv_path)
+            .remove_job_from_scheduled(drv_path, queue_type)
             .await
             .ok_or_else(|| anyhow::anyhow!("Step is missing in queues.scheduled"))?;
 
@@ -951,12 +978,13 @@ impl State {
             .remove_job(drv_path)
             .ok_or_else(|| anyhow::anyhow!("Job is missing in machine.jobs m={}", item.machine,))?;
         self.queues
-            .remove_job(&item.step_info, &item.build_queue)
+            .remove_job(&item.step_info, queue_type, &item.build_queue)
             .await;
 
         job.result.step_status = BuildStatus::Success;
         job.result.set_stop_time_now();
         job.result.set_overhead(output.timings.get_overhead())?;
+        job.result.fod_result.clone_from(&output.fod_output);
 
         let total_step_time = job.result.get_total_step_time_ms();
         item.machine
@@ -997,7 +1025,7 @@ impl State {
                     .collect::<Vec<_>>()
             };
 
-            self.uploader.schedule_upload(
+            self.uploader.schedule_build_upload(
                 outputs_to_upload,
                 format!("log/{}", job.path.base_name()),
                 job.result.log_file.clone(),
@@ -1012,12 +1040,18 @@ impl State {
         {
             let mut db = self.db.get().await?;
             let mut tx = db.begin_transaction().await?;
+
             let start_time = job.result.get_start_time_as_i32()?;
             let stop_time = job.result.get_stop_time_as_i32()?;
             for b in &direct {
                 let is_cached = job.build_id != b.id || job.result.is_cached;
                 tx.mark_succeeded_build(
-                    get_mark_build_sccuess_data(&self.store, b, &output),
+                    get_mark_build_sccuess_data(
+                        &self.store,
+                        b,
+                        &output,
+                        job.result.fod_result.as_ref(),
+                    ),
                     is_cached,
                     start_time,
                     stop_time,
@@ -1055,17 +1089,19 @@ impl State {
     }
 
     #[tracing::instrument(skip(self), fields(%machine_id, %drv_path), err)]
-    pub async fn fail_step(
+    async fn fail_step(
         &self,
         machine_id: uuid::Uuid,
         drv_path: &nix_utils::StorePath,
+        queue_type: QueueType,
         state: BuildResultState,
         timings: BuildTimings,
+        fod_result: Option<crate::server::grpc::runner_v1::FodOutput>,
     ) -> anyhow::Result<()> {
         tracing::info!("removing job from running in system queue: drv_path={drv_path}");
         let item = self
             .queues
-            .remove_job_from_scheduled(drv_path)
+            .remove_job_from_scheduled(drv_path, queue_type)
             .await
             .ok_or_else(|| anyhow::anyhow!("Step is missing in queues.scheduled"))?;
 
@@ -1085,6 +1121,7 @@ impl State {
         job.result.update_with_result_state(&state);
         job.result.set_stop_time_now();
         job.result.set_overhead(timings.get_overhead())?;
+        job.result.fod_result = fod_result.map(Into::into);
 
         let total_step_time = job.result.get_total_step_time_ms();
         item.machine
@@ -1136,7 +1173,7 @@ impl State {
 
         // remove job from queues, aka actually fail the job
         self.queues
-            .remove_job(&item.step_info, &item.build_queue)
+            .remove_job(&item.step_info, queue_type, &item.build_queue)
             .await;
 
         self.inner_fail_job(
@@ -1159,11 +1196,12 @@ impl State {
             .machines
             .get_machine_by_id(machine_id)
             .ok_or_else(|| anyhow::anyhow!("Machine with machine_id not found"))?;
-        let drv_path = machine
+        let (drv_path, queue_type) = machine
             .get_job_drv_for_build_id(build_id)
             .ok_or_else(|| anyhow::anyhow!("Job with build_id not found"))?;
 
-        self.succeed_step(machine_id, &drv_path, output).await
+        self.succeed_step(machine_id, &drv_path, queue_type, output)
+            .await
     }
 
     #[tracing::instrument(skip(self), fields(%machine_id, build_id=%build_id), err)]
@@ -1173,16 +1211,20 @@ impl State {
         machine_id: uuid::Uuid,
         state: BuildResultState,
         timings: BuildTimings,
+        fod_result: Option<crate::server::grpc::runner_v1::FodOutput>,
     ) -> anyhow::Result<()> {
         let machine = self
             .machines
             .get_machine_by_id(machine_id)
             .ok_or_else(|| anyhow::anyhow!("Machine with machine_id not found"))?;
-        let drv_path = machine
+        let (drv_path, queue_type) = machine
             .get_job_drv_for_build_id(build_id)
             .ok_or_else(|| anyhow::anyhow!("Job with build_id not found"))?;
 
-        self.fail_step(machine_id, &drv_path, state, timings).await
+        self.fail_step(
+            machine_id, &drv_path, queue_type, state, timings, fod_result,
+        )
+        .await
     }
 
     #[allow(clippy::too_many_lines)]
@@ -1254,12 +1296,27 @@ impl State {
                         step.get_outputs()
                             .unwrap_or_default()
                             .into_iter()
-                            .map(|o| (o.name, o.path.map(|s| self.store.print_store_path(&s))))
+                            .map(|o| db::models::Output {
+                                name: o.name,
+                                path: o.path.map(|s| self.store.print_store_path(&s)),
+                                expected_hash: job
+                                    .result
+                                    .fod_result
+                                    .as_ref()
+                                    .map(|r| r.expected_hash.clone()),
+                                actual_hash: job
+                                    .result
+                                    .fod_result
+                                    .as_ref()
+                                    .and_then(|r| r.actual_hash.clone()),
+                            })
                             .collect(),
                     )
                     .await?;
                 }
 
+                let start_time = job.result.get_start_time_as_i32()?;
+                let stop_time = job.result.get_stop_time_as_i32()?;
                 // Mark all builds that depend on this derivation as failed.
                 for b in &indirect {
                     if b.get_finished_in_db() {
@@ -1267,8 +1324,6 @@ impl State {
                     }
 
                     tracing::info!("marking build {} as failed", b.id);
-                    let start_time = job.result.get_start_time_as_i32()?;
-                    let stop_time = job.result.get_stop_time_as_i32()?;
                     tx.update_build_after_failure(
                         b.id,
                         if &b.drv_path != step.get_drv_path()
@@ -1283,6 +1338,15 @@ impl State {
                         job.result.step_status == BuildStatus::CachedFailure,
                     )
                     .await?;
+                    if let Some(fod_result) = job.result.fod_result.as_ref() {
+                        tx.update_build_fod_output(
+                            b.id,
+                            &fod_result.expected_hash,
+                            fod_result.actual_hash.as_deref(),
+                        )
+                        .await?;
+                    }
+
                     self.metrics.nr_builds_done.inc();
                 }
 
@@ -1404,7 +1468,12 @@ impl State {
             step.get_outputs()
                 .unwrap_or_default()
                 .into_iter()
-                .map(|o| (o.name, o.path.map(|s| self.store.print_store_path(&s))))
+                .map(|o| db::models::Output {
+                    name: o.name,
+                    path: o.path.map(|s| self.store.print_store_path(&s)),
+                    expected_hash: None,
+                    actual_hash: None,
+                })
                 .collect(),
         )
         .await?;
@@ -1609,7 +1678,7 @@ impl State {
             return CreateStepResult::None;
         };
         if let Some(fod_checker) = &self.fod_checker {
-            fod_checker.add_ca_drv_parsed(&drv_path, &drv);
+            fod_checker.add_ca_drv_parsed(&drv_path, &drv, build.jobset_id);
         }
 
         let system_type = drv.system.as_str();
@@ -1638,7 +1707,7 @@ impl State {
                 if let Ok(log_file) = self.construct_log_file_path(&drv_path).await {
                     let missing_paths: Vec<nix_utils::StorePath> =
                         missing.iter().filter_map(|v| v.path.clone()).collect();
-                    self.uploader.schedule_upload(
+                    self.uploader.schedule_build_upload(
                         missing_paths,
                         format!("log/{}", drv_path.base_name()),
                         log_file.to_string_lossy().to_string(),
@@ -1699,7 +1768,7 @@ impl State {
 
         if finished {
             if let Some(fod_checker) = &self.fod_checker {
-                fod_checker.to_traverse(&drv_path);
+                fod_checker.to_traverse(&drv_path, build.jobset_id);
             }
 
             finished_drvs.write().insert(drv_path.clone());
@@ -1802,7 +1871,7 @@ impl State {
             tracing::info!("marking build {} as succeeded (cached)", build.id);
             let now = jiff::Timestamp::now().as_second();
             tx.mark_succeeded_build(
-                get_mark_build_sccuess_data(&self.store, &build, &res),
+                get_mark_build_sccuess_data(&self.store, &build, &res, None),
                 true,
                 i32::try_from(now)?, // TODO
                 i32::try_from(now)?, // TODO
@@ -1923,7 +1992,8 @@ impl State {
                 continue;
             };
 
-            let mut job = machine::Job::new(build.id, drv.to_owned(), None);
+            // this is a core hydra thing. so QueueType::Main
+            let mut job = machine::Job::new(build.id, drv.to_owned(), QueueType::Main, None);
             job.result.set_start_and_stop(now);
             job.result.step_status = BuildStatus::Unsupported;
             job.result.error_msg = Some(format!(
@@ -1936,14 +2006,34 @@ impl State {
         }
 
         {
+            // this is a core hydra thing. so QueueType::Main
             for step in &aborted {
-                self.queues.remove_job_by_path(step.get_drv_path()).await;
+                self.queues
+                    .remove_job_by_path(step.get_drv_path(), QueueType::Main)
+                    .await;
             }
-            self.queues.remove_all_weak_pointer().await;
+            self.queues
+                .remove_all_weak_pointer(Some(QueueType::Main))
+                .await;
         }
         self.metrics.nr_unsupported_steps.set(count);
         self.metrics
             .nr_unsupported_steps_aborted
             .inc_by(aborted.len() as u64);
+    }
+
+    pub fn upload_realisation(&self, serialized_realisation: &str) {
+        // only do uploads for fod checked realisations right now
+        // reason for this is, that the realisations format is still not stable
+        if self
+            .config
+            .get_fod_checker_config()
+            .is_some_and(|v| v.upload_realisations)
+        {
+            return;
+        }
+
+        self.uploader
+            .schedule_realisation_upload(serialized_realisation.to_owned());
     }
 }

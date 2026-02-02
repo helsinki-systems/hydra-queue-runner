@@ -94,6 +94,66 @@ rust::Vec<rust::String> get_substituters() {
   return data;
 }
 
+bool has_feature(ExperimentalFeature feature) {
+  switch (feature) {
+  case ExperimentalFeature::CaDerivations:
+    return nix::experimentalFeatureSettings.isEnabled(nix::Xp::CaDerivations);
+  case ExperimentalFeature::ImpureDerivations:
+    return nix::experimentalFeatureSettings.isEnabled(
+        nix::Xp::ImpureDerivations);
+  case ExperimentalFeature::Flakes:
+    return nix::experimentalFeatureSettings.isEnabled(nix::Xp::Flakes);
+  case ExperimentalFeature::FetchTree:
+    return nix::experimentalFeatureSettings.isEnabled(nix::Xp::FetchTree);
+  case ExperimentalFeature::NixCommand:
+    return nix::experimentalFeatureSettings.isEnabled(nix::Xp::NixCommand);
+  case ExperimentalFeature::GitHashing:
+    return nix::experimentalFeatureSettings.isEnabled(nix::Xp::GitHashing);
+  case ExperimentalFeature::RecursiveNix:
+    return nix::experimentalFeatureSettings.isEnabled(nix::Xp::RecursiveNix);
+  case ExperimentalFeature::NoUrlLiterals:
+    return nix::experimentalFeatureSettings.isEnabled(nix::Xp::NoUrlLiterals);
+  case ExperimentalFeature::FetchClosure:
+    return nix::experimentalFeatureSettings.isEnabled(nix::Xp::FetchClosure);
+  case ExperimentalFeature::AutoAllocateUids:
+    return nix::experimentalFeatureSettings.isEnabled(
+        nix::Xp::AutoAllocateUids);
+  case ExperimentalFeature::Cgroups:
+    return nix::experimentalFeatureSettings.isEnabled(nix::Xp::Cgroups);
+  case ExperimentalFeature::DaemonTrustOverride:
+    return nix::experimentalFeatureSettings.isEnabled(
+        nix::Xp::DaemonTrustOverride);
+  case ExperimentalFeature::DynamicDerivations:
+    return nix::experimentalFeatureSettings.isEnabled(
+        nix::Xp::DynamicDerivations);
+  case ExperimentalFeature::ParseTomlTimestamps:
+    return nix::experimentalFeatureSettings.isEnabled(
+        nix::Xp::ParseTomlTimestamps);
+  case ExperimentalFeature::ReadOnlyLocalStore:
+    return nix::experimentalFeatureSettings.isEnabled(
+        nix::Xp::ReadOnlyLocalStore);
+  case ExperimentalFeature::LocalOverlayStore:
+    return nix::experimentalFeatureSettings.isEnabled(
+        nix::Xp::LocalOverlayStore);
+  case ExperimentalFeature::ConfigurableImpureEnv:
+    return nix::experimentalFeatureSettings.isEnabled(
+        nix::Xp::ConfigurableImpureEnv);
+  case ExperimentalFeature::MountedSSHStore:
+    return nix::experimentalFeatureSettings.isEnabled(nix::Xp::MountedSSHStore);
+  case ExperimentalFeature::VerifiedFetches:
+    return nix::experimentalFeatureSettings.isEnabled(nix::Xp::VerifiedFetches);
+  case ExperimentalFeature::PipeOperators:
+    return nix::experimentalFeatureSettings.isEnabled(nix::Xp::PipeOperators);
+  case ExperimentalFeature::ExternalBuilders:
+    return nix::experimentalFeatureSettings.isEnabled(
+        nix::Xp::ExternalBuilders);
+  case ExperimentalFeature::BLAKE3Hashes:
+    return nix::experimentalFeatureSettings.isEnabled(nix::Xp::BLAKE3Hashes);
+  default:
+    return false;
+  };
+}
+
 bool get_use_cgroups() {
 #ifdef __linux__
   return nix::settings.useCgroups;

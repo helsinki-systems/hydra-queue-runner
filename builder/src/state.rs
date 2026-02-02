@@ -9,14 +9,16 @@ use hashbrown::HashMap;
 use tonic::Request;
 use tracing::Instrument as _;
 
+use crate::grpc::runner_v1::Realisation;
 use crate::grpc::{BuilderClient, runner_v1};
 use crate::types::BuildTimings;
 use binary_cache::{Compression, PresignedUpload, PresignedUploadClient};
-use nix_utils::BaseStore as _;
+use nix_utils::{BaseStore as _, RealisationOperations as _};
 use runner_v1::{
     AbortMessage, BuildMessage, BuildMetric, BuildProduct, BuildResultInfo, BuildResultState,
-    FetchRequisitesRequest, JoinMessage, LogChunk, NarData, NixSupport, Output, OutputNameOnly,
-    OutputWithPath, PingMessage, PressureState, StepStatus, StepUpdate, StorePaths, output,
+    FetchRequisitesRequest, FodOutput, JoinMessage, LogChunk, NarData, NixSupport, Output,
+    OutputNameOnly, OutputWithPath, PingMessage, PressureState, RebuildFodMessage, StepStatus,
+    StepUpdate, StorePaths, output,
 };
 
 include!(concat!(env!("OUT_DIR"), "/proto_version.rs"));
@@ -96,6 +98,7 @@ pub struct State {
     pub hostname: String,
     pub config: Config,
     pub max_concurrent_downloads: AtomicU32,
+    pub fod_checker_upload_realisations: AtomicBool,
 
     active_builds: parking_lot::RwLock<HashMap<uuid::Uuid, Arc<BuildInfo>>>,
     pub client: BuilderClient,
@@ -182,6 +185,7 @@ impl State {
                 use_substitutes: cli.use_substitutes,
             },
             max_concurrent_downloads: 5.into(),
+            fod_checker_upload_realisations: false.into(),
             client: crate::grpc::init_client(cli).await?,
             halt: false.into(),
             metrics: Arc::new(crate::metrics::Metrics::default()),
@@ -303,6 +307,90 @@ impl State {
                             result_state: BuildResultState::from(e) as i32,
                             nix_support: None,
                             outputs: vec![],
+                            fod_output: None,
+                        };
+
+                        if let (_, Err(e)) = (|tuple: (BuilderClient, BuildResultInfo)| async {
+                            let (mut client, body) = tuple;
+                            let res = client.complete_build(body.clone()).await;
+                            ((client, body), res)
+                        })
+                        .retry(retry_strategy())
+                        .sleep(tokio::time::sleep)
+                        .context((self_.client.clone(), failed_build))
+                        .notify(|err: &tonic::Status, dur: core::time::Duration| {
+                            tracing::error!("Failed to submit build failure info: err={err}, retrying in={dur:?}");
+                        })
+                        .await
+                        {
+                            tracing::error!("Failed to submit build failure info: {e}");
+                        }
+                    }
+                }
+            }
+        });
+
+        self.insert_new_build(
+            build_id,
+            BuildInfo {
+                drv_path: drv,
+                handle: task_handle,
+                was_cancelled,
+            },
+        );
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, m), fields(drv=%m.drv), err)]
+    pub fn schedule_fod_check(self: Arc<Self>, m: RebuildFodMessage) -> anyhow::Result<()> {
+        // TODO: deduplicate with schedule_build
+        if self.halt.load(Ordering::SeqCst) {
+            tracing::warn!("State is set to halt, will no longer accept new builds!");
+            return Err(anyhow::anyhow!("State set to halt."));
+        }
+
+        let drv = nix_utils::StorePath::new(&m.drv);
+        if self.contains_build(&drv) {
+            return Ok(());
+        }
+        tracing::info!("Checking {drv}");
+        let build_id = uuid::Uuid::parse_str(&m.build_id)?;
+
+        let was_cancelled = Arc::new(AtomicBool::new(false));
+        let task_handle = tokio::spawn({
+            let self_ = self.clone();
+            let drv = drv.clone();
+            let was_cancelled = was_cancelled.clone();
+            async move {
+                let mut timings = BuildTimings::default();
+                match Box::pin(self_.process_fod_check(m, &mut timings)).await {
+                    Ok(()) => {
+                        tracing::info!("Successfully completed check fod process for {drv}");
+                        self_.remove_build(build_id);
+                    }
+                    Err(e) => {
+                        if was_cancelled.load(Ordering::SeqCst) {
+                            tracing::error!(
+                                "Build of {drv} was cancelled {e}, not reporting Error"
+                            );
+                            return;
+                        }
+
+                        tracing::error!("Check Fod of {drv} failed with {e}");
+                        self_.remove_build(build_id);
+                        let failed_build = BuildResultInfo {
+                            build_id: build_id.to_string(),
+                            machine_id: self_.id.to_string(),
+                            import_time_ms: u64::try_from(timings.import_elapsed.as_millis())
+                                .unwrap_or_default(),
+                            build_time_ms: u64::try_from(timings.build_elapsed.as_millis())
+                                .unwrap_or_default(),
+                            upload_time_ms: u64::try_from(timings.upload_elapsed.as_millis())
+                                .unwrap_or_default(),
+                            result_state: BuildResultState::from(e) as i32,
+                            outputs: vec![],
+                            nix_support: None,
+                            fod_output: None,
                         };
 
                         if let (_, Err(e)) = (|tuple: (BuilderClient, BuildResultInfo)| async {
@@ -533,6 +621,219 @@ impl State {
         ))
         .await
         .map_err(JobFailure::PostProcessing)?;
+
+        // This part is stupid, if writing doesnt work, we try to write a failure, maybe that works.
+        // We retry to ensure that this almost never happens.
+        (|tuple: (BuilderClient, BuildResultInfo)| async {
+            let (mut client, body) = tuple;
+            let res = client.complete_build(body.clone()).await;
+            ((client, body), res)
+        })
+        .retry(retry_strategy())
+        .sleep(tokio::time::sleep)
+        .context((client.clone(), build_results))
+        .notify(|err: &tonic::Status, dur: core::time::Duration| {
+            tracing::error!("Failed to submit build success info: err={err}, retrying in={dur:?}");
+        })
+        .await
+        .1
+        .map_err(|e| {
+            tracing::error!("Failed to submit build success info. Will fail build: err={e}");
+            JobFailure::PostProcessing(e.into())
+        })?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, m), fields(drv=%m.drv), err)]
+    #[allow(clippy::too_many_lines)]
+    async fn process_fod_check(
+        &self,
+        m: RebuildFodMessage,
+        timings: &mut BuildTimings,
+    ) -> Result<(), JobFailure> {
+        // we dont use anyhow here because we manually need to write the correct build status
+        // to the queue runner.
+        let store = nix_utils::LocalStore::init();
+
+        let machine_id = self.id;
+        let drv = nix_utils::StorePath::new(&m.drv);
+        let resolved_drv = m
+            .resolved_drv
+            .as_ref()
+            .map(|v| nix_utils::StorePath::new(v));
+
+        let before_import = Instant::now();
+        let gcroot_prefix = uuid::Uuid::new_v4().to_string();
+        let gcroot = self
+            .get_gcroot(&gcroot_prefix)
+            .map_err(|e| JobFailure::Preparing(e.into()))?;
+
+        let mut client = self.client.clone();
+        let _ = client // we ignore the error here, as this step status has no prio
+            .build_step_update(StepUpdate {
+                build_id: m.build_id.clone(),
+                machine_id: machine_id.to_string(),
+                step_status: StepStatus::SeningInputs as i32,
+            })
+            .await;
+        let requisites = client
+            .fetch_drv_requisites(FetchRequisitesRequest {
+                path: resolved_drv.as_ref().unwrap_or(&drv).base_name().to_owned(),
+                include_outputs: false,
+            })
+            .await
+            .map_err(|e| JobFailure::Import(e.into()))?
+            .into_inner()
+            .requisites;
+
+        import_requisites(
+            &mut client,
+            store.clone(),
+            self.metrics.clone(),
+            &gcroot,
+            resolved_drv.as_ref().unwrap_or(&drv),
+            requisites
+                .into_iter()
+                .map(|s| nix_utils::StorePath::new(&s)),
+            usize::try_from(self.max_concurrent_downloads.load(Ordering::Relaxed)).unwrap_or(5),
+            self.config.use_substitutes,
+        )
+        .await
+        .map_err(JobFailure::Import)?;
+        timings.import_elapsed = before_import.elapsed();
+
+        // Resolved drv and drv output paths are the same
+        let drv_info = nix_utils::query_drv(&store, &drv)
+            .await
+            .map_err(|e| JobFailure::Import(e.into()))?
+            .ok_or(JobFailure::Import(anyhow::anyhow!("drv not found")))?;
+
+        let _ = client // we ignore the error here, as this step status has no prio
+            .build_step_update(StepUpdate {
+                build_id: m.build_id.clone(),
+                machine_id: machine_id.to_string(),
+                step_status: StepStatus::Building as i32,
+            })
+            .await;
+        let before_build = Instant::now();
+        let fod_result = crate::utils::rebuild_fod(
+            &store,
+            &drv_info,
+            Some(nix_utils::BuildOptions::complete(
+                m.max_log_size,
+                m.max_silent_time,
+                m.build_timeout,
+            )),
+        )
+        .await
+        .map_err(JobFailure::Build)?;
+        timings.build_elapsed = before_build.elapsed();
+
+        if self.fod_checker_upload_realisations.load(Ordering::Relaxed) {
+            if nix_utils::has_feature(nix_utils::ExperimentalFeature::CaDerivations) {
+                let _ = client // we ignore the error here, as this step status has no prio
+                    .build_step_update(StepUpdate {
+                        build_id: m.build_id.clone(),
+                        machine_id: machine_id.to_string(),
+                        step_status: StepStatus::ReceivingOutputs as i32,
+                    })
+                    .await;
+
+                let before_upload = Instant::now();
+                let hashes = store
+                    .static_output_hashes(&drv)
+                    .await
+                    .map_err(|e| JobFailure::Upload(e.into()))?;
+                for (output_name, drv_hash) in hashes {
+                    let raw_realisation = store
+                        .query_raw_realisation(&drv_hash, &output_name)
+                        .map_err(|e| JobFailure::Upload(e.into()))?;
+
+                    client
+                        .upload_realisation(Realisation {
+                            build_id: m.build_id.clone(),
+                            machine_id: machine_id.to_string(),
+                            serialized_realiation: raw_realisation.as_json(),
+                        })
+                        .await
+                        .map_err(|e| JobFailure::Upload(e.into()))?;
+                }
+
+                timings.upload_elapsed = before_upload.elapsed();
+            } else {
+                tracing::warn!("CaDerivations not enabled!");
+            }
+        }
+
+        let _ = client // we ignore the error here, as this step status has no prio
+            .build_step_update(StepUpdate {
+                build_id: m.build_id.clone(),
+                machine_id: machine_id.to_string(),
+                step_status: StepStatus::PostProcessing as i32,
+            })
+            .await;
+
+        let build_results = match fod_result {
+            crate::utils::FodResult::Ok { actual_sri, output } => {
+                let mut build_results = Box::pin(new_success_build_result_info(
+                    store.clone(),
+                    machine_id,
+                    &drv,
+                    drv_info,
+                    *timings,
+                    m.build_id.clone(),
+                ))
+                .await
+                .map_err(JobFailure::PostProcessing)?;
+                build_results.fod_output = Some(FodOutput {
+                    expected_hash: actual_sri.clone(),
+                    actual_hash: Some(actual_sri),
+                    output,
+                });
+                build_results
+            }
+            crate::utils::FodResult::HashMismatch {
+                expected_sri,
+                actual_sri,
+                output,
+            } => BuildResultInfo {
+                build_id: m.build_id.clone(),
+                machine_id: machine_id.to_string(),
+                import_time_ms: u64::try_from(timings.import_elapsed.as_millis())
+                    .unwrap_or_default(),
+                build_time_ms: u64::try_from(timings.build_elapsed.as_millis()).unwrap_or_default(),
+                upload_time_ms: u64::try_from(timings.upload_elapsed.as_millis())
+                    .unwrap_or_default(),
+                result_state: BuildResultState::HashMismatch as i32,
+                nix_support: None,
+                outputs: vec![],
+                fod_output: Some(FodOutput {
+                    expected_hash: expected_sri,
+                    actual_hash: Some(actual_sri),
+                    output,
+                }),
+            },
+            crate::utils::FodResult::BuildFailure {
+                expected_sri,
+                output,
+            } => BuildResultInfo {
+                build_id: m.build_id.clone(),
+                machine_id: machine_id.to_string(),
+                import_time_ms: u64::try_from(timings.import_elapsed.as_millis())
+                    .unwrap_or_default(),
+                build_time_ms: u64::try_from(timings.build_elapsed.as_millis()).unwrap_or_default(),
+                upload_time_ms: u64::try_from(timings.upload_elapsed.as_millis())
+                    .unwrap_or_default(),
+                result_state: BuildResultState::BuildFailure as i32,
+                nix_support: None,
+                outputs: vec![],
+                fod_output: Some(FodOutput {
+                    expected_hash: expected_sri,
+                    actual_hash: None,
+                    output,
+                }),
+            },
+        };
 
         // This part is stupid, if writing doesnt work, we try to write a failure, maybe that works.
         // We retry to ensure that this almost never happens.
@@ -1127,5 +1428,6 @@ async fn new_success_build_result_info(
                 })
                 .collect(),
         }),
+        fod_output: None,
     })
 }

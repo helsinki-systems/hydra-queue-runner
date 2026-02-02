@@ -17,7 +17,7 @@ include!(concat!(env!("OUT_DIR"), "/proto_version.rs"));
 use runner_v1::runner_service_server::{RunnerService, RunnerServiceServer};
 use runner_v1::{
     BuildResultInfo, BuilderRequest, FetchRequisitesRequest, JoinResponse, LogChunk, NarData,
-    PresignedUploadComplete, PresignedUrlRequest, PresignedUrlResponse, RunnerRequest,
+    PresignedUploadComplete, PresignedUrlRequest, PresignedUrlResponse, Realisation, RunnerRequest,
     SimplePingMessage, StorePath, StorePaths, VersionCheckRequest, VersionCheckResponse,
     builder_request,
 };
@@ -35,6 +35,7 @@ const BACKWARDS_PING_INTERVAL: u64 = 30;
 pub mod runner_v1 {
     // We need to allow pedantic here because of generated code
     #![allow(clippy::pedantic)]
+    #![allow(clippy::enum_variant_names)]
 
     tonic::include_proto!("runner.v1");
 
@@ -285,6 +286,10 @@ impl RunnerService for Server {
                 message: Some(runner_v1::runner_request::Message::Join(JoinResponse {
                     machine_id: machine_id.to_string(),
                     max_concurrent_downloads: state.config.get_max_concurrent_downloads(),
+                    fod_checker_upload_realisations: state
+                        .config
+                        .get_fod_checker_config()
+                        .is_some_and(|v| v.upload_realisations),
                 })),
             }))
             .await
@@ -449,7 +454,11 @@ impl RunnerService for Server {
         Ok(tonic::Response::new(runner_v1::Empty {}))
     }
 
-    #[tracing::instrument(skip(self, req), fields(machine_id=req.get_ref().machine_id, build_id=req.get_ref().build_id), err)]
+    #[tracing::instrument(
+        skip(self, req),
+        fields(machine_id=req.get_ref().machine_id, build_id=req.get_ref().build_id),
+        err,
+    )]
     async fn complete_build(
         &self,
         req: tonic::Request<BuildResultInfo>,
@@ -488,6 +497,7 @@ impl RunnerService for Server {
                             req.build_time_ms,
                             req.upload_time_ms,
                         ),
+                        req.fod_output,
                     )
                     .await
                 {
@@ -757,6 +767,37 @@ impl RunnerService for Server {
             req.file_size,
             narinfo_url
         );
+
+        Ok(tonic::Response::new(runner_v1::Empty {}))
+    }
+
+    #[tracing::instrument(
+        skip(self, req),
+        fields(machine_id=req.get_ref().machine_id, build_id=req.get_ref().build_id),
+        err,
+    )]
+    async fn upload_realisation(
+        &self,
+        req: tonic::Request<Realisation>,
+    ) -> BuilderResult<runner_v1::Empty> {
+        let state = self.state.clone();
+
+        let req = req.into_inner();
+        let _build_id = uuid::Uuid::parse_str(&req.build_id).map_err(|e| {
+            tracing::error!("Failed to parse build_id into uuid: {e}");
+            tonic::Status::invalid_argument("build_id is not a valid uuid.")
+        })?;
+        let _machine_id = uuid::Uuid::parse_str(&req.machine_id).map_err(|e| {
+            tracing::error!("Failed to parse machine_id into uuid: {e}");
+            tonic::Status::invalid_argument("machine_id is not a valid uuid.")
+        })?;
+
+        tokio::spawn({
+            async move {
+                state.upload_realisation(&req.serialized_realiation);
+            }
+            .in_current_span()
+        });
 
         Ok(tonic::Response::new(runner_v1::Empty {}))
     }

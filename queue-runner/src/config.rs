@@ -160,10 +160,6 @@ const fn default_concurrent_upload_limit() -> usize {
     5
 }
 
-const fn default_enable_fod_checker() -> bool {
-    false
-}
-
 #[derive(Debug, Default, serde::Deserialize, Copy, Clone, PartialEq, Eq)]
 pub enum MachineSortFn {
     SpeedFactorOnly,
@@ -249,14 +245,34 @@ struct AppConfig {
 
     token_list_path: Option<Vec<std::path::PathBuf>>,
 
-    #[serde(default = "default_enable_fod_checker")]
-    enable_fod_checker: bool,
-
     #[serde(default)]
     use_presigned_uploads: bool,
 
     #[serde(default)]
     forced_substituters: Vec<String>,
+
+    #[serde(default)]
+    fod_checker: Option<FodConfig>,
+}
+
+fn default_seconds_bettwen_fod_checks() -> usize {
+    // Check all 14 days
+    60 * 60 * 24 * 7
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
+struct FodConfig {
+    #[serde(default)]
+    enable: bool,
+
+    // seconds between fod checks of the same FOD derivation
+    #[serde(default = "default_seconds_bettwen_fod_checks")]
+    seconds_between_fod_checks: usize,
+
+    #[serde(default)]
+    upload_realisations: bool,
 }
 
 /// Prepared configuration of the application
@@ -284,9 +300,40 @@ pub struct PreparedApp {
     pub max_concurrent_downloads: u32,
     concurrent_upload_limit: usize,
     token_list: Option<Vec<String>>,
-    pub enable_fod_checker: bool,
+    pub fod_checker: Option<PreparedFodConfig>,
     pub use_presigned_uploads: bool,
     pub forced_substituters: Vec<String>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct PreparedFodConfig {
+    pub duration_between_fod_checks: jiff::SignedDuration,
+    pub upload_realisations: bool,
+}
+
+impl PreparedFodConfig {
+    fn new(val: Option<&FodConfig>) -> Option<Self> {
+        let val = val?;
+        if !val.enable {
+            return None;
+        }
+
+        Some(Self {
+            duration_between_fod_checks: jiff::SignedDuration::from_secs(
+                // same default as default_seconds_bettwen_fod_checks => 14 days
+                i64::try_from(val.seconds_between_fod_checks).unwrap_or(60 * 60 * 24 * 14),
+            ),
+            upload_realisations: val.upload_realisations,
+        })
+    }
+
+    #[must_use]
+    pub fn init(duration_between: jiff::SignedDuration, upload_realisations: bool) -> Self {
+        Self {
+            duration_between_fod_checks: duration_between,
+            upload_realisations,
+        }
+    }
 }
 
 impl TryFrom<AppConfig> for PreparedApp {
@@ -376,7 +423,7 @@ impl TryFrom<AppConfig> for PreparedApp {
             max_concurrent_downloads: val.max_concurrent_downloads,
             concurrent_upload_limit: val.concurrent_upload_limit,
             token_list,
-            enable_fod_checker: val.enable_fod_checker,
+            fod_checker: PreparedFodConfig::new(val.fod_checker.as_ref()),
             use_presigned_uploads: val.use_presigned_uploads,
             forced_substituters: val.forced_substituters,
         })
@@ -540,9 +587,9 @@ impl App {
     }
 
     #[must_use]
-    pub fn get_enable_fod_checker(&self) -> bool {
+    pub fn get_fod_checker_config(&self) -> Option<PreparedFodConfig> {
         let inner = self.inner.load();
-        inner.enable_fod_checker
+        inner.fod_checker
     }
 
     #[must_use]

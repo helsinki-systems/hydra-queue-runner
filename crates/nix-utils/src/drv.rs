@@ -4,12 +4,28 @@ use smallvec::SmallVec;
 use crate::BaseStore as _;
 use crate::StorePath;
 
+fn get_sri_hash(hash: &str, hash_algo: &str) -> Result<String, super::Error> {
+    let algo = hash_algo.strip_prefix("r:").unwrap_or(hash_algo);
+    Ok(super::convert_hash(
+        hash,
+        Some(algo.parse()?),
+        super::HashFormat::SRI,
+    )?)
+}
+
 #[derive(Debug, Clone)]
 pub struct Output {
     pub name: String,
     pub path: Option<StorePath>,
     pub hash: Option<String>,
     pub hash_algo: Option<String>,
+}
+
+impl Output {
+    #[must_use]
+    pub fn try_get_sri_hash(&self) -> Option<String> {
+        get_sri_hash(self.hash.as_deref()?, self.hash_algo.as_deref()?).ok()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -22,12 +38,7 @@ pub struct CAOutput {
 
 impl CAOutput {
     pub fn get_sri_hash(&self) -> Result<String, super::Error> {
-        let algo = self.hash_algo.strip_prefix("r:").unwrap_or(&self.hash_algo);
-        Ok(super::convert_hash(
-            &self.hash,
-            Some(algo.parse()?),
-            super::HashFormat::SRI,
-        )?)
+        get_sri_hash(&self.hash, &self.hash_algo)
     }
 }
 

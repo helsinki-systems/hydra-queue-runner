@@ -1,9 +1,9 @@
 use sqlx::Acquire;
 
 use super::models::{
-    Build, BuildSmall, BuildStatus, BuildSteps, InsertBuildMetric, InsertBuildProduct,
-    InsertBuildStep, InsertBuildStepOutput, Jobset, UpdateBuild, UpdateBuildStep,
-    UpdateBuildStepInFinish,
+    Build, BuildSmall, BuildStatus, BuildSteps, BuildWithTimestamps, InsertBuildMetric,
+    InsertBuildOutput, InsertBuildProduct, InsertBuildStep, InsertBuildStepOutput, InsertFodCheck,
+    Jobset, Output, UpdateBuild, UpdateBuildStep, UpdateBuildStepInFinish,
 };
 
 pub struct Connection {
@@ -31,11 +31,9 @@ impl Connection {
         sqlx::query_as!(
             BuildSmall,
             r#"
-            SELECT
-              id,
-              globalPriority
+            SELECT id, globalPriority
             FROM builds
-            WHERE finished = 0;"#
+            WHERE finished = 0 AND fodCheck = false;"#
         )
         .fetch_all(&mut *self.conn)
         .await
@@ -60,7 +58,7 @@ impl Connection {
               priority
             FROM builds
             INNER JOIN jobsets ON builds.jobset_id = jobsets.id
-            WHERE finished = 0 ORDER BY globalPriority desc, schedulingshares, random();"#
+            WHERE finished = 0 AND fodCheck = false ORDER BY globalPriority desc, schedulingshares, random();"#
         )
         .fetch_all(&mut *self.conn)
         .await
@@ -109,7 +107,8 @@ impl Connection {
             WHERE
               s.startTime IS NOT NULL AND
               to_timestamp(s.stopTime) > (NOW() - (interval '1 second' * $1)) AND
-              jobset_id = $2
+              jobset_id = $2 AND
+              fodCheck = false
             "#,
             Some((scheduling_window * 10) as f64),
             jobset_id,
@@ -221,11 +220,14 @@ impl Connection {
         sqlx::query_as!(
             super::models::BuildOutput,
             r#"
-            SELECT
-              id, buildStatus, releaseName, closureSize, size
+            SELECT id, buildStatus, releaseName, closureSize, size
             FROM builds b
             JOIN buildoutputs o on b.id = o.build
-            WHERE finished = 1 and (buildStatus = 0 or buildStatus = 6) and path = $1;"#,
+            WHERE
+              finished = 1 AND
+              (buildStatus = 0 OR buildStatus = 6) AND
+              path = $1 AND
+              fodCheck = false;"#,
             out_path,
         )
         .fetch_optional(&mut *self.conn)
@@ -280,6 +282,31 @@ impl Connection {
                 .await?
                 .map(|v| v.status),
         )
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    pub async fn get_not_finished_fod_checks(&mut self) -> sqlx::Result<Vec<Build>> {
+        sqlx::query_as!(
+            Build,
+            r#"
+            SELECT
+              builds.id,
+              builds.jobset_id,
+              jobsets.project as project,
+              jobsets.name as jobset,
+              job,
+              drvPath,
+              maxsilent,
+              timeout,
+              timestamp,
+              globalPriority,
+              priority
+            FROM builds
+            INNER JOIN jobsets ON builds.jobset_id = jobsets.id
+            WHERE finished = 0 and fodCheck = true ORDER BY globalPriority desc, schedulingshares, random();"#
+        )
+        .fetch_all(&mut *self.conn)
+        .await
     }
 }
 
@@ -378,19 +405,72 @@ impl Transaction<'_> {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, name, path), err)]
+    #[tracing::instrument(skip(self, outputs), err)]
+    pub async fn insert_build_outputs(
+        &mut self,
+        outputs: &[InsertBuildOutput],
+    ) -> sqlx::Result<()> {
+        if outputs.is_empty() {
+            return Ok(());
+        }
+
+        let mut query_builder = sqlx::QueryBuilder::new(
+            "INSERT INTO buildoutputs (build, name, path, expectedHash, actualHash) ",
+        );
+
+        query_builder.push_values(outputs, |mut b, output| {
+            b.push_bind(output.build_id)
+                .push_bind(&output.name)
+                .push_bind(&output.path)
+                .push_bind(&output.expected_hash)
+                .push_bind(&output.actual_hash);
+        });
+        let query = query_builder.build();
+        query.execute(&mut *self.tx).await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, output), err)]
     pub async fn update_build_output(
         &mut self,
         build_id: i32,
-        name: &str,
-        path: &str,
+        output: &Output,
     ) -> sqlx::Result<()> {
-        // TODO: support inserting multiple at the same time
+        // TODO: support updating multiple at the same time
         sqlx::query!(
-            "UPDATE buildoutputs SET path = $3 WHERE build = $1 AND name = $2",
+            r#"
+            UPDATE
+              buildoutputs
+            SET path = $3, expectedHash = $4, actualHash = $5
+            WHERE build = $1 AND name = $2"#,
             build_id,
-            name,
-            path,
+            output.name,
+            output.path,
+            output.expected_hash,
+            output.actual_hash,
+        )
+        .execute(&mut *self.tx)
+        .await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, expected_hash, actual_hash), err)]
+    pub async fn update_build_fod_output(
+        &mut self,
+        build_id: i32,
+        expected_hash: &str,
+        actual_hash: Option<&str>,
+    ) -> sqlx::Result<()> {
+        // TODO: support updating multiple at the same time
+        sqlx::query!(
+            r#"
+            UPDATE
+              buildoutputs
+            SET expectedHash = $2, actualHash = $3
+            WHERE build = $1"#,
+            build_id,
+            expected_hash,
+            actual_hash,
         )
         .execute(&mut *self.tx)
         .await?;
@@ -462,8 +542,72 @@ impl Transaction<'_> {
         .map_or(1, |v| v + 1))
     }
 
+    #[tracing::instrument(skip(self, build), err)]
+    pub async fn create_fod_check(&mut self, build: InsertFodCheck<'_>) -> sqlx::Result<i32> {
+        Ok(sqlx::query!(
+            r#"
+            INSERT INTO builds (
+              finished,
+              timestamp,
+              jobset_id,
+              job,
+              nixname,
+              drvPath,
+              system,
+              isCachedBuild,
+              fodCheck
+            ) VALUES (
+              0,
+              $1,
+              $2,
+              $3,
+              $4,
+              $5,
+              $6,
+              0,
+              true
+            ) RETURNING id;
+            "#,
+            build.timestamp,
+            build.jobset_id,
+            build.job,
+            build.nixname,
+            build.drv_path,
+            build.system,
+        )
+        .fetch_one(&mut *self.tx)
+        .await?
+        .id)
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    pub async fn load_build_by_id(&mut self, id: i32) -> sqlx::Result<Option<Build>> {
+        sqlx::query_as!(
+            Build,
+            r#"
+            SELECT
+              builds.id,
+              builds.jobset_id,
+              jobsets.project as project,
+              jobsets.name as jobset,
+              job,
+              drvPath,
+              maxsilent,
+              timeout,
+              timestamp,
+              globalPriority,
+              priority
+            FROM builds
+            INNER JOIN jobsets ON builds.jobset_id = jobsets.id
+            WHERE builds.id = $1;"#,
+            id,
+        )
+        .fetch_optional(&mut *self.tx)
+        .await
+    }
+
     #[tracing::instrument(skip(self, step), err)]
-    pub async fn insert_build_step(&mut self, step: InsertBuildStep<'_>) -> sqlx::Result<bool> {
+    async fn insert_build_step(&mut self, step: InsertBuildStep<'_>) -> sqlx::Result<bool> {
         let success = sqlx::query!(
             r#"
               INSERT INTO buildsteps (
@@ -517,14 +661,17 @@ impl Transaction<'_> {
             return Ok(());
         }
 
-        let mut query_builder =
-            sqlx::QueryBuilder::new("INSERT INTO buildstepoutputs (build, stepnr, name, path) ");
+        let mut query_builder = sqlx::QueryBuilder::new(
+            "INSERT INTO buildstepoutputs (build, stepnr, name, path, expectedHash, actualHash) ",
+        );
 
         query_builder.push_values(outputs, |mut b, output| {
             b.push_bind(output.build_id)
                 .push_bind(output.step_nr)
                 .push_bind(&output.name)
-                .push_bind(&output.path);
+                .push_bind(&output.path)
+                .push_bind(&output.expected_hash)
+                .push_bind(&output.actual_hash);
         });
         let query = query_builder.build();
         query.execute(&mut *self.tx).await?;
@@ -539,13 +686,34 @@ impl Transaction<'_> {
         name: &str,
         path: &str,
     ) -> sqlx::Result<()> {
-        // TODO: support inserting multiple at the same time
+        // TODO: support updating multiple at the same time
         sqlx::query!(
             "UPDATE buildstepoutputs SET path = $4 WHERE build = $1 AND stepnr = $2 AND name = $3",
             build_id,
             step_nr,
             name,
             path,
+        )
+        .execute(&mut *self.tx)
+        .await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, expected_hash, actual_hash), err)]
+    pub async fn update_build_step_fod_output(
+        &mut self,
+        build_id: i32,
+        step_nr: i32,
+        expected_hash: &str,
+        actual_hash: Option<&str>,
+    ) -> sqlx::Result<()> {
+        // TODO: support updating multiple at the same time
+        sqlx::query!(
+            "UPDATE buildstepoutputs SET expectedHash = $3, actualHash = $4 WHERE build = $1 AND stepnr = $2",
+            build_id,
+            step_nr,
+            expected_hash,
+            actual_hash,
         )
         .execute(&mut *self.tx)
         .await?;
@@ -613,6 +781,24 @@ impl Transaction<'_> {
         .fetch_optional(&mut *self.tx)
         .await?
         .is_some())
+    }
+
+    #[tracing::instrument(skip(self, drv_path), err)]
+    pub async fn get_last_fod_check(
+        &mut self,
+        drv_path: &str,
+    ) -> sqlx::Result<Option<BuildWithTimestamps>> {
+        sqlx::query_as!(
+            BuildWithTimestamps,
+            r#"SELECT
+              id, timestamp, drvpath, starttime, stoptime
+            FROM builds
+            WHERE drvpath = $1 and fodcheck = true and finished = 1 ORDER BY timestamp desc
+            LIMIT 1;"#,
+            drv_path,
+        )
+        .fetch_optional(&mut *self.tx)
+        .await
     }
 
     #[tracing::instrument(skip(self, p), err)]
@@ -722,7 +908,8 @@ impl Transaction<'_> {
             machine,
             status,
             error_msg,
-            propagated_from
+            propagated_from,
+            outputs,
         ),
         err
     )]
@@ -736,7 +923,7 @@ impl Transaction<'_> {
         status: crate::models::BuildStatus,
         error_msg: Option<String>,
         propagated_from: Option<crate::models::BuildID>,
-        outputs: Vec<(String, Option<String>)>,
+        outputs: Vec<Output>,
     ) -> sqlx::Result<i32> {
         let step_nr = loop {
             let step_nr = self.alloc_build_step(build_id).await?;
@@ -768,11 +955,13 @@ impl Transaction<'_> {
         self.insert_build_step_outputs(
             &outputs
                 .into_iter()
-                .map(|(name, path)| crate::models::InsertBuildStepOutput {
+                .map(|output| crate::models::InsertBuildStepOutput {
                     build_id,
                     step_nr,
-                    name,
-                    path,
+                    name: output.name,
+                    path: output.path,
+                    expected_hash: output.expected_hash,
+                    actual_hash: output.actual_hash,
                 })
                 .collect::<Vec<_>>(),
         )
@@ -796,7 +985,7 @@ impl Transaction<'_> {
         stop_time: i32,
         build_id: crate::models::BuildID,
         drv_path: &str,
-        output: (String, Option<String>),
+        output: Output,
     ) -> anyhow::Result<i32> {
         let step_nr = loop {
             let step_nr = self.alloc_build_step(build_id).await?;
@@ -824,8 +1013,10 @@ impl Transaction<'_> {
         self.insert_build_step_outputs(&[crate::models::InsertBuildStepOutput {
             build_id,
             step_nr,
-            name: output.0,
-            path: output.1,
+            name: output.name,
+            path: output.path,
+            expected_hash: output.expected_hash,
+            actual_hash: output.actual_hash,
         }])
         .await?;
 
@@ -866,8 +1057,8 @@ impl Transaction<'_> {
         )
         .await?;
 
-        for (name, path) in &build.outputs {
-            self.update_build_output(build.id, name, path).await?;
+        for output in build.outputs {
+            self.update_build_output(build.id, &output).await?;
         }
 
         self.delete_build_products_by_build_id(build.id).await?;

@@ -14,7 +14,7 @@ pub use machine::{Machine, MachineStats};
 pub use queue_runner::QueueRunnerStats;
 pub use response_types::{
     BuildsResponse, DumpResponse, JobsetsResponse, MachinesResponse, QueueResponse,
-    StepInfoResponse, StepsResponse,
+    StepInfoResponse, StepsResponse, StorePathResponse,
 };
 pub use stats::{BuildQueueStats, CgroupStats, CpuStats, IoStats, MemoryStats, Process};
 pub use step::Step;

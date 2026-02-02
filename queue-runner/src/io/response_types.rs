@@ -144,3 +144,20 @@ impl StepInfoResponse {
         }
     }
 }
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorePathResponse {
+    store_paths: Vec<nix_utils::StorePath>,
+    store_path_count: usize,
+}
+
+impl StorePathResponse {
+    #[must_use]
+    pub fn new(store_paths: Vec<nix_utils::StorePath>) -> Self {
+        Self {
+            store_path_count: store_paths.len(),
+            store_paths,
+        }
+    }
+}

@@ -412,6 +412,7 @@ dependencies = [
  "parking_lot",
  "procfs-core 0.18.0",
  "prost",
+ "regex",
  "sd-notify",
  "sha2",
  "shared",

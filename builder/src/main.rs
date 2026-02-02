@@ -9,6 +9,7 @@ mod metrics;
 mod state;
 mod system;
 mod types;
+mod utils;
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]

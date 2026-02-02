@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n              id, timestamp, drvpath, starttime, stoptime\n            FROM builds\n            WHERE drvpath = $1 and fodcheck = true and finished = 1 ORDER BY timestamp desc\n            LIMIT 1;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "timestamp",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "drvpath",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "starttime",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "stoptime",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "dcdb83d04577a2494916153ff66081f05efcbc9355e2e62c00e2ab8b7d2a95db"
+}

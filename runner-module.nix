@@ -125,11 +125,6 @@ in
               type = lib.types.nullOr (lib.types.listOf lib.types.path);
               default = null;
             };
-            enableFodChecker = lib.mkOption {
-              description = "This will enable the FOD checker. It will collect FOD in a separate queue and scheudle these builds to a separate machine with the mandatory feature FOD.";
-              type = lib.types.bool;
-              default = false;
-            };
             usePresignedUploads = lib.mkOption {
               description = ''
                 If enabled the queue runner will no longer upload to s3 but rather the builder will do the uploads.
@@ -143,6 +138,28 @@ in
               description = "Force a list of substituters per builder. Builder will no longer be accepted if they don't have `useSubstitutes` with the substituters listed here.";
               type = lib.types.listOf lib.types.singleLineStr;
               default = [ ];
+            };
+            fodChecker = lib.mkOption {
+              description = "Reloadable settings for queue runner";
+              type = lib.types.submodule {
+                options = {
+                  enable = lib.mkOption {
+                    description = "Enable FOD Checker";
+                    type = lib.types.bool;
+                    default = false;
+                  };
+                  secondsBetweenFodChecks = lib.mkOption {
+                    description = "Time in seconds between FOD Checker";
+                    type = lib.types.int;
+                    default = 60 * 60 * 24 * 7;
+                  };
+                  uploadRealisations = lib.mkOption {
+                    description = "Upload realisations outputs of FOD Checker to remote store.";
+                    type = lib.types.bool;
+                    default = false;
+                  };
+                };
+              };
             };
           };
         };

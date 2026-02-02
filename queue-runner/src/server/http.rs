@@ -143,20 +143,40 @@ async fn router(
             (&hyper::Method::GET, "/status/runnable" | "/status/runnable/") => {
                 handler::status::runnable(state)
             }
-            (&hyper::Method::GET, "/status/queues" | "/status/queues/") => {
-                handler::status::queues(state).await
+            (&hyper::Method::GET, "/status/queues/main" | "/status/queues/main/") => {
+                handler::status::main_queues(state).await
             }
-            (&hyper::Method::GET, "/status/queues/jobs" | "/status/queues/jobs/") => {
-                handler::status::queue_jobs(state).await
+            (&hyper::Method::GET, "/status/queues/main/jobs" | "/status/queues/main/jobs/") => {
+                handler::status::main_queue_jobs(state).await
             }
-            (&hyper::Method::GET, "/status/queues/scheduled" | "/status/queues/scheduled/") => {
-                handler::status::queue_scheduled(state).await
+            (
+                &hyper::Method::GET,
+                "/status/queues/main/scheduled" | "/status/queues/main/scheduled/",
+            ) => handler::status::main_queue_scheduled(state).await,
+            (&hyper::Method::GET, "/status/queues/fod" | "/status/queues/fod/") => {
+                handler::status::fod_queues(state).await
+            }
+            (&hyper::Method::GET, "/status/queues/fod/jobs" | "/status/queues/fod/jobs/") => {
+                handler::status::fod_queue_jobs(state).await
+            }
+            (
+                &hyper::Method::GET,
+                "/status/queues/fod/scheduled" | "/status/queues/fod/scheduled/",
+            ) => handler::status::fod_queue_scheduled(state).await,
+            (&hyper::Method::GET, "/status/fod/to_traverse" | "/status/fod/to_traverse/") => {
+                handler::status::fod_to_traverse(state).await
+            }
+            (&hyper::Method::GET, "/status/fod/drvs" | "/status/fod/drvs/") => {
+                handler::status::fod_drvs(state).await
             }
             (&hyper::Method::GET, "/status/uploads" | "/status/uploads/") => {
                 handler::status::queued_uploads(state).await
             }
             (&hyper::Method::POST, "/dump_status" | "/dump_status/") => {
                 handler::dump_status::post(state).await
+            }
+            (&hyper::Method::POST, "/fod/force_dispatch" | "/fod/force_dispatch/") => {
+                handler::fod::force(req, state).await
             }
             (&hyper::Method::PUT, "/build" | "/build/") => handler::build::put(req, state).await,
             (&hyper::Method::GET, "/metrics" | "/metrics/") => handler::metrics::get(state).await,
@@ -175,7 +195,8 @@ async fn router(
 mod handler {
     pub mod status {
         use super::super::{Error, Response, construct_json_ok_response};
-        use crate::{io, state::State};
+        use crate::io;
+        use crate::state::{QueueType, State};
 
         #[tracing::instrument(skip(state), err)]
         pub async fn get(state: std::sync::Arc<State>) -> Result<Response, Error> {
@@ -250,10 +271,10 @@ mod handler {
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub async fn queues(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub async fn main_queues(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let queues = state
                 .queues
-                .clone_inner()
+                .clone_inner(QueueType::Main)
                 .await
                 .into_iter()
                 .map(|(s, q)| {
@@ -270,10 +291,10 @@ mod handler {
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub async fn queue_jobs(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub async fn main_queue_jobs(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let stepinfos = state
                 .queues
-                .get_jobs()
+                .get_jobs(QueueType::Main)
                 .await
                 .into_iter()
                 .map(Into::into)
@@ -282,15 +303,89 @@ mod handler {
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub async fn queue_scheduled(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub async fn main_queue_scheduled(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let stepinfos = state
                 .queues
-                .get_scheduled()
+                .get_scheduled(QueueType::Main)
                 .await
                 .into_iter()
                 .map(Into::into)
                 .collect();
             construct_json_ok_response(&io::StepInfoResponse::new(stepinfos))
+        }
+
+        #[tracing::instrument(skip(state), err)]
+        pub async fn fod_queues(state: std::sync::Arc<State>) -> Result<Response, Error> {
+            if state.fod_checker.is_none() {
+                return Err(Error::NotFound);
+            }
+
+            let queues = state
+                .queues
+                .clone_inner(QueueType::Fod)
+                .await
+                .into_iter()
+                .map(|(s, q)| {
+                    (
+                        s,
+                        q.clone_inner()
+                            .into_iter()
+                            .filter_map(|v| v.upgrade().map(Into::into))
+                            .collect(),
+                    )
+                })
+                .collect();
+            construct_json_ok_response(&io::QueueResponse::new(queues))
+        }
+
+        #[tracing::instrument(skip(state), err)]
+        pub async fn fod_queue_jobs(state: std::sync::Arc<State>) -> Result<Response, Error> {
+            if state.fod_checker.is_none() {
+                return Err(Error::NotFound);
+            }
+            let stepinfos = state
+                .queues
+                .get_jobs(QueueType::Fod)
+                .await
+                .into_iter()
+                .map(Into::into)
+                .collect();
+            construct_json_ok_response(&io::StepInfoResponse::new(stepinfos))
+        }
+
+        #[tracing::instrument(skip(state), err)]
+        pub async fn fod_queue_scheduled(state: std::sync::Arc<State>) -> Result<Response, Error> {
+            if state.fod_checker.is_none() {
+                return Err(Error::NotFound);
+            }
+            let stepinfos = state
+                .queues
+                .get_scheduled(QueueType::Fod)
+                .await
+                .into_iter()
+                .map(Into::into)
+                .collect();
+            construct_json_ok_response(&io::StepInfoResponse::new(stepinfos))
+        }
+
+        #[tracing::instrument(skip(state), err)]
+        pub async fn fod_to_traverse(state: std::sync::Arc<State>) -> Result<Response, Error> {
+            let Some(fod_checker) = state.fod_checker.as_ref() else {
+                return Err(Error::NotFound);
+            };
+
+            let drvs = fod_checker.clone_to_traverse();
+            construct_json_ok_response(&io::StorePathResponse::new(drvs))
+        }
+
+        #[tracing::instrument(skip(state), err)]
+        pub async fn fod_drvs(state: std::sync::Arc<State>) -> Result<Response, Error> {
+            let Some(fod_checker) = state.fod_checker.as_ref() else {
+                return Err(Error::NotFound);
+            };
+
+            let drvs = fod_checker.clone_ca_derivations();
+            construct_json_ok_response(&io::StorePathResponse::new(drvs))
         }
 
         #[tracing::instrument(skip(state), err)]
@@ -310,6 +405,27 @@ mod handler {
             let mut tx = db.begin_transaction().await?;
             tx.notify_dump_status().await?;
             tx.commit().await?;
+            construct_json_ok_response(&io::Empty {})
+        }
+    }
+
+    pub mod fod {
+        use bytes::Bytes;
+        use http_body_util::combinators::BoxBody;
+
+        use super::super::{Error, construct_json_ok_response};
+        use crate::{io, state::State};
+
+        #[tracing::instrument(skip(_req, state), err)]
+        pub async fn force(
+            _req: hyper::Request<hyper::body::Incoming>,
+            state: std::sync::Arc<State>,
+        ) -> Result<hyper::Response<BoxBody<Bytes, hyper::Error>>, Error> {
+            let Some(fod_checker) = state.fod_checker.as_ref() else {
+                return Err(Error::NotFound);
+            };
+            fod_checker.force_dispatch_sync();
+
             construct_json_ok_response(&io::Empty {})
         }
     }
