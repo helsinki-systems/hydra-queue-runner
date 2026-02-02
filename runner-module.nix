@@ -237,9 +237,10 @@ in
         RUST_BACKTRACE = "1";
 
         # Note: it's important to set this for nix-store, because it wants to use
-        # $HOME in order to use a temporary cache dir. bizarre failures will occur
+        # $HOME in order to use a temporary cache dir. Bizarre failures will occur
         # otherwise
-        HOME = "/run/queue-runner";
+        # We also need to set the home so we can find the .aws/credentials file
+        HOME = "/var/lib/hydra/queue-runner";
       };
 
       serviceConfig = {
