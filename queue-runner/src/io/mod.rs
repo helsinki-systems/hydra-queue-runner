@@ -6,6 +6,7 @@ pub mod response_types;
 pub mod stats;
 pub mod step;
 pub mod step_info;
+pub mod uploads;
 
 pub use build::{Build, BuildPayload};
 pub use jobset::Jobset;
@@ -18,6 +19,7 @@ pub use response_types::{
 pub use stats::{BuildQueueStats, CgroupStats, CpuStats, IoStats, MemoryStats, Process};
 pub use step::Step;
 pub use step_info::StepInfo;
+pub use uploads::UploadsResponse;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -475,7 +475,10 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvbEXAMPLEKEY"
 
         let (access_key, secret_key) = parse_aws_credentials_file(&config_map, "default").unwrap();
         assert_eq!(access_key, "AKIAIOSFODNN7EXAMPLE");
-        assert_eq!(secret_key.expose_secret(), "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        assert_eq!(
+            secret_key.expose_secret(),
+            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        );
     }
 
     #[test]
@@ -511,15 +514,24 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvbSTAGINGKEY"
 
         let (access_key, secret_key) = parse_aws_credentials_file(&config_map, "default").unwrap();
         assert_eq!(access_key, "AKIAIOSFODNN7EXAMPLE");
-        assert_eq!(secret_key.expose_secret(), "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        assert_eq!(
+            secret_key.expose_secret(),
+            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        );
 
         let (access_key, secret_key) = parse_aws_credentials_file(&config_map, "test").unwrap();
         assert_eq!(access_key, "AKIAI44QH8DHBEXAMPLE");
-        assert_eq!(secret_key.expose_secret(), "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbEXAMPLEKEY");
+        assert_eq!(
+            secret_key.expose_secret(),
+            "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbEXAMPLEKEY"
+        );
 
         let (access_key, secret_key) = parse_aws_credentials_file(&config_map, "staging").unwrap();
         assert_eq!(access_key, "AKIAI44QH8DHBSTAGING");
-        assert_eq!(secret_key.expose_secret(), "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbSTAGINGKEY");
+        assert_eq!(
+            secret_key.expose_secret(),
+            "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbSTAGINGKEY"
+        );
     }
 
     #[test]
@@ -620,12 +632,18 @@ aws_secret_access_key = je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY"
         let (access_key, secret_key) =
             parse_aws_credentials_file(&config_map, "my-test_profile").unwrap();
         assert_eq!(access_key, "AKIAI44QH8DHBTEST");
-        assert_eq!(secret_key.expose_secret(), "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbTESTKEY");
+        assert_eq!(
+            secret_key.expose_secret(),
+            "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbTESTKEY"
+        );
 
         let (access_key, secret_key) =
             parse_aws_credentials_file(&config_map, "profile_123").unwrap();
         assert_eq!(access_key, "AKIAI44QH8DHB123");
-        assert_eq!(secret_key.expose_secret(), "je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY");
+        assert_eq!(
+            secret_key.expose_secret(),
+            "je7MtGbClwBF/2Zp9Utk/h3yCo8nvb123KEY"
+        );
     }
 
     #[test]

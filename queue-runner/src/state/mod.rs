@@ -997,17 +997,11 @@ impl State {
                     .collect::<Vec<_>>()
             };
 
-            if let Err(e) = self.uploader.schedule_upload(
+            self.uploader.schedule_upload(
                 outputs_to_upload,
                 format!("log/{}", job.path.base_name()),
                 job.result.log_file.clone(),
-            ) {
-                tracing::error!(
-                    "Failed to schedule upload for build {} outputs: {}",
-                    job.build_id,
-                    e
-                );
-            }
+            );
         }
 
         let direct = item.step_info.step.get_direct_builds();
@@ -1644,15 +1638,12 @@ impl State {
                 if let Ok(log_file) = self.construct_log_file_path(&drv_path).await {
                     let missing_paths: Vec<nix_utils::StorePath> =
                         missing.iter().filter_map(|v| v.path.clone()).collect();
-                    if let Err(e) = self.uploader.schedule_upload(
+                    self.uploader.schedule_upload(
                         missing_paths,
                         format!("log/{}", drv_path.base_name()),
                         log_file.to_string_lossy().to_string(),
-                    ) {
-                        tracing::error!("Failed to schedule upload for derivation {drv_path}: {e}");
-                    } else {
-                        missing.clear();
-                    }
+                    );
+                    missing.clear();
                 }
             }
             missing

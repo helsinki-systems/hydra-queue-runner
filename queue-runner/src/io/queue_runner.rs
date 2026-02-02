@@ -63,6 +63,7 @@ pub struct QueueRunnerStats {
     dispatch_time_ms: u64,
     machines_total: i64,
     machines_in_use: i64,
+    s3_uploads_pending: i64,
 }
 
 impl QueueRunnerStats {
@@ -141,6 +142,7 @@ impl QueueRunnerStats {
             dispatch_time_ms: state.metrics.dispatch_time_ms.get(),
             machines_total: state.metrics.machines_total.get(),
             machines_in_use: state.metrics.machines_in_use.get(),
+            s3_uploads_pending: state.metrics.s3_uploads_pending.get(),
         }
     }
 }

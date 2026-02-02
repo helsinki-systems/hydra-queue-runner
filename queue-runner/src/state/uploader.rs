@@ -1,10 +1,24 @@
+use std::collections::VecDeque;
+
 use backon::ExponentialBuilder;
-use backon::Retryable;
+use backon::Retryable as _;
 use nix_utils::BaseStore as _;
 
 // TODO: scheduling is shit, because if we crash/restart we need to start again as the builds are
 //       already done in the db.
 //       So we need to make this persistent!
+
+fn pop_up_to<T>(q: &mut VecDeque<T>, n: usize) -> Vec<T> {
+    let k = n.min(q.len());
+    let mut out = Vec::with_capacity(k);
+    for _ in 0..k {
+        match q.pop_front() {
+            Some(v) => out.push(v),
+            None => break,
+        }
+    }
+    out
+}
 
 #[derive(Debug)]
 struct Message {
@@ -14,8 +28,7 @@ struct Message {
 }
 
 pub struct Uploader {
-    upload_queue_sender: tokio::sync::mpsc::UnboundedSender<Message>,
-    upload_queue_receiver: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Message>>,
+    queue: parking_lot::RwLock<VecDeque<Message>>,
 }
 
 impl Default for Uploader {
@@ -26,27 +39,24 @@ impl Default for Uploader {
 
 impl Uploader {
     pub fn new() -> Self {
-        let (upload_queue_tx, upload_queue_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
         Self {
-            upload_queue_sender: upload_queue_tx,
-            upload_queue_receiver: tokio::sync::Mutex::new(upload_queue_rx),
+            queue: parking_lot::RwLock::new(VecDeque::with_capacity(1000)),
         }
     }
 
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn schedule_upload(
         &self,
         store_paths: Vec<nix_utils::StorePath>,
         log_remote_path: String,
         log_local_path: String,
-    ) -> anyhow::Result<()> {
+    ) {
         tracing::info!("Scheduling new path upload: {:?}", store_paths);
-        self.upload_queue_sender.send(Message {
+        self.queue.write().push_back(Message {
             store_paths,
             log_remote_path,
             log_local_path,
-        })?;
-        Ok(())
+        });
     }
 
     #[tracing::instrument(skip(self, local_store, remote_stores))]
@@ -135,10 +145,7 @@ impl Uploader {
         local_store: nix_utils::LocalStore,
         remote_stores: Vec<binary_cache::S3BinaryCacheClient>,
     ) {
-        let Some(msg) = ({
-            let mut rx = self.upload_queue_receiver.lock().await;
-            rx.recv().await
-        }) else {
+        let Some(msg) = self.queue.write().pop_front() else {
             return;
         };
 
@@ -151,17 +158,27 @@ impl Uploader {
         remote_stores: Vec<binary_cache::S3BinaryCacheClient>,
         limit: usize,
     ) {
-        let mut messages: Vec<Message> = Vec::with_capacity(limit);
-        self.upload_queue_receiver
-            .lock()
-            .await
-            .recv_many(&mut messages, limit)
-            .await;
+        let messages = {
+            let mut q = self.queue.write();
+            pop_up_to(&mut q, limit)
+        };
 
         let mut jobs = vec![];
         for msg in messages {
             jobs.push(self.upload_msg(local_store.clone(), remote_stores.clone(), msg));
         }
         futures::future::join_all(jobs).await;
+    }
+
+    pub fn len_of_queue(&self) -> usize {
+        self.queue.read().len()
+    }
+
+    pub fn paths_in_queue(&self) -> Vec<nix_utils::StorePath> {
+        self.queue
+            .read()
+            .iter()
+            .flat_map(|m| m.store_paths.clone())
+            .collect()
     }
 }

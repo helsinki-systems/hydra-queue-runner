@@ -152,6 +152,9 @@ async fn router(
             (&hyper::Method::GET, "/status/queues/scheduled" | "/status/queues/scheduled/") => {
                 handler::status::queue_scheduled(state).await
             }
+            (&hyper::Method::GET, "/status/uploads" | "/status/uploads/") => {
+                handler::status::queued_uploads(state).await
+            }
             (&hyper::Method::POST, "/dump_status" | "/dump_status/") => {
                 handler::dump_status::post(state).await
             }
@@ -288,6 +291,12 @@ mod handler {
                 .map(Into::into)
                 .collect();
             construct_json_ok_response(&io::StepInfoResponse::new(stepinfos))
+        }
+
+        #[tracing::instrument(skip(state), err)]
+        pub async fn queued_uploads(state: std::sync::Arc<State>) -> Result<Response, Error> {
+            let paths = state.uploader.paths_in_queue();
+            construct_json_ok_response(&io::UploadsResponse::new(paths))
         }
     }
 

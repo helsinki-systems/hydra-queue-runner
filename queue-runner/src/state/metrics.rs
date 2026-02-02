@@ -55,6 +55,7 @@ pub struct PromMetrics {
     pub dispatch_time_ms: prometheus::IntCounter,          // hydraqueuerunner_dispatch_time_ms
     pub machines_total: prometheus::IntGauge,              // hydraqueuerunner_machines_total
     pub machines_in_use: prometheus::IntGauge,             // hydraqueuerunner_machines_in_use
+    pub s3_uploads_pending: prometheus::IntGauge,          // hydraqueuerunner_s3_uploads_pending
 
     // Per-machine-type metrics
     pub runnable_per_machine_type: prometheus::IntGaugeVec, // hydraqueuerunner_machine_type_runnable
@@ -299,6 +300,10 @@ impl PromMetrics {
         let machines_in_use = prometheus::IntGauge::with_opts(prometheus::Opts::new(
             "hydraqueuerunner_machines_in_use",
             "Number of machines currently in use for building",
+        ))?;
+        let s3_uploads_pending = prometheus::IntGauge::with_opts(prometheus::Opts::new(
+            "hydraqueuerunner_s3_uploads_pending",
+            "Pending upload count to all remote stores.",
         ))?;
 
         // Per-machine-type metrics
@@ -671,6 +676,9 @@ impl PromMetrics {
         r.register(Box::new(dispatch_time_ms.clone()))?;
         r.register(Box::new(machines_total.clone()))?;
         r.register(Box::new(machines_in_use.clone()))?;
+        r.register(Box::new(s3_uploads_pending.clone()))?;
+
+        // Per-machine-type metrics
         r.register(Box::new(runnable_per_machine_type.clone()))?;
         r.register(Box::new(running_per_machine_type.clone()))?;
         r.register(Box::new(waiting_per_machine_type.clone()))?;
@@ -779,6 +787,9 @@ impl PromMetrics {
             dispatch_time_ms,
             machines_total,
             machines_in_use,
+            s3_uploads_pending,
+
+            // Per-machine-type metrics
             runnable_per_machine_type,
             running_per_machine_type,
             waiting_per_machine_type,
@@ -1044,6 +1055,10 @@ impl PromMetrics {
         self.s3_get_speed.reset();
         self.s3_head.reset();
         self.s3_cost_dollar_approx.reset();
+
+        if let Ok(v) = i64::try_from(state.uploader.len_of_queue()) {
+            self.s3_uploads_pending.set(v);
+        }
 
         let s3_backends = state.remote_stores.read();
         for remote_store in s3_backends.iter() {
