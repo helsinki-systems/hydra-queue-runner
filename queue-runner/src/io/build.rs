@@ -38,3 +38,15 @@ pub struct BuildPayload {
     pub drv: String,
     pub jobset_id: i32,
 }
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildOnePayload {
+    pub build_id: db::models::BuildID,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildActiveResponse {
+    pub active: bool,
+}

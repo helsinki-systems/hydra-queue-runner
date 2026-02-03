@@ -155,10 +155,22 @@ async fn router(
             (&hyper::Method::GET, "/status/uploads" | "/status/uploads/") => {
                 handler::status::queued_uploads(state).await
             }
+            (&hyper::Method::GET, path)
+                if path.starts_with("/status/build/") && path.ends_with("/active") =>
+            {
+                let id_str = path
+                    .strip_prefix("/status/build/")
+                    .and_then(|p| p.strip_suffix("/active"))
+                    .ok_or(Error::NotFound)?;
+                handler::status::active(id_str, state).await
+            }
             (&hyper::Method::POST, "/dump_status" | "/dump_status/") => {
                 handler::dump_status::post(state).await
             }
             (&hyper::Method::PUT, "/build" | "/build/") => handler::build::put(req, state).await,
+            (&hyper::Method::POST, "/build_one" | "/build_one/") => {
+                handler::build_one::post(req, state).await
+            }
             (&hyper::Method::GET, "/metrics" | "/metrics/") => handler::metrics::get(state).await,
             _ => Err(Error::NotFound),
         };
@@ -176,6 +188,7 @@ mod handler {
     pub mod status {
         use super::super::{Error, Response, construct_json_ok_response};
         use crate::{io, state::State};
+        use db::models::BuildID;
 
         #[tracing::instrument(skip(state), err)]
         pub async fn get(state: std::sync::Arc<State>) -> Result<Response, Error> {
@@ -298,6 +311,23 @@ mod handler {
             let paths = state.uploader.paths_in_queue();
             construct_json_ok_response(&io::UploadsResponse::new(paths))
         }
+
+        #[tracing::instrument(skip(state), err)]
+        pub async fn active(id_str: &str, state: std::sync::Arc<State>) -> Result<Response, Error> {
+            let build_id: BuildID = id_str.parse().map_err(|_| Error::NotFound)?;
+
+            let is_active = state
+                .db
+                .get()
+                .await?
+                .get_not_finished_builds_fast()
+                .await?
+                .iter()
+                .any(|b| b.id == build_id);
+
+            let response = io::BuildActiveResponse { active: is_active };
+            construct_json_ok_response(&response)
+        }
     }
 
     pub mod dump_status {
@@ -333,6 +363,29 @@ mod handler {
                 .queue_one_build(data.jobset_id, &nix_utils::StorePath::new(&data.drv))
                 .await?;
             construct_json_ok_response(&io::Empty {})
+        }
+    }
+
+    pub mod build_one {
+        use bytes::Buf as _;
+        use http_body_util::BodyExt as _;
+
+        use super::super::{Error, Response, construct_json_ok_response};
+        use crate::{io, state::State};
+
+        #[tracing::instrument(skip(req, state), err)]
+        pub async fn post(
+            req: hyper::Request<hyper::body::Incoming>,
+            state: std::sync::Arc<State>,
+        ) -> Result<Response, Error> {
+            let whole_body = req.collect().await?.aggregate();
+            let data: io::BuildOnePayload = serde_json::from_reader(whole_body.reader())?;
+
+            if state.manually_add_queue_build(data.build_id).await? {
+                construct_json_ok_response(&io::Empty {})
+            } else {
+                return Err(Error::NotFound);
+            }
         }
     }
 

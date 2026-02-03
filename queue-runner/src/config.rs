@@ -56,6 +56,10 @@ pub struct Cli {
     /// Path to Client ca cert
     #[clap(long)]
     pub client_ca_cert_path: Option<std::path::PathBuf>,
+
+    /// Dangerous to disable this, this is only implemented so we can manually trigger only one build
+    #[clap(long, default_value_t = false)]
+    pub disable_queue_monitor_loop: bool,
 }
 
 impl Default for Cli {

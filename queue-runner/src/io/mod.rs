@@ -8,7 +8,7 @@ pub mod step;
 pub mod step_info;
 pub mod uploads;
 
-pub use build::{Build, BuildPayload};
+pub use build::{Build, BuildActiveResponse, BuildOnePayload, BuildPayload};
 pub use jobset::Jobset;
 pub use machine::{Machine, MachineStats};
 pub use queue_runner::QueueRunnerStats;

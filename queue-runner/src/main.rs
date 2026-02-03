@@ -25,11 +25,14 @@ fn start_task_loops(state: &std::sync::Arc<State>) -> Vec<tokio::task::AbortHand
 
     let mut service_list = vec![
         spawn_config_reloader(state.clone(), state.config.clone(), &state.cli.config_path),
-        state.clone().start_queue_monitor_loop(),
         state.clone().start_dispatch_loop(),
         state.clone().start_dump_status_loop(),
         state.clone().start_uploader_queue(),
     ];
+    if !state.cli.disable_queue_monitor_loop {
+        service_list.push(state.clone().start_queue_monitor_loop());
+    }
+
     if let Some(fod_checker) = &state.fod_checker {
         service_list.push(fod_checker.clone().start_traverse_loop(state.store.clone()));
     }

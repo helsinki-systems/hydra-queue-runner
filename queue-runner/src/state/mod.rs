@@ -521,6 +521,46 @@ impl State {
     }
 
     #[tracing::instrument(skip(self), err)]
+    pub(crate) async fn manually_add_queue_build(&self, build_id: BuildID) -> anyhow::Result<bool> {
+        let mut new_ids = Vec::<BuildID>::new();
+        let mut new_builds_by_id = HashMap::<BuildID, Arc<Build>>::new();
+        let mut new_builds_by_path = HashMap::<nix_utils::StorePath, HashSet<BuildID>>::new();
+
+        {
+            let mut conn = self.db.get().await?;
+            for b in conn
+                .get_not_finished_builds()
+                .await?
+                .into_iter()
+                .filter(|b| b.id == build_id)
+            {
+                let jobset = self
+                    .jobsets
+                    .create(&mut conn, b.jobset_id, &b.project, &b.jobset)
+                    .await?;
+                let build = Build::new(b, jobset)?;
+                new_ids.push(build.id);
+                new_builds_by_id.insert(build.id, build.clone());
+                new_builds_by_path
+                    .entry(build.drv_path.clone())
+                    .or_insert_with(HashSet::new)
+                    .insert(build.id);
+            }
+        }
+        tracing::debug!("new_ids: {new_ids:?}");
+        tracing::debug!("new_builds_by_id: {new_builds_by_id:?}");
+        tracing::debug!("new_builds_by_path: {new_builds_by_path:?}");
+
+        if new_ids.is_empty() {
+            return Ok(false);
+        }
+
+        let new_builds_by_id = Arc::new(parking_lot::RwLock::new(new_builds_by_id));
+        Box::pin(self.process_new_builds(new_ids, new_builds_by_id, new_builds_by_path)).await;
+        Ok(true)
+    }
+
+    #[tracing::instrument(skip(self), err)]
     pub async fn get_queued_builds(&self) -> anyhow::Result<()> {
         self.metrics.queue_checks_started.inc();
 
