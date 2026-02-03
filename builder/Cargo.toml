@@ -24,6 +24,7 @@ futures.workspace = true
 prost.workspace = true
 tonic = { workspace = true, features = ["zstd", "tls-webpki-roots"] }
 tonic-prost.workspace = true
+url.workspace = true
 tower.workspace = true
 hyper-util.workspace = true
 async-stream.workspace = true

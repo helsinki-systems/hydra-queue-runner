@@ -113,6 +113,24 @@ pub async fn init_client(cli: &crate::config::Cli) -> anyhow::Result<BuilderClie
             }))
             .await
             .context("Failed to establish unix socket connection with Channel")?
+    } else if cli.gateway_endpoint.starts_with("https://") {
+        let uri: url::Url = cli
+            .gateway_endpoint
+            .parse()
+            .context("Failed to parse gateway_endpoint")?;
+
+        let tls = tonic::transport::ClientTlsConfig::new()
+            .domain_name(
+                uri.domain()
+                    .ok_or(anyhow::anyhow!("No domain_name found for gateway_endpoint"))?,
+            )
+            .with_enabled_roots();
+        tonic::transport::Channel::builder(cli.gateway_endpoint.parse()?)
+            .tls_config(tls)
+            .context("Failed to attach tls config")?
+            .connect()
+            .await
+            .context("Failed to establish connection with Channel")?
     } else {
         tonic::transport::Channel::builder(cli.gateway_endpoint.parse()?)
             .connect()

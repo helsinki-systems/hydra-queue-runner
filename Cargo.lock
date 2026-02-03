@@ -425,6 +425,7 @@ dependencies = [
  "tonic-prost-build",
  "tower",
  "tracing",
+ "url",
  "uuid",
 ]
 
