@@ -282,7 +282,8 @@ in
         StateDirectoryMode = "0700";
         ReadWritePaths = [
           "/nix/var/nix/gcroots/"
-          "/run/postgresql/.s.PGSQL.${toString config.services.postgresql.settings.port}"
+          # PostgreSQL database host can be non-local
+          "-/run/postgresql/.s.PGSQL.${toString config.services.postgresql.settings.port}"
           "/nix/var/nix/daemon-socket/socket"
           "/var/lib/hydra/build-logs/"
         ];
