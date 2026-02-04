@@ -29,6 +29,8 @@ struct Message {
 
 pub struct Uploader {
     queue: parking_lot::RwLock<VecDeque<Message>>,
+    queue_sender: tokio::sync::mpsc::UnboundedSender<()>,
+    queue_receiver: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<()>>,
 }
 
 impl Default for Uploader {
@@ -39,8 +41,11 @@ impl Default for Uploader {
 
 impl Uploader {
     pub fn new() -> Self {
+        let (queue_tx, queue_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
         Self {
             queue: parking_lot::RwLock::new(VecDeque::with_capacity(1000)),
+            queue_sender: queue_tx,
+            queue_receiver: tokio::sync::Mutex::new(queue_rx),
         }
     }
 
@@ -52,6 +57,7 @@ impl Uploader {
         log_local_path: String,
     ) {
         tracing::info!("Scheduling new path upload: {:?}", store_paths);
+        let _ = self.queue_sender.send(());
         self.queue.write().push_back(Message {
             store_paths,
             log_remote_path,
@@ -152,7 +158,13 @@ impl Uploader {
         local_store: nix_utils::LocalStore,
         remote_stores: Vec<binary_cache::S3BinaryCacheClient>,
     ) {
+        let Some(()) = self.queue_receiver.lock().await.recv().await else {
+            tokio::task::yield_now().await;
+            return;
+        };
+
         let Some(msg) = self.queue.write().pop_front() else {
+            tokio::task::yield_now().await;
             return;
         };
 
@@ -166,10 +178,27 @@ impl Uploader {
         remote_stores: Vec<binary_cache::S3BinaryCacheClient>,
         limit: usize,
     ) {
+        let mut empty_messages: Vec<()> = Vec::with_capacity(limit);
+        if self
+            .queue_receiver
+            .lock()
+            .await
+            .recv_many(&mut empty_messages, limit)
+            .await
+            > 0
+        {
+            tokio::task::yield_now().await;
+            return;
+        }
+
         let messages = {
             let mut q = self.queue.write();
             pop_up_to(&mut q, limit)
         };
+        if messages.is_empty() {
+            tokio::task::yield_now().await;
+            return;
+        }
 
         let mut jobs = vec![];
         for msg in messages {
