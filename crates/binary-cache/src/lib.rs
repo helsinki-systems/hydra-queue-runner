@@ -568,6 +568,7 @@ impl S3BinaryCacheClient {
             return Ok(());
         }
 
+        tracing::debug!("start copying path: {path}");
         let mut narinfo = self.path_to_narinfo(store, path).await?;
         if self.cfg.write_nar_listing {
             let ls = store.list_nar_deep(&narinfo.store_path).await?;

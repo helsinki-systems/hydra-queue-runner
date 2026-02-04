@@ -80,6 +80,11 @@ impl Uploader {
                 return;
             }
         };
+        tracing::info!(
+            "{} paths results in {} paths_to_copy",
+            msg.store_paths.len(),
+            paths_to_copy.len()
+        );
 
         for remote_store in remote_stores {
             let bucket = &remote_store.cfg.client_config.bucket;
@@ -105,41 +110,43 @@ impl Uploader {
             if let Err(e) = log_upload_result {
                 tracing::error!("Failed to upload log file after retries: {e}");
             }
-            if msg.store_paths.is_empty() {
-                tracing::debug!("No NAR files to upload (presigned uploads enabled)");
-            } else {
-                let paths_to_copy = remote_store
-                    .query_missing_paths(paths_to_copy.clone())
-                    .await;
 
-                let copy_result = (|| async {
-                    remote_store
-                        .copy_paths(&local_store, paths_to_copy.clone(), false)
-                        .await?;
-
-                    Ok::<(), anyhow::Error>(())
-                })
-                .retry(
-                    ExponentialBuilder::default()
-                        .with_max_delay(std::time::Duration::from_secs(60))
-                        .with_max_times(5),
-                )
+            let paths_to_copy = remote_store
+                .query_missing_paths(paths_to_copy.clone())
                 .await;
+            tracing::info!(
+                "{} paths missing in remote store that we be copied",
+                paths_to_copy.len()
+            );
 
-                if let Err(e) = copy_result {
-                    tracing::error!("Failed to copy paths after retries: {e}");
-                } else {
-                    tracing::debug!(
-                        "Successfully uploaded {} paths to bucket {bucket}",
-                        msg.store_paths.len()
-                    );
-                }
+            let copy_result = (|| async {
+                remote_store
+                    .copy_paths(&local_store, paths_to_copy.clone(), false)
+                    .await?;
+
+                Ok::<(), anyhow::Error>(())
+            })
+            .retry(
+                ExponentialBuilder::default()
+                    .with_max_delay(std::time::Duration::from_secs(60))
+                    .with_max_times(5),
+            )
+            .await;
+
+            if let Err(e) = copy_result {
+                tracing::error!("Failed to copy paths after retries: {e}");
+            } else {
+                tracing::debug!(
+                    "Successfully uploaded {} paths to bucket {bucket}",
+                    msg.store_paths.len()
+                );
             }
         }
 
         tracing::info!("Finished uploading {} paths", msg.store_paths.len());
     }
 
+    #[tracing::instrument(skip(self, local_store, remote_stores))]
     pub async fn upload_once(
         &self,
         local_store: nix_utils::LocalStore,
@@ -152,6 +159,7 @@ impl Uploader {
         self.upload_msg(local_store, remote_stores, msg).await;
     }
 
+    #[tracing::instrument(skip(self, local_store, remote_stores))]
     pub async fn upload_many(
         &self,
         local_store: nix_utils::LocalStore,

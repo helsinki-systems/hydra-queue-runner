@@ -827,7 +827,7 @@ impl State {
         let task = tokio::task::spawn({
             async move {
                 loop {
-                    let local_store = self.store.clone();
+                    let local_store = nix_utils::LocalStore::init();
                     let remote_stores = {
                         let r = self.remote_stores.read();
                         r.clone()
@@ -1027,21 +1027,19 @@ impl State {
         if has_stores {
             // Only upload outputs if presigned uploads are NOT enabled
             // When presigned uploads are enabled, builder handles NAR uploads directly
-            let outputs_to_upload = if self.config.use_presigned_uploads() {
-                vec![]
-            } else {
-                output
+            if !self.config.use_presigned_uploads() {
+                let outputs_to_upload = output
                     .outputs
                     .values()
                     .map(Clone::clone)
-                    .collect::<Vec<_>>()
-            };
+                    .collect::<Vec<_>>();
 
-            self.uploader.schedule_upload(
-                outputs_to_upload,
-                format!("log/{}", job.path.base_name()),
-                job.result.log_file.clone(),
-            );
+                self.uploader.schedule_upload(
+                    outputs_to_upload,
+                    format!("log/{}", job.path.base_name()),
+                    job.result.log_file.clone(),
+                );
+            }
         }
 
         let direct = item.step_info.step.get_direct_builds();
