@@ -61,6 +61,16 @@ impl serde::Serialize for StorePath {
     }
 }
 
+impl<'de> serde::Deserialize<'de> for StorePath {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(StorePath::new(&s))
+    }
+}
+
 impl std::fmt::Display for StorePath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", self.base_name)

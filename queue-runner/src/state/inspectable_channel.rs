@@ -15,6 +15,12 @@ impl<T> InspectableChannel<T> {
         }
     }
 
+    pub fn load_vec_into(&self, data: Vec<T>) {
+        let mut queue = self.queue.write();
+        queue.extend(data);
+        self.notify.notify_one();
+    }
+
     pub fn send(&self, msg: T) {
         let mut queue = self.queue.write();
         queue.push_back(msg);

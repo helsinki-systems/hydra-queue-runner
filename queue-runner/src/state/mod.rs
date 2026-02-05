@@ -120,7 +120,9 @@ impl State {
             started_at: jiff::Timestamp::now(),
             metrics: metrics::PromMetrics::new()?,
             notify_dispatch: tokio::sync::Notify::new(),
-            uploader: uploader::Uploader::new(),
+            uploader: uploader::Uploader::new(
+                config.get_hydra_data_dir().join("uploader_state.json"),
+            ).await,
             config,
         }))
     }
@@ -1036,11 +1038,13 @@ impl State {
                     .map(Clone::clone)
                     .collect::<Vec<_>>();
 
-                self.uploader.schedule_upload(
-                    outputs_to_upload,
-                    format!("log/{}", job.path.base_name()),
-                    job.result.log_file.clone(),
-                );
+                self.uploader
+                    .schedule_upload(
+                        outputs_to_upload,
+                        format!("log/{}", job.path.base_name()),
+                        job.result.log_file.clone(),
+                    )
+                    .await;
             }
         }
 
@@ -1678,11 +1682,13 @@ impl State {
                 if let Ok(log_file) = self.construct_log_file_path(&drv_path).await {
                     let missing_paths: Vec<nix_utils::StorePath> =
                         missing.iter().filter_map(|v| v.path.clone()).collect();
-                    self.uploader.schedule_upload(
-                        missing_paths,
-                        format!("log/{}", drv_path.base_name()),
-                        log_file.to_string_lossy().to_string(),
-                    );
+                    self.uploader
+                        .schedule_upload(
+                            missing_paths,
+                            format!("log/{}", drv_path.base_name()),
+                            log_file.to_string_lossy().to_string(),
+                        )
+                        .await;
                     missing.clear();
                 }
             }

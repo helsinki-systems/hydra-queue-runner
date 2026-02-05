@@ -421,6 +421,12 @@ impl App {
     }
 
     #[must_use]
+    pub fn get_hydra_data_dir(&self) -> std::path::PathBuf {
+        let inner = self.inner.load();
+        inner.hydra_data_dir.clone()
+    }
+
+    #[must_use]
     pub fn get_hydra_log_dir(&self) -> std::path::PathBuf {
         let inner = self.inner.load();
         inner.hydra_log_dir.clone()
