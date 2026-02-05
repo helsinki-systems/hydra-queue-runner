@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-
 use backon::ExponentialBuilder;
 use backon::Retryable as _;
 use nix_utils::BaseStore as _;
@@ -8,29 +6,15 @@ use nix_utils::BaseStore as _;
 //       already done in the db.
 //       So we need to make this persistent!
 
-fn pop_up_to<T>(q: &mut VecDeque<T>, n: usize) -> Vec<T> {
-    let k = n.min(q.len());
-    let mut out = Vec::with_capacity(k);
-    for _ in 0..k {
-        match q.pop_front() {
-            Some(v) => out.push(v),
-            None => break,
-        }
-    }
-    out
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Message {
-    store_paths: Vec<nix_utils::StorePath>,
-    log_remote_path: String,
-    log_local_path: String,
+    store_paths: std::sync::Arc<Vec<nix_utils::StorePath>>,
+    log_remote_path: std::sync::Arc<String>,
+    log_local_path: std::sync::Arc<String>,
 }
 
 pub struct Uploader {
-    queue: parking_lot::RwLock<VecDeque<Message>>,
-    queue_sender: tokio::sync::mpsc::UnboundedSender<()>,
-    queue_receiver: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<()>>,
+    queue: super::InspectableChannel<Message>,
 }
 
 impl Default for Uploader {
@@ -41,11 +25,8 @@ impl Default for Uploader {
 
 impl Uploader {
     pub fn new() -> Self {
-        let (queue_tx, queue_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
         Self {
-            queue: parking_lot::RwLock::new(VecDeque::with_capacity(1000)),
-            queue_sender: queue_tx,
-            queue_receiver: tokio::sync::Mutex::new(queue_rx),
+            queue: super::InspectableChannel::with_capacity(1000),
         }
     }
 
@@ -57,11 +38,10 @@ impl Uploader {
         log_local_path: String,
     ) {
         tracing::info!("Scheduling new path upload: {:?}", store_paths);
-        let _ = self.queue_sender.send(());
-        self.queue.write().push_back(Message {
-            store_paths,
-            log_remote_path,
-            log_local_path,
+        self.queue.send(Message {
+            store_paths: std::sync::Arc::new(store_paths),
+            log_remote_path: std::sync::Arc::new(log_remote_path),
+            log_local_path: std::sync::Arc::new(log_local_path),
         });
     }
 
@@ -97,7 +77,7 @@ impl Uploader {
 
             // Upload log file with backon retry
             let log_upload_result = (|| async {
-                let file = fs_err::tokio::File::open(&msg.log_local_path).await?;
+                let file = fs_err::tokio::File::open(msg.log_local_path.as_str()).await?;
                 let reader = Box::new(tokio::io::BufReader::new(file));
 
                 remote_store
@@ -158,13 +138,7 @@ impl Uploader {
         local_store: nix_utils::LocalStore,
         remote_stores: Vec<binary_cache::S3BinaryCacheClient>,
     ) {
-        let Some(()) = self.queue_receiver.lock().await.recv().await else {
-            tokio::task::yield_now().await;
-            return;
-        };
-
-        let Some(msg) = self.queue.write().pop_front() else {
-            tokio::task::yield_now().await;
+        let Some(msg) = self.queue.recv().await else {
             return;
         };
 
@@ -178,23 +152,7 @@ impl Uploader {
         remote_stores: Vec<binary_cache::S3BinaryCacheClient>,
         limit: usize,
     ) {
-        let mut empty_messages: Vec<()> = Vec::with_capacity(limit);
-        if self
-            .queue_receiver
-            .lock()
-            .await
-            .recv_many(&mut empty_messages, limit)
-            .await
-            > 0
-        {
-            tokio::task::yield_now().await;
-            return;
-        }
-
-        let messages = {
-            let mut q = self.queue.write();
-            pop_up_to(&mut q, limit)
-        };
+        let messages = self.queue.recv_many(limit).await;
         if messages.is_empty() {
             tokio::task::yield_now().await;
             return;
@@ -208,14 +166,14 @@ impl Uploader {
     }
 
     pub fn len_of_queue(&self) -> usize {
-        self.queue.read().len()
+        self.queue.len()
     }
 
     pub fn paths_in_queue(&self) -> Vec<nix_utils::StorePath> {
         self.queue
-            .read()
-            .iter()
-            .flat_map(|m| m.store_paths.clone())
+            .inspect()
+            .into_iter()
+            .flat_map(|m| m.store_paths.iter().cloned().collect::<Vec<_>>())
             .collect()
     }
 }

@@ -1,6 +1,7 @@
 mod atomic;
 mod build;
 mod fod_checker;
+mod inspectable_channel;
 mod jobset;
 mod machine;
 mod metrics;
@@ -26,6 +27,7 @@ use hashbrown::{HashMap, HashSet};
 use secrecy::ExposeSecret as _;
 
 use db::models::{BuildID, BuildStatus};
+use inspectable_channel::InspectableChannel;
 use nix_utils::BaseStore as _;
 
 use crate::config::{App, Cli};
