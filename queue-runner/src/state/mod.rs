@@ -122,7 +122,8 @@ impl State {
             notify_dispatch: tokio::sync::Notify::new(),
             uploader: uploader::Uploader::new(
                 config.get_hydra_data_dir().join("uploader_state.json"),
-            ).await,
+            )
+            .await,
             config,
         }))
     }

@@ -2,6 +2,7 @@ use backon::ExponentialBuilder;
 use backon::Retryable as _;
 use nix_utils::BaseStore as _;
 
+#[allow(clippy::unnecessary_wraps)]
 fn deserialize_with_new_v4<'de, D>(_: D) -> Result<uuid::Uuid, D::Error>
 where
     D: serde::Deserializer<'de>,
