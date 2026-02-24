@@ -61,7 +61,7 @@ impl FfiRealisation {
     }
 
     pub fn as_rust(&self, store: &crate::BaseStoreImpl) -> Result<Realisation, crate::Error> {
-        Ok(self.inner.to_rust(&store.wrapper)?.into())
+        Ok(self.inner.to_rust(store.wrapper.as_raw())?.into())
     }
 
     #[must_use]
@@ -84,7 +84,7 @@ impl FfiRealisation {
     }
 
     pub fn write_to_disk_cache(&self, store: &crate::BaseStoreImpl) -> Result<(), crate::Error> {
-        self.inner.write_to_disk_cache(&store.wrapper)?;
+        self.inner.write_to_disk_cache(store.wrapper.as_raw())?;
         Ok(())
     }
 }
@@ -151,7 +151,7 @@ impl RealisationOperations for crate::BaseStoreImpl {
     ) -> Result<FfiRealisation, crate::Error> {
         Ok(FfiRealisation {
             inner: ffi::query_raw_realisation(
-                &self.wrapper,
+                self.wrapper.as_raw(),
                 &format!("{output_hash}!{output_name}"),
             )?,
         })

@@ -18,7 +18,7 @@ public:
 
 namespace nix_utils {
 void init_nix();
-std::shared_ptr<StoreWrapper> init(rust::Str uri);
+std::unique_ptr<StoreWrapper> init(rust::Str uri);
 
 rust::String get_nix_prefix();
 rust::String get_store_dir();

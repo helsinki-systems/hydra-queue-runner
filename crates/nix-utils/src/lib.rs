@@ -117,7 +117,7 @@ mod ffi {
         type StoreWrapper;
 
         fn init_nix();
-        fn init(uri: &str) -> SharedPtr<StoreWrapper>;
+        fn init(uri: &str) -> UniquePtr<StoreWrapper>;
 
         fn get_nix_prefix() -> String;
         fn get_store_dir() -> String;
@@ -351,7 +351,14 @@ pub async fn copy_paths(
             .iter()
             .map(std::string::String::as_str)
             .collect::<Vec<_>>();
-        ffi::copy_paths(&src, &dst, &slice, repair, check_sigs, substitute)
+        ffi::copy_paths(
+            src.as_raw(),
+            dst.as_raw(),
+            &slice,
+            repair,
+            check_sigs,
+            substitute,
+        )
     })
     .await
 }
@@ -480,19 +487,32 @@ pub trait BaseStore {
     fn print_store_path(&self, path: &StorePath) -> String;
 }
 
-unsafe impl Send for crate::ffi::StoreWrapper {}
-unsafe impl Sync for crate::ffi::StoreWrapper {}
+struct FFIStore(std::cell::UnsafeCell<cxx::UniquePtr<crate::ffi::StoreWrapper>>);
+unsafe impl Send for FFIStore {}
+unsafe impl Sync for FFIStore {}
+
+impl FFIStore {
+    pub fn as_raw(&self) -> &crate::ffi::StoreWrapper {
+        unsafe { &*self.0.get() }
+    }
+
+    #[allow(unused, clippy::mut_from_ref)]
+    pub fn as_pin_mut(&self) -> std::pin::Pin<&mut crate::ffi::StoreWrapper> {
+        let ptr = unsafe { &mut *self.0.get() };
+        ptr.pin_mut()
+    }
+}
 
 #[derive(Clone)]
 pub struct BaseStoreImpl {
-    wrapper: cxx::SharedPtr<crate::ffi::StoreWrapper>,
+    wrapper: std::sync::Arc<FFIStore>,
     store_path_prefix: String,
 }
 
 impl BaseStoreImpl {
-    fn new(store: cxx::SharedPtr<crate::ffi::StoreWrapper>) -> Self {
+    fn new(store: cxx::UniquePtr<crate::ffi::StoreWrapper>) -> Self {
         Self {
-            wrapper: store,
+            wrapper: std::sync::Arc::new(FFIStore(std::cell::UnsafeCell::new(store))),
             store_path_prefix: get_store_dir(),
         }
     }
@@ -536,7 +556,7 @@ impl BaseStore for BaseStoreImpl {
     async fn is_valid_path(&self, path: &StorePath) -> bool {
         let store = self.wrapper.clone();
         let path = self.print_store_path(path);
-        asyncify(move || ffi::is_valid_path(&store, &path))
+        asyncify(move || ffi::is_valid_path(store.as_raw(), &path))
             .await
             .unwrap_or(false)
     }
@@ -545,10 +565,14 @@ impl BaseStore for BaseStoreImpl {
     async fn query_path_info(&self, path: &StorePath) -> Option<PathInfo> {
         let store = self.wrapper.clone();
         let path = self.print_store_path(path);
-        asyncify(move || Ok(ffi::query_path_info(&store, &path).ok().map(Into::into)))
-            .await
-            .ok()
-            .flatten()
+        asyncify(move || {
+            Ok(ffi::query_path_info(store.as_raw(), &path)
+                .ok()
+                .map(Into::into))
+        })
+        .await
+        .ok()
+        .flatten()
     }
 
     #[inline]
@@ -561,7 +585,7 @@ impl BaseStore for BaseStoreImpl {
                 let mut res = HashMap::with_capacity(paths.len());
                 for p in paths {
                     let full_path = self_.print_store_path(&p);
-                    if let Some(info) = ffi::query_path_info(&self_.wrapper, &full_path)
+                    if let Some(info) = ffi::query_path_info(self_.wrapper.as_raw(), &full_path)
                         .ok()
                         .map(Into::into)
                     {
@@ -579,14 +603,14 @@ impl BaseStore for BaseStoreImpl {
     async fn compute_closure_size(&self, path: &StorePath) -> u64 {
         let store = self.wrapper.clone();
         let path = self.print_store_path(path);
-        asyncify(move || ffi::compute_closure_size(&store, &path))
+        asyncify(move || ffi::compute_closure_size(store.as_raw(), &path))
             .await
             .unwrap_or_default()
     }
 
     #[inline]
     fn clear_path_info_cache(&self) {
-        let _ = ffi::clear_path_info_cache(&self.wrapper);
+        let _ = ffi::clear_path_info_cache(self.wrapper.as_raw());
     }
 
     #[inline]
@@ -599,7 +623,7 @@ impl BaseStore for BaseStoreImpl {
         include_derivers: bool,
     ) -> Result<Vec<String>, cxx::Exception> {
         ffi::compute_fs_closure(
-            &self.wrapper,
+            self.wrapper.as_raw(),
             path,
             flip_direction,
             include_outputs,
@@ -629,7 +653,7 @@ impl BaseStore for BaseStoreImpl {
                 .map(std::string::String::as_str)
                 .collect::<Vec<_>>();
             Ok(ffi::compute_fs_closures(
-                &store,
+                store.as_raw(),
                 &slice,
                 flip_direction,
                 include_outputs,
@@ -656,7 +680,7 @@ impl BaseStore for BaseStoreImpl {
     }
 
     fn get_store_stats(&self) -> Result<crate::ffi::StoreStats, cxx::Exception> {
-        ffi::get_store_stats(&self.wrapper)
+        ffi::get_store_stats(self.wrapper.as_raw())
     }
 
     #[inline]
@@ -691,7 +715,7 @@ impl BaseStore for BaseStoreImpl {
     where
         Fd: std::os::fd::AsFd + std::os::fd::AsRawFd,
     {
-        ffi::import_paths_with_fd(&self.wrapper, check_sigs, fd.as_raw_fd())
+        ffi::import_paths_with_fd(self.wrapper.as_raw(), check_sigs, fd.as_raw_fd())
     }
 
     #[inline]
@@ -709,7 +733,7 @@ impl BaseStore for BaseStoreImpl {
             .map(std::string::String::as_str)
             .collect::<Vec<_>>();
         ffi::export_paths(
-            &self.wrapper,
+            self.wrapper.as_raw(),
             &slice,
             export_paths_trampoline::<F>,
             std::ptr::addr_of!(callback).cast::<std::ffi::c_void>() as usize,
@@ -724,7 +748,7 @@ impl BaseStore for BaseStoreImpl {
     {
         let path = self.print_store_path(path);
         ffi::nar_from_path(
-            &self.wrapper,
+            self.wrapper.as_raw(),
             &path,
             export_paths_trampoline::<F>,
             std::ptr::addr_of!(callback).cast::<std::ffi::c_void>() as usize,
@@ -736,7 +760,7 @@ impl BaseStore for BaseStoreImpl {
     async fn list_nar_deep(&self, path: &StorePath) -> Result<String, crate::Error> {
         let store = self.wrapper.clone();
         let path = self.print_store_path(path);
-        asyncify(move || ffi::list_nar_deep(&store, &path)).await
+        asyncify(move || ffi::list_nar_deep(store.as_raw(), &path)).await
     }
 
     #[inline]
@@ -744,7 +768,7 @@ impl BaseStore for BaseStoreImpl {
         let store = self.wrapper.clone();
         let path = self.print_store_path(path);
         asyncify(move || {
-            ffi::ensure_path(&store, &path)?;
+            ffi::ensure_path(store.as_raw(), &path)?;
             Ok(())
         })
         .await
@@ -755,7 +779,7 @@ impl BaseStore for BaseStoreImpl {
         let store = self.wrapper.clone();
         let path = self.print_store_path(path);
         asyncify(move || {
-            let v = ffi::try_resolve_drv(&store, &path)?;
+            let v = ffi::try_resolve_drv(store.as_raw(), &path)?;
             Ok(v.is_empty().then_some(v).map(|v| StorePath::new(&v)))
         })
         .await
@@ -771,7 +795,7 @@ impl BaseStore for BaseStoreImpl {
         let store = self.wrapper.clone();
         let drv_path = self.print_store_path(drv_path);
         asyncify(move || {
-            let o = ffi::static_output_hashes(&store, &drv_path)?;
+            let o = ffi::static_output_hashes(store.as_raw(), &drv_path)?;
             Ok(o.into_iter().map(|v| (v.output_name, v.drv_hash)).collect())
         })
         .await
@@ -803,7 +827,7 @@ impl BaseStoreImpl {
     {
         let runtime = Box::new(tokio::runtime::Runtime::new()?);
         ffi::import_paths(
-            &self.wrapper,
+            self.wrapper.as_raw(),
             check_sigs,
             std::ptr::addr_of!(runtime).cast::<std::ffi::c_void>() as usize,
             std::ptr::addr_of!(reader).cast::<std::ffi::c_void>() as usize,
@@ -1053,7 +1077,7 @@ impl RemoteStore {
         let store = self.base.wrapper.clone();
         asyncify(move || {
             if let Ok(data) = fs_err::read_to_string(local_path) {
-                ffi::upsert_file(&store, &path, &data, mime_type)?;
+                ffi::upsert_file(store.as_raw(), &path, &data, mime_type)?;
             }
             Ok(())
         })

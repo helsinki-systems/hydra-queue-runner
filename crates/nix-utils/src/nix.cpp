@@ -41,14 +41,14 @@ void init_nix() {
 
 StoreWrapper::StoreWrapper(nix::ref<nix::Store> _store) : _store(_store) {}
 
-std::shared_ptr<StoreWrapper> init(rust::Str uri) {
+std::unique_ptr<StoreWrapper> init(rust::Str uri) {
   init_nix();
   if (uri.empty()) {
     nix::ref<nix::Store> _store = nix::openStore();
-    return std::make_shared<StoreWrapper>(_store);
+    return std::make_unique<StoreWrapper>(_store);
   } else {
     nix::ref<nix::Store> _store = nix::openStore(AS_STRING(uri));
-    return std::make_shared<StoreWrapper>(_store);
+    return std::make_unique<StoreWrapper>(_store);
   }
 }
 

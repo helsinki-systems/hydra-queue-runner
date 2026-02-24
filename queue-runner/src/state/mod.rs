@@ -1716,7 +1716,7 @@ impl State {
                 self.metrics.nr_substitutes_started.inc();
                 crate::utils::substitute_output(
                     self.db.clone(),
-                    self.store.clone(),
+                    nix_utils::LocalStore::init(),
                     o,
                     build.id,
                     &drv_path,

@@ -34,7 +34,7 @@ fn start_task_loops(state: &std::sync::Arc<State>) -> Vec<tokio::task::AbortHand
     }
 
     if let Some(fod_checker) = &state.fod_checker {
-        service_list.push(fod_checker.clone().start_traverse_loop(state.store.clone()));
+        service_list.push(fod_checker.clone().start_traverse_loop());
     }
 
     service_list

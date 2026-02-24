@@ -112,13 +112,14 @@ impl FodChecker {
         self.notify_traverse.notify_one();
     }
 
-    #[tracing::instrument(skip(self, store))]
-    async fn traverse_loop(&self, store: nix_utils::LocalStore) {
+    #[tracing::instrument(skip(self))]
+    async fn traverse_loop(&self) {
         loop {
             tokio::select! {
                 () = self.notify_traverse.notified() => {},
                 () = tokio::time::sleep(tokio::time::Duration::from_secs(60)) => {},
             };
+            let store = nix_utils::LocalStore::init();
             self.traverse(&store).await;
             if let Some(tx) = &self.traverse_done_notifier {
                 let _ = tx.send(()).await;
@@ -126,12 +127,9 @@ impl FodChecker {
         }
     }
 
-    pub fn start_traverse_loop(
-        self: Arc<Self>,
-        store: nix_utils::LocalStore,
-    ) -> tokio::task::AbortHandle {
+    pub fn start_traverse_loop(self: Arc<Self>) -> tokio::task::AbortHandle {
         let task = tokio::task::spawn(async move {
-            Box::pin(self.traverse_loop(store)).await;
+            Box::pin(self.traverse_loop()).await;
         });
         task.abort_handle()
     }
