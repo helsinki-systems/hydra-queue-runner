@@ -7,7 +7,7 @@ use super::{Jobset, JobsetID, Step};
 use db::models::{BuildID, BuildStatus};
 use nix_utils::BaseStore as _;
 
-pub type AtomicBuildID = AtomicI32;
+pub(super) type AtomicBuildID = AtomicI32;
 
 #[derive(Debug)]
 pub struct Build {
@@ -151,7 +151,7 @@ impl Build {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildResultState {
     Success,
     BuildFailure,
@@ -333,6 +333,7 @@ impl RemoteBuild {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct BuildProduct {
     pub path: Option<nix_utils::StorePath>,
     pub default_path: Option<String>,
@@ -393,6 +394,7 @@ impl From<shared::BuildProduct> for BuildProduct {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct BuildMetric {
     pub name: String,
     pub unit: Option<String>,
@@ -432,6 +434,7 @@ impl BuildTimings {
     }
 }
 
+#[derive(Debug)]
 pub struct BuildOutput {
     pub failed: bool,
     pub timings: BuildTimings,
@@ -577,10 +580,10 @@ impl BuildOutput {
     }
 }
 
-pub fn get_mark_build_sccuess_data<'a>(
+pub(super) fn get_mark_build_sccuess_data<'a>(
     store: &nix_utils::LocalStore,
-    b: &'a Arc<crate::state::Build>,
-    res: &'a crate::state::BuildOutput,
+    b: &'a Arc<Build>,
+    res: &'a BuildOutput,
 ) -> db::models::MarkBuildSuccessData<'a> {
     db::models::MarkBuildSuccessData {
         id: b.id,
@@ -628,7 +631,7 @@ pub fn get_mark_build_sccuess_data<'a>(
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Builds {
     inner: Arc<parking_lot::RwLock<HashMap<BuildID, Arc<Build>>>>,
 }

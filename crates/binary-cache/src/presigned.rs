@@ -62,13 +62,13 @@ pub struct PresignedUploadResponse {
 }
 
 #[derive(Debug, Default)]
-pub struct AtomicPresignedUploadMetrics {
+pub(crate) struct AtomicPresignedUploadMetrics {
     pub put: AtomicU64,
     pub put_bytes: AtomicU64,
     pub put_time_ms: AtomicU64,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct PresignedUploadMetrics {
     pub put: u64,
     pub put_bytes: u64,

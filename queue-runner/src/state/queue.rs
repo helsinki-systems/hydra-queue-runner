@@ -20,7 +20,7 @@ pub struct BuildQueue {
     wait_time_ms: AtomicU64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct BuildQueueStats {
     pub active_runnable: u64,
     pub total_runnable: u64,
@@ -76,7 +76,7 @@ impl BuildQueue {
                 // this should never continue as jobs, should already exclude duplicates
                 if current_jobs
                     .iter()
-                    .filter_map(std::sync::Weak::upgrade)
+                    .filter_map(Weak::upgrade)
                     .any(|v| v.step.get_drv_path() == owned.step.get_drv_path())
                 {
                     continue;
@@ -149,7 +149,7 @@ impl BuildQueue {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ScheduledItem {
     pub step_info: Arc<StepInfo>,
     pub build_queue: Arc<BuildQueue>,
@@ -170,7 +170,8 @@ impl ScheduledItem {
     }
 }
 
-pub struct InnerQueues {
+#[derive(Debug)]
+pub(super) struct InnerQueues {
     // flat list of all step infos in queues, owning those steps inner queue dont own them
     jobs: HashMap<nix_utils::StorePath, Arc<StepInfo>>,
     inner: HashMap<System, Arc<BuildQueue>>,
@@ -349,21 +350,21 @@ impl InnerQueues {
         s.iter().map(|(_, item)| item.step_info.clone()).collect()
     }
 
-    pub fn sort_queues(&self, sort_fn: StepSortFn) {
+    pub(super) fn sort_queues(&self, sort_fn: StepSortFn) {
         for q in self.inner.values() {
             q.sort_jobs(sort_fn);
         }
     }
 }
 
-pub struct JobConstraint {
+pub(super) struct JobConstraint {
     job: Arc<StepInfo>,
     system: System,
     queue_features: SmallVec<[String; 4]>,
 }
 
 impl JobConstraint {
-    pub const fn new(
+    pub(super) const fn new(
         job: Arc<StepInfo>,
         system: System,
         queue_features: SmallVec<[String; 4]>,
@@ -375,7 +376,7 @@ impl JobConstraint {
         }
     }
 
-    pub fn resolve(
+    pub(super) fn resolve(
         self,
         machines: &crate::state::Machines,
         free_fn: crate::config::MachineFreeFn,
@@ -398,7 +399,7 @@ impl JobConstraint {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Queues {
     inner: Arc<tokio::sync::RwLock<InnerQueues>>,
 }

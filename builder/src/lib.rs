@@ -1,7 +1,16 @@
-#![deny(clippy::all)]
-#![deny(clippy::pedantic)]
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
+#![forbid(unsafe_code)]
+#![deny(
+    clippy::all,
+    clippy::pedantic,
+    clippy::expect_used,
+    clippy::unwrap_used,
+    future_incompatible,
+    missing_debug_implementations,
+    nonstandard_style,
+    unreachable_pub,
+    missing_copy_implementations,
+    unused_qualifications
+)]
 #![allow(clippy::missing_errors_doc)]
 
 pub mod config;

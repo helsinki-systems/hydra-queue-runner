@@ -1,7 +1,16 @@
-#![deny(clippy::all)]
-#![deny(clippy::pedantic)]
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
+#![forbid(unsafe_code)]
+#![deny(
+    clippy::all,
+    clippy::pedantic,
+    clippy::expect_used,
+    clippy::unwrap_used,
+    future_incompatible,
+    missing_debug_implementations,
+    nonstandard_style,
+    unreachable_pub,
+    missing_copy_implementations,
+    unused_qualifications
+)]
 #![allow(clippy::missing_errors_doc)]
 
 mod connection;
@@ -12,13 +21,13 @@ use std::str::FromStr as _;
 pub use connection::{Connection, Transaction};
 pub use sqlx::Error;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Database {
     pool: sqlx::PgPool,
 }
 
 impl Database {
-    pub async fn new(url: &str, max_connections: u32) -> Result<Self, sqlx::Error> {
+    pub async fn new(url: &str, max_connections: u32) -> Result<Self, Error> {
         Ok(Self {
             pool: sqlx::postgres::PgPoolOptions::new()
                 .max_connections(max_connections)
@@ -27,7 +36,7 @@ impl Database {
         })
     }
 
-    pub async fn get(&self) -> Result<Connection, sqlx::Error> {
+    pub async fn get(&self) -> Result<Connection, Error> {
         let conn = self.pool.acquire().await?;
         Ok(Connection::new(conn))
     }
@@ -44,8 +53,8 @@ impl Database {
         &self,
         channels: Vec<&str>,
     ) -> Result<
-        impl futures::Stream<Item = Result<sqlx::postgres::PgNotification, sqlx::Error>> + Unpin,
-        sqlx::Error,
+        impl futures::Stream<Item = Result<sqlx::postgres::PgNotification, Error>> + Unpin,
+        Error,
     > {
         let mut listener = sqlx::postgres::PgListener::connect_with(&self.pool).await?;
         listener.listen_all(channels).await?;

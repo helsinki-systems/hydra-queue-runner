@@ -110,7 +110,7 @@ struct Gcroot {
 }
 
 impl Gcroot {
-    pub fn new(path: std::path::PathBuf) -> std::io::Result<Self> {
+    pub(crate) fn new(path: std::path::PathBuf) -> std::io::Result<Self> {
         fs_err::create_dir_all(&path)?;
         Ok(Self { root: path })
     }
@@ -602,7 +602,7 @@ impl State {
         nars: Vec<nix_utils::StorePath>,
         build_id: &str,
         machine_id: &str,
-        presigned_url_opts: Option<crate::grpc::runner_v1::PresignedUploadOpts>,
+        presigned_url_opts: Option<runner_v1::PresignedUploadOpts>,
     ) -> anyhow::Result<()> {
         if let Some(opts) = presigned_url_opts {
             upload_nars_presigned(
@@ -880,7 +880,7 @@ async fn upload_nars_presigned(
     upload_client: PresignedUploadClient,
     store: nix_utils::LocalStore,
     output_paths: &[nix_utils::StorePath],
-    opts: crate::grpc::runner_v1::PresignedUploadOpts,
+    opts: runner_v1::PresignedUploadOpts,
     build_id: &str,
     machine_id: &str,
 ) -> anyhow::Result<()> {
@@ -979,7 +979,7 @@ async fn upload_single_nar_presigned(
 
     let presigned_request = binary_cache::PresignedUploadResponse {
         nar_url: presigned_response.nar_url.clone(),
-        nar_upload: binary_cache::PresignedUpload::new(
+        nar_upload: PresignedUpload::new(
             nar_upload.path.clone(),
             nar_upload.url.clone(),
             nar_upload.compression.parse().unwrap_or(Compression::None),

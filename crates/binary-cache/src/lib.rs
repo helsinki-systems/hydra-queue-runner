@@ -1,7 +1,16 @@
-#![deny(clippy::all)]
-#![deny(clippy::pedantic)]
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
+#![forbid(unsafe_code)]
+#![deny(
+    clippy::all,
+    clippy::pedantic,
+    clippy::expect_used,
+    clippy::unwrap_used,
+    future_incompatible,
+    missing_debug_implementations,
+    nonstandard_style,
+    unreachable_pub,
+    missing_copy_implementations,
+    unused_qualifications
+)]
 #![allow(clippy::missing_errors_doc)]
 
 use std::sync::Arc;
@@ -70,7 +79,7 @@ struct AtomicS3Stats {
     head: AtomicU64,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct S3Stats {
     pub put: u64,
     pub put_bytes: u64,
@@ -130,7 +139,7 @@ pub enum CacheError {
     #[error("cannot add '{0}' to the binary cache because the reference '{1}' is not valid")]
     ReferenceVerifyError(nix_utils::StorePath, nix_utils::StorePath),
     #[error("Hash error: {0}")]
-    HashingError(#[from] crate::streaming_hash::Error),
+    HashingError(#[from] streaming_hash::Error),
     #[error("Render error: {0}")]
     RenderError(#[from] std::fmt::Error),
     #[error("HTTP request failed: {0}")]
@@ -147,10 +156,10 @@ pub enum CacheError {
     ConfigurationError { message: String },
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct S3BinaryCacheClient {
     s3: object_store::aws::AmazonS3,
-    pub cfg: cfg::S3CacheConfig,
+    pub cfg: S3CacheConfig,
     s3_stats: Arc<AtomicS3Stats>,
     signing_keys: SmallVec<[secrecy::SecretString; 4]>,
     narinfo_cache: Cache<nix_utils::StorePath, NarInfo, foldhash::fast::RandomState>,
@@ -160,7 +169,7 @@ pub struct S3BinaryCacheClient {
 async fn read_chunk_async<S: tokio::io::AsyncRead + Unpin + Send>(
     stream: &mut S,
     mut chunk: bytes::BytesMut,
-) -> std::io::Result<bytes::Bytes> {
+) -> std::io::Result<Bytes> {
     use tokio::io::AsyncReadExt as _;
 
     while chunk.len() < chunk.capacity() {
@@ -217,7 +226,7 @@ async fn run_multipart_upload(
 impl S3BinaryCacheClient {
     #[tracing::instrument(skip(cfg), err)]
     fn construct_client(
-        cfg: &cfg::S3ClientConfig,
+        cfg: &S3ClientConfig,
     ) -> Result<object_store::aws::AmazonS3, object_store::Error> {
         let mut builder = object_store::aws::AmazonS3Builder::from_env()
             .with_region(&cfg.region)
@@ -232,7 +241,7 @@ impl S3BinaryCacheClient {
             && std::env::var("AWS_SECRET_ACCESS_KEY").ok().is_none()
         {
             let profile = cfg.profile.as_deref().unwrap_or("default");
-            match crate::cfg::read_aws_credentials_file(profile) {
+            match cfg::read_aws_credentials_file(profile) {
                 Ok((access_key, secret_key)) => {
                     tracing::info!(
                         "Using AWS credentials from credentials file for profile: {profile}",
@@ -254,7 +263,7 @@ impl S3BinaryCacheClient {
             builder = builder.with_virtual_hosted_style_request(false);
         }
 
-        if cfg.scheme == cfg::S3Scheme::HTTP {
+        if cfg.scheme == S3Scheme::HTTP {
             builder = builder.with_allow_http(true);
         }
 
@@ -262,7 +271,7 @@ impl S3BinaryCacheClient {
     }
 
     #[tracing::instrument(skip(cfg), err)]
-    pub async fn new(cfg: cfg::S3CacheConfig) -> Result<Self, CacheError> {
+    pub async fn new(cfg: S3CacheConfig) -> Result<Self, CacheError> {
         let mut signing_keys = SmallVec::default();
         for p in &cfg.secret_key_files {
             signing_keys.push(secrecy::SecretString::new(
@@ -601,7 +610,7 @@ impl S3BinaryCacheClient {
             self.cfg.parallel_compression,
         );
         let compressed_stream = compressor(stream);
-        let (mut hashing_reader, _) = crate::streaming_hash::HashingReader::new(compressed_stream);
+        let (mut hashing_reader, _) = streaming_hash::HashingReader::new(compressed_stream);
         self.upload_file(
             &narinfo.url,
             &mut hashing_reader,
@@ -876,7 +885,7 @@ impl S3BinaryCacheClient {
                     if self.head_object(&s3_file_path).await.unwrap_or_default() {
                         Ok(None)
                     } else {
-                        Ok::<_, crate::CacheError>(Some(PresignedUpload {
+                        Ok::<_, CacheError>(Some(PresignedUpload {
                             url: self
                                 .s3
                                 .signed_url(
@@ -944,7 +953,7 @@ impl S3BinaryCacheClient {
     }
 }
 
-impl crate::debug_info::DebugInfoClient for S3BinaryCacheClient {
+impl debug_info::DebugInfoClient for S3BinaryCacheClient {
     /// Creates debug info links for build IDs found in NAR files.
     ///
     /// This function processes debug information from NIX store paths that contain
@@ -977,7 +986,7 @@ impl crate::debug_info::DebugInfoClient for S3BinaryCacheClient {
             return Ok(());
         }
 
-        let json_content = crate::debug_info::DebugInfoLink {
+        let json_content = debug_info::DebugInfoLink {
             archive: format!("../{nar_url}"),
             member: debug_path,
         };

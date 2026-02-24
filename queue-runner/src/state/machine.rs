@@ -29,7 +29,7 @@ impl From<crate::server::grpc::runner_v1::Pressure> for Pressure {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct PressureState {
     pub cpu_some: Option<Pressure>,
     pub mem_some: Option<Pressure>,
@@ -286,6 +286,7 @@ impl Stats {
     }
 }
 
+#[derive(Debug)]
 struct MachinesInner {
     by_uuid: HashMap<uuid::Uuid, Arc<Machine>>,
     // by_system is always sorted, as we insert sorted based on cpu score
@@ -308,6 +309,7 @@ impl MachinesInner {
     }
 }
 
+#[derive(Debug)]
 pub struct Machines {
     inner: parking_lot::RwLock<MachinesInner>,
     supported_features: parking_lot::RwLock<HashSet<String>>,
@@ -512,6 +514,7 @@ impl Job {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct PresignedUrlOpts {
     pub upload_debug_info: bool,
 }
@@ -529,6 +532,7 @@ pub struct ConfigUpdate {
     pub max_concurrent_downloads: u32,
 }
 
+#[derive(Debug)]
 pub enum Message {
     ConfigUpdate(ConfigUpdate),
     BuildMessage {

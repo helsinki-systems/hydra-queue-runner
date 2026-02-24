@@ -19,6 +19,7 @@ struct Message {
     log_local_path: std::sync::Arc<String>,
 }
 
+#[derive(Debug)]
 pub struct Uploader {
     queue: super::InspectableChannel<Message>,
     current_tasks: parking_lot::RwLock<Vec<Message>>,

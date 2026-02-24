@@ -1,6 +1,6 @@
 use anyhow::Context as _;
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuildQueueStats {
     active_runnable: u64,
@@ -24,7 +24,7 @@ impl From<crate::state::BuildQueueStats> for BuildQueueStats {
     }
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(clippy::struct_field_names)]
 pub struct MemoryStats {
@@ -58,7 +58,7 @@ impl MemoryStats {
     }
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IoStats {
     total_read_bytes: u64,
@@ -97,7 +97,7 @@ impl IoStats {
     }
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(clippy::struct_field_names)]
 pub struct CpuStats {
@@ -144,7 +144,7 @@ impl CpuStats {
     }
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CgroupStats {
     memory: MemoryStats,
@@ -176,7 +176,7 @@ impl CgroupStats {
     }
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Process {
     pid: i32,
@@ -210,7 +210,7 @@ impl Process {
     }
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoreStats {
     nar_info_read: u64,
@@ -253,7 +253,7 @@ impl StoreStats {
     }
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct S3Stats {
     put: u64,

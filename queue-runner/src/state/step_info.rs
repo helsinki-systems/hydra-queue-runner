@@ -6,6 +6,7 @@ use nix_utils::BaseStore as _;
 
 use super::Step;
 
+#[derive(Debug)]
 pub struct StepInfo {
     pub step: Arc<Step>,
     pub resolved_drv_path: Option<nix_utils::StorePath>,
@@ -151,19 +152,18 @@ mod tests {
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-test.drv",
         ));
 
-        step.atomic_state.highest_global_priority.store(
-            highest_global_priority,
-            std::sync::atomic::Ordering::Relaxed,
-        );
+        step.atomic_state
+            .highest_global_priority
+            .store(highest_global_priority, Ordering::Relaxed);
         step.atomic_state
             .highest_local_priority
-            .store(highest_local_priority, std::sync::atomic::Ordering::Relaxed);
+            .store(highest_local_priority, Ordering::Relaxed);
         step.atomic_state
             .lowest_build_id
-            .store(lowest_build_id, std::sync::atomic::Ordering::Relaxed);
+            .store(lowest_build_id, Ordering::Relaxed);
         step.atomic_state
             .rdeps_len
-            .store(rdeps_len, std::sync::atomic::Ordering::Relaxed);
+            .store(rdeps_len, Ordering::Relaxed);
 
         StepInfo {
             step,

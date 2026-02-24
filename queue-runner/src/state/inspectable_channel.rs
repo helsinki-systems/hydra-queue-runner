@@ -2,32 +2,33 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::Notify;
 
-pub struct InspectableChannel<T> {
+#[derive(Debug)]
+pub(super) struct InspectableChannel<T> {
     queue: parking_lot::RwLock<VecDeque<T>>,
     notify: Arc<Notify>,
 }
 
 impl<T> InspectableChannel<T> {
-    pub fn with_capacity(cap: usize) -> Self {
+    pub(super) fn with_capacity(cap: usize) -> Self {
         InspectableChannel {
             queue: parking_lot::RwLock::new(VecDeque::with_capacity(cap)),
             notify: Arc::new(Notify::new()),
         }
     }
 
-    pub fn load_vec_into(&self, data: Vec<T>) {
+    pub(super) fn load_vec_into(&self, data: Vec<T>) {
         let mut queue = self.queue.write();
         queue.extend(data);
         self.notify.notify_one();
     }
 
-    pub fn send(&self, msg: T) {
+    pub(super) fn send(&self, msg: T) {
         let mut queue = self.queue.write();
         queue.push_back(msg);
         self.notify.notify_one();
     }
 
-    pub async fn recv(&self) -> Option<T> {
+    pub(super) async fn recv(&self) -> Option<T> {
         loop {
             {
                 let mut queue = self.queue.write();
@@ -40,7 +41,7 @@ impl<T> InspectableChannel<T> {
         }
     }
 
-    pub async fn recv_many(&self, count: usize) -> Vec<T> {
+    pub(super) async fn recv_many(&self, count: usize) -> Vec<T> {
         let mut messages = Vec::new();
 
         loop {
@@ -62,11 +63,11 @@ impl<T> InspectableChannel<T> {
         }
     }
 
-    pub fn len(&self) -> usize {
+    pub(super) fn len(&self) -> usize {
         self.queue.read().len()
     }
 
-    pub fn inspect(&self) -> Vec<T>
+    pub(super) fn inspect(&self) -> Vec<T>
     where
         T: Clone,
     {

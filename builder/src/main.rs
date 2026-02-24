@@ -1,7 +1,16 @@
-#![deny(clippy::all)]
-#![deny(clippy::pedantic)]
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
+#![forbid(unsafe_code)]
+#![deny(
+    clippy::all,
+    clippy::pedantic,
+    clippy::expect_used,
+    clippy::unwrap_used,
+    future_incompatible,
+    missing_debug_implementations,
+    nonstandard_style,
+    missing_copy_implementations,
+    unused_qualifications
+)]
+#![allow(clippy::missing_errors_doc)]
 
 mod config;
 mod grpc;
@@ -39,7 +48,7 @@ async fn main() -> anyhow::Result<()> {
     let state = state::State::new(&cli).await?;
     let task = tokio::spawn({
         let state = state.clone();
-        async move { crate::grpc::start_bidirectional_stream(state.clone()).await }
+        async move { grpc::start_bidirectional_stream(state.clone()).await }
     });
 
     let _notify = sd_notify::notify(

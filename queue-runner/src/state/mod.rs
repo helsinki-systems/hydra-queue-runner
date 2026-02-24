@@ -51,6 +51,7 @@ enum RealiseStepResult {
     CachedFailure,
 }
 
+#[allow(missing_debug_implementations)]
 pub struct State {
     pub store: nix_utils::LocalStore,
     pub remote_stores: parking_lot::RwLock<Vec<binary_cache::S3BinaryCacheClient>>,
@@ -352,11 +353,9 @@ impl State {
                 // TODO: cleanup
                 if self.config.use_presigned_uploads() {
                     let remote_stores = self.remote_stores.read();
-                    remote_stores
-                        .first()
-                        .map(|s| crate::state::machine::PresignedUrlOpts {
-                            upload_debug_info: s.cfg.write_debug_info,
-                        })
+                    remote_stores.first().map(|s| machine::PresignedUrlOpts {
+                        upload_debug_info: s.cfg.write_debug_info,
+                    })
                 } else {
                     None
                 },

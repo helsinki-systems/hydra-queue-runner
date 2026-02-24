@@ -1,6 +1,6 @@
 use std::sync::atomic::Ordering;
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Build {
     id: db::models::BuildID,
@@ -32,20 +32,20 @@ impl From<std::sync::Arc<crate::state::Build>> for Build {
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuildPayload {
     pub drv: String,
     pub jobset_id: i32,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuildOnePayload {
     pub build_id: db::models::BuildID,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuildActiveResponse {
     pub active: bool,

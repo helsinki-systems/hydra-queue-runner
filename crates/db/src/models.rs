@@ -54,17 +54,20 @@ pub enum StepStatus {
     PostProcessing = 50,
 }
 
+#[derive(Debug)]
 pub struct Jobset {
     pub project: String,
     pub name: String,
     pub schedulingshares: i32,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct BuildSmall {
     pub id: BuildID,
     pub globalpriority: i32,
 }
 
+#[derive(Debug)]
 pub struct Build {
     pub id: BuildID,
     pub jobset_id: i32,
@@ -79,17 +82,20 @@ pub struct Build {
     pub priority: i32,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct BuildSteps {
     pub starttime: Option<i32>,
     pub stoptime: Option<i32>,
 }
 
 #[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildType {
     Build = 0,
     Substitution = 1,
 }
 
+#[derive(Debug)]
 pub struct UpdateBuild<'a> {
     pub status: BuildStatus,
     pub start_time: i32,
@@ -100,6 +106,7 @@ pub struct UpdateBuild<'a> {
     pub is_cached_build: bool,
 }
 
+#[derive(Debug)]
 pub struct InsertBuildStep<'a> {
     pub build_id: BuildID,
     pub step_nr: i32,
@@ -115,6 +122,7 @@ pub struct InsertBuildStep<'a> {
     pub machine: &'a str,
 }
 
+#[derive(Debug)]
 pub struct InsertBuildStepOutput {
     pub build_id: BuildID,
     pub step_nr: i32,
@@ -122,12 +130,14 @@ pub struct InsertBuildStepOutput {
     pub path: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct UpdateBuildStep {
     pub build_id: BuildID,
     pub step_nr: i32,
     pub status: StepStatus,
 }
 
+#[derive(Debug)]
 pub struct UpdateBuildStepInFinish<'a> {
     pub build_id: BuildID,
     pub step_nr: i32,
@@ -141,6 +151,7 @@ pub struct UpdateBuildStepInFinish<'a> {
     pub is_non_deterministic: Option<bool>,
 }
 
+#[derive(Debug)]
 pub struct InsertBuildProduct<'a> {
     pub build_id: BuildID,
     pub product_nr: i32,
@@ -153,6 +164,7 @@ pub struct InsertBuildProduct<'a> {
     pub default_path: &'a str,
 }
 
+#[derive(Debug)]
 pub struct InsertBuildMetric<'a> {
     pub build_id: BuildID,
     pub name: &'a str,
@@ -164,6 +176,7 @@ pub struct InsertBuildMetric<'a> {
     pub timestamp: i32,
 }
 
+#[derive(Debug)]
 pub struct BuildOutput {
     pub id: i32,
     pub buildstatus: Option<i32>,
@@ -172,6 +185,7 @@ pub struct BuildOutput {
     pub size: Option<i64>,
 }
 
+#[derive(Debug)]
 pub struct OwnedBuildProduct {
     pub r#type: String,
     pub subtype: String,
@@ -182,6 +196,7 @@ pub struct OwnedBuildProduct {
     pub defaultpath: Option<String>,
 }
 
+#[derive(Debug)]
 pub struct BuildProduct<'a> {
     pub r#type: &'a str,
     pub subtype: &'a str,
@@ -192,18 +207,21 @@ pub struct BuildProduct<'a> {
     pub defaultpath: Option<&'a str>,
 }
 
+#[derive(Debug)]
 pub struct OwnedBuildMetric {
     pub name: String,
     pub unit: Option<String>,
     pub value: f64,
 }
 
+#[derive(Debug)]
 pub struct BuildMetric<'a> {
     pub name: &'a str,
     pub unit: Option<&'a str>,
     pub value: f64,
 }
 
+#[derive(Debug)]
 pub struct MarkBuildSuccessData<'a> {
     pub id: BuildID,
     pub name: &'a str,

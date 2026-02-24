@@ -1,4 +1,4 @@
-pub const HASH_LEN: usize = 32;
+const HASH_LEN: usize = 32;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct StorePath {

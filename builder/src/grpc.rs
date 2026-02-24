@@ -11,7 +11,7 @@ use runner_v1::{
 
 pub mod runner_v1 {
     // We need to allow pedantic here because of generated code
-    #![allow(clippy::pedantic)]
+    #![allow(clippy::pedantic, unused_qualifications)]
 
     tonic::include_proto!("runner.v1");
 }
@@ -25,7 +25,7 @@ pub enum BuilderInterceptor {
 }
 
 impl tonic::service::Interceptor for BuilderInterceptor {
-    fn call(&mut self, request: tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> {
+    fn call(&mut self, request: Request<()>) -> Result<Request<()>, tonic::Status> {
         let mut request = hydra_tracing::propagate::send_trace(request).map_err(|e| *e)?;
 
         if let Self::Token { token } = self {
@@ -94,7 +94,7 @@ pub async fn init_client(cli: &crate::config::Cli) -> anyhow::Result<BuilderClie
             .ca_certificate(server_root_ca_cert)
             .identity(client_identity);
 
-        tonic::transport::Channel::builder(cli.gateway_endpoint.parse()?)
+        Channel::builder(cli.gateway_endpoint.parse()?)
             .tls_config(tls)
             .context("Failed to attach tls config")?
             .connect()
@@ -125,14 +125,14 @@ pub async fn init_client(cli: &crate::config::Cli) -> anyhow::Result<BuilderClie
                     .ok_or(anyhow::anyhow!("No domain_name found for gateway_endpoint"))?,
             )
             .with_enabled_roots();
-        tonic::transport::Channel::builder(cli.gateway_endpoint.parse()?)
+        Channel::builder(cli.gateway_endpoint.parse()?)
             .tls_config(tls)
             .context("Failed to attach tls config")?
             .connect()
             .await
             .context("Failed to establish connection with Channel")?
     } else {
-        tonic::transport::Channel::builder(cli.gateway_endpoint.parse()?)
+        Channel::builder(cli.gateway_endpoint.parse()?)
             .connect()
             .await
             .context("Failed to establish connection with Channel")?

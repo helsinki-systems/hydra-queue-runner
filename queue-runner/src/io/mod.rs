@@ -21,7 +21,7 @@ pub use step::Step;
 pub use step_info::StepInfo;
 pub use uploads::UploadsResponse;
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Empty {}
 

@@ -1,6 +1,7 @@
 #[cfg(target_os = "linux")]
 use procfs_core::FromRead as _;
 
+#[derive(Debug, Clone, Copy)]
 pub struct BaseSystemInfo {
     pub cpu_count: usize,
     pub bogomips: f32,
@@ -41,6 +42,7 @@ impl BaseSystemInfo {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Pressure {
     pub avg10: f32,
     pub avg60: f32,
@@ -71,6 +73,7 @@ impl From<Pressure> for crate::grpc::runner_v1::Pressure {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct PressureState {
     pub cpu_some: Option<Pressure>,
     pub mem_some: Option<Pressure>,
@@ -157,6 +160,7 @@ impl PressureState {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct SystemLoad {
     pub load_avg_1: f32,
     pub load_avg_5: f32,

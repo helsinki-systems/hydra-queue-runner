@@ -9,14 +9,14 @@ use nix_utils::BaseStore as _;
 use crate::CacheError;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct DebugInfoLink {
+pub(crate) struct DebugInfoLink {
     pub(crate) archive: String,
     pub(crate) member: String,
 }
 
 /// Processes debug info for a given store path using a custom full path.
 /// This is useful for testing with custom store prefixes.
-pub async fn process_debug_info<C>(
+pub(crate) async fn process_debug_info<C>(
     nar_url: &str,
     store: &nix_utils::LocalStore,
     store_path: &nix_utils::StorePath,
@@ -118,7 +118,7 @@ async fn find_debug_files(
     Ok(debug_files)
 }
 
-pub trait DebugInfoClient {
+pub(crate) trait DebugInfoClient {
     async fn create_debug_info_link(
         &self,
         nar_url: &str,

@@ -5,14 +5,14 @@ use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio::sync::OnceCell;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, Copy, thiserror::Error)]
 pub enum Error {
     #[error("Cannot finalize: stream has not been completed")]
     NotCompleted,
 }
 
 #[derive(Debug, Clone)]
-pub struct HashResult {
+pub(crate) struct HashResult {
     inner: Arc<OnceCell<(sha2::digest::Output<Sha256>, usize)>>,
 }
 
@@ -23,13 +23,13 @@ impl HashResult {
         }
     }
 
-    pub fn get(&self) -> Result<(sha2::digest::Output<Sha256>, usize), Error> {
+    pub(crate) fn get(&self) -> Result<(sha2::digest::Output<Sha256>, usize), Error> {
         Ok(self.inner.get().ok_or(Error::NotCompleted)?.to_owned())
     }
 }
 
 #[derive(Debug)]
-pub struct HashingReader<R> {
+pub(crate) struct HashingReader<R> {
     inner: R,
     hasher: Option<Sha256>,
     size: usize,
@@ -39,7 +39,7 @@ pub struct HashingReader<R> {
 impl<R> Unpin for HashingReader<R> where R: Unpin {}
 
 impl<R: AsyncRead + Unpin + Send> HashingReader<R> {
-    pub fn new(reader: R) -> (Self, HashResult) {
+    pub(crate) fn new(reader: R) -> (Self, HashResult) {
         let res = HashResult::new();
         (
             Self {
@@ -52,7 +52,7 @@ impl<R: AsyncRead + Unpin + Send> HashingReader<R> {
         )
     }
 
-    pub fn finalize(&self) -> Result<(sha2::digest::Output<Sha256>, usize), Error> {
+    pub(crate) fn finalize(&self) -> Result<(sha2::digest::Output<Sha256>, usize), Error> {
         self.hash_result.get()
     }
 }

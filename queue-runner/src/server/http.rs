@@ -81,6 +81,7 @@ fn construct_json_ok_response<U: serde::Serialize>(data: &U) -> Result<Response,
     construct_json_response(hyper::StatusCode::OK, data)
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Server {}
 impl Server {
     pub async fn run(addr: SocketAddr, state: Arc<State>) -> Result<(), Error> {
@@ -185,13 +186,13 @@ async fn router(
 }
 
 mod handler {
-    pub mod status {
+    pub(super) mod status {
         use super::super::{Error, Response, construct_json_ok_response};
         use crate::{io, state::State};
         use db::models::BuildID;
 
         #[tracing::instrument(skip(state), err)]
-        pub async fn get(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub(crate) async fn get(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let queue_stats = io::QueueRunnerStats::new(state.clone()).await;
             let sort_fn = state.config.get_machine_sort_fn();
             let free_fn = state.config.get_machine_free_fn();
@@ -202,7 +203,7 @@ mod handler {
                 .map(|m| {
                     (
                         m.hostname.clone(),
-                        crate::io::Machine::from_state(&m, sort_fn, free_fn),
+                        io::Machine::from_state(&m, sort_fn, free_fn),
                     )
                 })
                 .collect();
@@ -221,7 +222,7 @@ mod handler {
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub async fn machines(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub(crate) async fn machines(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let sort_fn = state.config.get_machine_sort_fn();
             let free_fn = state.config.get_machine_free_fn();
             let machines = state
@@ -231,7 +232,7 @@ mod handler {
                 .map(|m| {
                     (
                         m.hostname.clone(),
-                        crate::io::Machine::from_state(&m, sort_fn, free_fn),
+                        io::Machine::from_state(&m, sort_fn, free_fn),
                     )
                 })
                 .collect();
@@ -239,31 +240,31 @@ mod handler {
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub fn jobsets(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub(crate) fn jobsets(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let jobsets = state.jobsets.clone_as_io();
             construct_json_ok_response(&io::JobsetsResponse::new(jobsets))
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub fn builds(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub(crate) fn builds(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let builds = state.builds.clone_as_io();
             construct_json_ok_response(&io::BuildsResponse::new(builds))
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub fn steps(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub(crate) fn steps(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let steps = state.steps.clone_as_io();
             construct_json_ok_response(&io::StepsResponse::new(steps))
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub fn runnable(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub(crate) fn runnable(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let steps = state.steps.clone_runnable_as_io();
             construct_json_ok_response(&io::StepsResponse::new(steps))
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub async fn queues(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub(crate) async fn queues(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let queues = state
                 .queues
                 .clone_inner()
@@ -283,7 +284,7 @@ mod handler {
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub async fn queue_jobs(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub(crate) async fn queue_jobs(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let stepinfos = state
                 .queues
                 .get_jobs()
@@ -295,7 +296,9 @@ mod handler {
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub async fn queue_scheduled(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub(crate) async fn queue_scheduled(
+            state: std::sync::Arc<State>,
+        ) -> Result<Response, Error> {
             let stepinfos = state
                 .queues
                 .get_scheduled()
@@ -307,13 +310,18 @@ mod handler {
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub async fn queued_uploads(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub(crate) async fn queued_uploads(
+            state: std::sync::Arc<State>,
+        ) -> Result<Response, Error> {
             let paths = state.uploader.paths_in_queue();
             construct_json_ok_response(&io::UploadsResponse::new(paths))
         }
 
         #[tracing::instrument(skip(state), err)]
-        pub async fn active(id_str: &str, state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub(crate) async fn active(
+            id_str: &str,
+            state: std::sync::Arc<State>,
+        ) -> Result<Response, Error> {
             let build_id: BuildID = id_str.parse().map_err(|_| Error::NotFound)?;
 
             let is_active = state
@@ -330,12 +338,12 @@ mod handler {
         }
     }
 
-    pub mod dump_status {
+    pub(super) mod dump_status {
         use super::super::{Error, Response, construct_json_ok_response};
         use crate::{io, state::State};
 
         #[tracing::instrument(skip(state), err)]
-        pub async fn post(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub(crate) async fn post(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let mut db = state.db.get().await?;
             let mut tx = db.begin_transaction().await?;
             tx.notify_dump_status().await?;
@@ -344,7 +352,7 @@ mod handler {
         }
     }
 
-    pub mod build {
+    pub(super) mod build {
         use bytes::Buf as _;
         use http_body_util::BodyExt as _;
 
@@ -352,7 +360,7 @@ mod handler {
         use crate::{io, state::State};
 
         #[tracing::instrument(skip(req, state), err)]
-        pub async fn put(
+        pub(crate) async fn put(
             req: hyper::Request<hyper::body::Incoming>,
             state: std::sync::Arc<State>,
         ) -> Result<Response, Error> {
@@ -366,7 +374,7 @@ mod handler {
         }
     }
 
-    pub mod build_one {
+    pub(super) mod build_one {
         use bytes::Buf as _;
         use http_body_util::BodyExt as _;
 
@@ -374,7 +382,7 @@ mod handler {
         use crate::{io, state::State};
 
         #[tracing::instrument(skip(req, state), err)]
-        pub async fn post(
+        pub(crate) async fn post(
             req: hyper::Request<hyper::body::Incoming>,
             state: std::sync::Arc<State>,
         ) -> Result<Response, Error> {
@@ -389,12 +397,12 @@ mod handler {
         }
     }
 
-    pub mod metrics {
+    pub(super) mod metrics {
         use super::super::{Error, Response, full};
         use crate::state::State;
 
         #[tracing::instrument(skip(state), err)]
-        pub async fn get(state: std::sync::Arc<State>) -> Result<Response, Error> {
+        pub(crate) async fn get(state: std::sync::Arc<State>) -> Result<Response, Error> {
             let metrics = state.metrics.gather_metrics(&state).await?;
             Ok(hyper::Response::builder()
                 .status(hyper::StatusCode::OK)

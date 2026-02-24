@@ -34,7 +34,7 @@ const BACKWARDS_PING_INTERVAL: u64 = 30;
 
 pub mod runner_v1 {
     // We need to allow pedantic here because of generated code
-    #![allow(clippy::pedantic)]
+    #![allow(clippy::pedantic, unused_qualifications)]
 
     tonic::include_proto!("runner.v1");
 
@@ -120,6 +120,8 @@ impl tonic::service::Interceptor for CheckAuthInterceptor {
     }
 }
 
+#[allow(missing_debug_implementations)]
+#[derive(Clone)]
 pub struct Server {
     state: Arc<State>,
 }
@@ -254,7 +256,7 @@ impl RunnerService for Server {
         let forced_substituters = self.state.config.get_forced_substituters();
         let machine = match stream.next().await {
             Some(Ok(m)) => match m.message {
-                Some(runner_v1::builder_request::Message::Join(v)) => {
+                Some(builder_request::Message::Join(v)) => {
                     match Machine::new(v, input_tx, use_presigned_uploads, &forced_substituters) {
                         Ok(m) => Some(m),
                         Err(e) => {
@@ -547,7 +549,7 @@ impl RunnerService for Server {
     ) -> BuilderResult<Self::StreamFileStream> {
         let path = nix_utils::StorePath::new(&req.into_inner().path);
         let store = nix_utils::LocalStore::init();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Result<NarData, tonic::Status>>();
+        let (tx, rx) = mpsc::unbounded_channel::<Result<NarData, tonic::Status>>();
 
         let closure = move |data: &[u8]| {
             let data = Vec::from(data);
@@ -577,7 +579,7 @@ impl RunnerService for Server {
             .collect::<Vec<_>>();
 
         let store = nix_utils::LocalStore::init();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Result<NarData, tonic::Status>>();
+        let (tx, rx) = mpsc::unbounded_channel::<Result<NarData, tonic::Status>>();
 
         let closure = move |data: &[u8]| {
             let data = Vec::from(data);

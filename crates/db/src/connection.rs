@@ -6,10 +6,12 @@ use super::models::{
     UpdateBuildStepInFinish,
 };
 
+#[derive(Debug)]
 pub struct Connection {
     conn: sqlx::pool::PoolConnection<sqlx::Postgres>,
 }
 
+#[derive(Debug)]
 pub struct Transaction<'a> {
     tx: sqlx::PgTransaction<'a>,
 }
@@ -733,7 +735,7 @@ impl Transaction<'_> {
         drv_path: &str,
         platform: Option<&str>,
         machine: String,
-        status: crate::models::BuildStatus,
+        status: BuildStatus,
         error_msg: Option<String>,
         propagated_from: Option<crate::models::BuildID>,
         outputs: Vec<(String, Option<String>)>,
@@ -741,15 +743,15 @@ impl Transaction<'_> {
         let step_nr = loop {
             let step_nr = self.alloc_build_step(build_id).await?;
             if self
-                .insert_build_step(crate::models::InsertBuildStep {
+                .insert_build_step(InsertBuildStep {
                     build_id,
                     step_nr,
                     r#type: crate::models::BuildType::Build,
                     drv_path,
                     status,
-                    busy: status == crate::models::BuildStatus::Busy,
+                    busy: status == BuildStatus::Busy,
                     start_time,
-                    stop_time: if status == crate::models::BuildStatus::Busy {
+                    stop_time: if status == BuildStatus::Busy {
                         None
                     } else {
                         start_time
@@ -768,7 +770,7 @@ impl Transaction<'_> {
         self.insert_build_step_outputs(
             &outputs
                 .into_iter()
-                .map(|(name, path)| crate::models::InsertBuildStepOutput {
+                .map(|(name, path)| InsertBuildStepOutput {
                     build_id,
                     step_nr,
                     name,
@@ -778,7 +780,7 @@ impl Transaction<'_> {
         )
         .await?;
 
-        if status == crate::models::BuildStatus::Busy {
+        if status == BuildStatus::Busy {
             self.notify_step_started(build_id, step_nr).await?;
         }
 
@@ -801,12 +803,12 @@ impl Transaction<'_> {
         let step_nr = loop {
             let step_nr = self.alloc_build_step(build_id).await?;
             if self
-                .insert_build_step(crate::models::InsertBuildStep {
+                .insert_build_step(InsertBuildStep {
                     build_id,
                     step_nr,
                     r#type: crate::models::BuildType::Substitution,
                     drv_path,
-                    status: crate::models::BuildStatus::Success,
+                    status: BuildStatus::Success,
                     busy: false,
                     start_time: Some(start_time),
                     stop_time: Some(stop_time),
@@ -821,7 +823,7 @@ impl Transaction<'_> {
             }
         };
 
-        self.insert_build_step_outputs(&[crate::models::InsertBuildStepOutput {
+        self.insert_build_step_outputs(&[InsertBuildStepOutput {
             build_id,
             step_nr,
             name: output.0,
@@ -850,11 +852,11 @@ impl Transaction<'_> {
 
         self.update_build(
             build.id,
-            crate::models::UpdateBuild {
+            UpdateBuild {
                 status: if build.failed {
-                    crate::models::BuildStatus::FailedWithOutput
+                    BuildStatus::FailedWithOutput
                 } else {
-                    crate::models::BuildStatus::Success
+                    BuildStatus::Success
                 },
                 start_time,
                 stop_time,
@@ -873,7 +875,7 @@ impl Transaction<'_> {
         self.delete_build_products_by_build_id(build.id).await?;
 
         for (nr, p) in build.products.iter().enumerate() {
-            self.insert_build_product(crate::models::InsertBuildProduct {
+            self.insert_build_product(InsertBuildProduct {
                 build_id: build.id,
                 product_nr: i32::try_from(nr + 1)?,
                 r#type: p.r#type,
@@ -889,7 +891,7 @@ impl Transaction<'_> {
 
         self.delete_build_metrics_by_build_id(build.id).await?;
         for m in &build.metrics {
-            self.insert_build_metric(crate::models::InsertBuildMetric {
+            self.insert_build_metric(InsertBuildMetric {
                 build_id: build.id,
                 name: m.1.name,
                 unit: m.1.unit,

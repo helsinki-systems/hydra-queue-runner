@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 use hashbrown::HashMap;
 
 pub type JobsetID = i32;
-pub const SCHEDULING_WINDOW: i64 = 24 * 60 * 60;
+pub(super) const SCHEDULING_WINDOW: i64 = 24 * 60 * 60;
 
 #[derive(Debug)]
 pub struct Jobset {
@@ -101,7 +101,7 @@ impl Jobset {
 // Projectname, Jobsetname
 type JobsetName = (String, String);
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Jobsets {
     inner: Arc<parking_lot::RwLock<HashMap<JobsetName, Arc<Jobset>>>>,
 }

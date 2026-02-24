@@ -1,7 +1,15 @@
-#![deny(clippy::all)]
-#![deny(clippy::pedantic)]
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
+#![deny(
+    clippy::all,
+    clippy::pedantic,
+    clippy::expect_used,
+    clippy::unwrap_used,
+    future_incompatible,
+    missing_debug_implementations,
+    nonstandard_style,
+    unreachable_pub,
+    missing_copy_implementations,
+    unused_qualifications
+)]
 #![allow(clippy::missing_errors_doc)]
 
 mod drv;
@@ -66,7 +74,9 @@ pub fn add_root(store: &LocalStore, root_dir: &std::path::Path, store_path: &Sto
 
 #[cxx::bridge(namespace = "nix_utils")]
 mod ffi {
-    #[derive(Debug)]
+    #![allow(unreachable_pub, unused_qualifications)]
+
+    #[derive(Debug, Clone)]
     struct InternalPathInfo {
         deriver: String,
         nar_hash: String,
@@ -77,7 +87,7 @@ mod ffi {
         ca: String,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone, Copy)]
     struct StoreStats {
         nar_info_read: u64,
         nar_info_read_averted: u64,
@@ -94,7 +104,7 @@ mod ffi {
         nar_write_compression_time_ms: u64,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone, Copy)]
     struct S3Stats {
         put: u64,
         put_bytes: u64,
@@ -347,10 +357,7 @@ pub async fn copy_paths(
     let dst = dst.wrapper.clone();
 
     asyncify(move || {
-        let slice = paths
-            .iter()
-            .map(std::string::String::as_str)
-            .collect::<Vec<_>>();
+        let slice = paths.iter().map(String::as_str).collect::<Vec<_>>();
         ffi::copy_paths(
             src.as_raw(),
             dst.as_raw(),
@@ -374,8 +381,8 @@ pub struct PathInfo {
     pub ca: Option<String>,
 }
 
-impl From<crate::ffi::InternalPathInfo> for PathInfo {
-    fn from(val: crate::ffi::InternalPathInfo) -> Self {
+impl From<ffi::InternalPathInfo> for PathInfo {
+    fn from(val: ffi::InternalPathInfo) -> Self {
         Self {
             deriver: if val.deriver.is_empty() {
                 None
@@ -399,17 +406,14 @@ impl From<crate::ffi::InternalPathInfo> for PathInfo {
 pub trait BaseStore {
     #[must_use]
     /// Check whether a path is valid.
-    fn is_valid_path(&self, path: &StorePath) -> impl std::future::Future<Output = bool>;
+    fn is_valid_path(&self, path: &StorePath) -> impl Future<Output = bool>;
 
-    fn query_path_info(
-        &self,
-        path: &StorePath,
-    ) -> impl std::future::Future<Output = Option<PathInfo>>;
+    fn query_path_info(&self, path: &StorePath) -> impl Future<Output = Option<PathInfo>>;
     fn query_path_infos(
         &self,
         paths: &[&StorePath],
-    ) -> impl std::future::Future<Output = HashMap<StorePath, PathInfo>>;
-    fn compute_closure_size(&self, path: &StorePath) -> impl std::future::Future<Output = u64>;
+    ) -> impl Future<Output = HashMap<StorePath, PathInfo>>;
+    fn compute_closure_size(&self, path: &StorePath) -> impl Future<Output = u64>;
 
     fn clear_path_info_cache(&self);
 
@@ -430,22 +434,22 @@ pub trait BaseStore {
         include_outputs: bool,
         include_derivers: bool,
         toposort: bool,
-    ) -> impl std::future::Future<Output = Result<Vec<StorePath>, Error>>;
+    ) -> impl Future<Output = Result<Vec<StorePath>, Error>>;
 
     fn query_requisites(
         &self,
         drvs: &[&StorePath],
         include_outputs: bool,
-    ) -> impl std::future::Future<Output = Result<Vec<StorePath>, crate::Error>>;
+    ) -> impl Future<Output = Result<Vec<StorePath>, Error>>;
 
-    fn get_store_stats(&self) -> Result<crate::ffi::StoreStats, cxx::Exception>;
+    fn get_store_stats(&self) -> Result<StoreStats, cxx::Exception>;
 
     /// Import paths from nar
     fn import_paths<S>(
         &self,
         stream: S,
         check_sigs: bool,
-    ) -> impl std::future::Future<Output = Result<(), Error>>
+    ) -> impl Future<Output = Result<(), Error>>
     where
         S: tokio_stream::Stream<Item = Result<bytes::Bytes, std::io::Error>>
             + Send
@@ -467,50 +471,44 @@ pub trait BaseStore {
     where
         F: FnMut(&[u8]) -> bool;
 
-    fn list_nar_deep(
-        &self,
-        path: &StorePath,
-    ) -> impl std::future::Future<Output = Result<String, crate::Error>>;
+    fn list_nar_deep(&self, path: &StorePath) -> impl Future<Output = Result<String, Error>>;
 
-    fn ensure_path(&self, path: &StorePath)
-    -> impl std::future::Future<Output = Result<(), Error>>;
-    fn try_resolve_drv(
-        &self,
-        path: &StorePath,
-    ) -> impl std::future::Future<Output = Option<StorePath>>;
+    fn ensure_path(&self, path: &StorePath) -> impl Future<Output = Result<(), Error>>;
+    fn try_resolve_drv(&self, path: &StorePath) -> impl Future<Output = Option<StorePath>>;
     fn static_output_hashes(
         &self,
         drv_path: &StorePath,
-    ) -> impl std::future::Future<Output = Result<HashMap<String, String>, crate::Error>>;
+    ) -> impl Future<Output = Result<HashMap<String, String>, Error>>;
 
     #[must_use]
     fn print_store_path(&self, path: &StorePath) -> String;
 }
 
-struct FFIStore(std::cell::UnsafeCell<cxx::UniquePtr<crate::ffi::StoreWrapper>>);
+struct FFIStore(std::cell::UnsafeCell<cxx::UniquePtr<ffi::StoreWrapper>>);
 unsafe impl Send for FFIStore {}
 unsafe impl Sync for FFIStore {}
 
 impl FFIStore {
-    pub fn as_raw(&self) -> &crate::ffi::StoreWrapper {
+    fn as_raw(&self) -> &ffi::StoreWrapper {
         unsafe { &*self.0.get() }
     }
 
     #[allow(unused, clippy::mut_from_ref)]
-    pub fn as_pin_mut(&self) -> std::pin::Pin<&mut crate::ffi::StoreWrapper> {
+    fn as_pin_mut(&self) -> std::pin::Pin<&mut ffi::StoreWrapper> {
         let ptr = unsafe { &mut *self.0.get() };
         ptr.pin_mut()
     }
 }
 
 #[derive(Clone)]
+#[allow(missing_debug_implementations)]
 pub struct BaseStoreImpl {
     wrapper: std::sync::Arc<FFIStore>,
     store_path_prefix: String,
 }
 
 impl BaseStoreImpl {
-    fn new(store: cxx::UniquePtr<crate::ffi::StoreWrapper>) -> Self {
+    fn new(store: cxx::UniquePtr<ffi::StoreWrapper>) -> Self {
         Self {
             wrapper: std::sync::Arc::new(FFIStore(std::cell::UnsafeCell::new(store))),
             store_path_prefix: get_store_dir(),
@@ -648,10 +646,7 @@ impl BaseStore for BaseStoreImpl {
             .collect::<Vec<_>>();
 
         asyncify(move || {
-            let slice = paths
-                .iter()
-                .map(std::string::String::as_str)
-                .collect::<Vec<_>>();
+            let slice = paths.iter().map(String::as_str).collect::<Vec<_>>();
             Ok(ffi::compute_fs_closures(
                 store.as_raw(),
                 &slice,
@@ -679,7 +674,7 @@ impl BaseStore for BaseStoreImpl {
         Ok(out)
     }
 
-    fn get_store_stats(&self) -> Result<crate::ffi::StoreStats, cxx::Exception> {
+    fn get_store_stats(&self) -> Result<StoreStats, cxx::Exception> {
         ffi::get_store_stats(self.wrapper.as_raw())
     }
 
@@ -728,10 +723,7 @@ impl BaseStore for BaseStoreImpl {
             .iter()
             .map(|v| self.print_store_path(v))
             .collect::<Vec<_>>();
-        let slice = paths
-            .iter()
-            .map(std::string::String::as_str)
-            .collect::<Vec<_>>();
+        let slice = paths.iter().map(String::as_str).collect::<Vec<_>>();
         ffi::export_paths(
             self.wrapper.as_raw(),
             &slice,
@@ -757,7 +749,7 @@ impl BaseStore for BaseStoreImpl {
 
     #[inline]
     #[tracing::instrument(skip(self), err)]
-    async fn list_nar_deep(&self, path: &StorePath) -> Result<String, crate::Error> {
+    async fn list_nar_deep(&self, path: &StorePath) -> Result<String, Error> {
         let store = self.wrapper.clone();
         let path = self.print_store_path(path);
         asyncify(move || ffi::list_nar_deep(store.as_raw(), &path)).await
@@ -791,7 +783,7 @@ impl BaseStore for BaseStoreImpl {
     async fn static_output_hashes(
         &self,
         drv_path: &StorePath,
-    ) -> Result<HashMap<String, String>, crate::Error> {
+    ) -> Result<HashMap<String, String>, Error> {
         let store = self.wrapper.clone();
         let drv_path = self.print_store_path(drv_path);
         asyncify(move || {
@@ -841,6 +833,7 @@ impl BaseStoreImpl {
 }
 
 #[derive(Clone)]
+#[allow(missing_debug_implementations)]
 pub struct LocalStore {
     base: BaseStoreImpl,
 }
@@ -964,7 +957,7 @@ impl BaseStore for LocalStore {
     }
 
     #[inline]
-    fn get_store_stats(&self) -> Result<crate::ffi::StoreStats, cxx::Exception> {
+    fn get_store_stats(&self) -> Result<StoreStats, cxx::Exception> {
         self.base.get_store_stats()
     }
 
@@ -1009,7 +1002,7 @@ impl BaseStore for LocalStore {
 
     #[inline]
     #[tracing::instrument(skip(self), err)]
-    async fn list_nar_deep(&self, path: &StorePath) -> Result<String, crate::Error> {
+    async fn list_nar_deep(&self, path: &StorePath) -> Result<String, Error> {
         self.base.list_nar_deep(path).await
     }
 
@@ -1027,7 +1020,7 @@ impl BaseStore for LocalStore {
     async fn static_output_hashes(
         &self,
         drv_path: &StorePath,
-    ) -> Result<HashMap<String, String>, crate::Error> {
+    ) -> Result<HashMap<String, String>, Error> {
         self.base.static_output_hashes(drv_path).await
     }
 
@@ -1038,6 +1031,7 @@ impl BaseStore for LocalStore {
 }
 
 #[derive(Clone)]
+#[allow(missing_debug_implementations)]
 pub struct RemoteStore {
     base: BaseStoreImpl,
 
@@ -1198,7 +1192,7 @@ impl BaseStore for RemoteStore {
     }
 
     #[inline]
-    fn get_store_stats(&self) -> Result<crate::ffi::StoreStats, cxx::Exception> {
+    fn get_store_stats(&self) -> Result<StoreStats, cxx::Exception> {
         self.base.get_store_stats()
     }
 
@@ -1243,7 +1237,7 @@ impl BaseStore for RemoteStore {
 
     #[inline]
     #[tracing::instrument(skip(self), err)]
-    async fn list_nar_deep(&self, path: &StorePath) -> Result<String, crate::Error> {
+    async fn list_nar_deep(&self, path: &StorePath) -> Result<String, Error> {
         self.base.list_nar_deep(path).await
     }
 
@@ -1261,7 +1255,7 @@ impl BaseStore for RemoteStore {
     async fn static_output_hashes(
         &self,
         drv_path: &StorePath,
-    ) -> Result<HashMap<String, String>, crate::Error> {
+    ) -> Result<HashMap<String, String>, Error> {
         self.base.static_output_hashes(drv_path).await
     }
 

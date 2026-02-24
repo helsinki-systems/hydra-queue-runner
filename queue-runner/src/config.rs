@@ -14,15 +14,13 @@ impl std::str::FromStr for BindSocket {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<std::net::SocketAddr>()
-            .map(BindSocket::Tcp)
-            .or_else(|_| {
-                if s == "-" {
-                    Ok(Self::ListenFd)
-                } else {
-                    Ok(Self::Unix(s.into()))
-                }
-            })
+        s.parse::<SocketAddr>().map(BindSocket::Tcp).or_else(|_| {
+            if s == "-" {
+                Ok(Self::ListenFd)
+            } else {
+                Ok(Self::Unix(s.into()))
+            }
+        })
     }
 }
 

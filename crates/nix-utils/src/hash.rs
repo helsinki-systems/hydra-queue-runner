@@ -1,5 +1,7 @@
 #[cxx::bridge(namespace = "nix_utils::hash")]
 mod ffi {
+    #![allow(unreachable_pub, unused_qualifications)]
+
     enum HashFormat {
         Base64,
         Nix32,
@@ -27,6 +29,7 @@ mod ffi {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashFormat {
     Base64,
     Nix32,
@@ -45,6 +48,7 @@ impl From<HashFormat> for ffi::HashFormat {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashAlgorithm {
     MD5,
     SHA1,

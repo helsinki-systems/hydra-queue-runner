@@ -200,7 +200,7 @@ impl std::str::FromStr for S3CacheConfig {
         }
         let query = uri.query_pairs().into_owned().collect::<HashMap<_, _>>();
         let cfg = S3ClientConfig::new(bucket.to_owned())
-            .with_region(query.get("region").map(std::string::String::as_str))
+            .with_region(query.get("region").map(String::as_str))
             .with_scheme(
                 query
                     .get("scheme")
@@ -208,8 +208,8 @@ impl std::str::FromStr for S3CacheConfig {
                     .transpose()
                     .map_err(UrlParseError::S3SchemeParseError)?,
             )
-            .with_endpoint(query.get("endpoint").map(std::string::String::as_str))
-            .with_profile(query.get("profile").map(std::string::String::as_str));
+            .with_endpoint(query.get("endpoint").map(String::as_str))
+            .with_profile(query.get("profile").map(String::as_str));
 
         Self::new(cfg)
             .with_compression(
@@ -219,16 +219,8 @@ impl std::str::FromStr for S3CacheConfig {
                     .transpose()
                     .map_err(UrlParseError::CompressionParseError)?,
             )
-            .with_write_nar_listing(
-                query
-                    .get("write-nar-listing")
-                    .map(std::string::String::as_str),
-            )
-            .with_write_debug_info(
-                query
-                    .get("write-debug-info")
-                    .map(std::string::String::as_str),
-            )
+            .with_write_nar_listing(query.get("write-nar-listing").map(String::as_str))
+            .with_write_debug_info(query.get("write-debug-info").map(String::as_str))
             .add_secret_key_files(
                 &query
                     .get("secret-key")
@@ -246,11 +238,7 @@ impl std::str::FromStr for S3CacheConfig {
                     })
                     .unwrap_or_default(),
             )
-            .with_parallel_compression(
-                query
-                    .get("parallel-compression")
-                    .map(std::string::String::as_str),
-            )
+            .with_parallel_compression(query.get("parallel-compression").map(String::as_str))
             .with_compression_level(
                 query
                     .get("compression-level")
@@ -377,7 +365,7 @@ pub struct S3CredentialsConfig {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ConfigReadError {
+pub(crate) enum ConfigReadError {
     #[error("Env var not found: {0}")]
     EnvVarNotFound(#[from] std::env::VarError),
     #[error("Read error: {0}")]
@@ -388,7 +376,7 @@ pub enum ConfigReadError {
     ValueMissing(&'static str),
 }
 
-pub fn read_aws_credentials_file(
+pub(crate) fn read_aws_credentials_file(
     profile: &str,
 ) -> Result<(String, secrecy::SecretString), ConfigReadError> {
     let home_dir = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE"))?;

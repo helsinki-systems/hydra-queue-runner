@@ -2,7 +2,7 @@ use std::sync::{Arc, atomic::Ordering};
 
 use smallvec::SmallVec;
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Pressure {
     avg10: f32,
@@ -22,7 +22,7 @@ impl From<crate::state::Pressure> for Pressure {
     }
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PressureState {
     cpu_some: Option<Pressure>,
@@ -71,7 +71,7 @@ pub struct MachineStats {
 }
 
 impl MachineStats {
-    fn from(item: &std::sync::Arc<crate::state::MachineStats>, now: i64) -> Self {
+    fn from(item: &Arc<crate::state::MachineStats>, now: i64) -> Self {
         let last_ping = item.get_last_ping();
 
         let nr_steps_done = item.get_nr_steps_done();

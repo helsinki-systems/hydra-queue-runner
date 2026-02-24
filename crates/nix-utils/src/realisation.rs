@@ -2,6 +2,8 @@ use hashbrown::HashMap;
 
 #[cxx::bridge(namespace = "nix_utils")]
 mod ffi {
+    #![allow(unreachable_pub, unused_qualifications)]
+
     #[derive(Debug)]
     struct DrvOutput {
         drv_hash: String,
@@ -48,6 +50,7 @@ mod ffi {
 }
 
 #[derive(Clone)]
+#[allow(missing_debug_implementations)]
 pub struct FfiRealisation {
     inner: cxx::SharedPtr<ffi::InternalRealisation>,
 }

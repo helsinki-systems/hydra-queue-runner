@@ -3,8 +3,9 @@ use std::sync::Arc;
 use hashbrown::{HashMap, HashSet};
 use nix_utils::{Derivation, LocalStore, StorePath};
 
+#[derive(Debug)]
 pub struct FodChecker {
-    ca_derivations: parking_lot::RwLock<HashMap<StorePath, nix_utils::Derivation>>,
+    ca_derivations: parking_lot::RwLock<HashMap<StorePath, Derivation>>,
     to_traverse: parking_lot::RwLock<HashSet<StorePath>>,
 
     notify_traverse: tokio::sync::Notify,
@@ -15,7 +16,7 @@ async fn collect_ca_derivations(
     store: &LocalStore,
     drv: &StorePath,
     processed: Arc<parking_lot::RwLock<HashSet<StorePath>>>,
-) -> HashMap<StorePath, nix_utils::Derivation> {
+) -> HashMap<StorePath, Derivation> {
     use futures::StreamExt as _;
 
     {
@@ -68,7 +69,7 @@ impl FodChecker {
         }
     }
 
-    pub(super) fn add_ca_drv_parsed(&self, drv: &StorePath, parsed: &nix_utils::Derivation) {
+    pub(super) fn add_ca_drv_parsed(&self, drv: &StorePath, parsed: &Derivation) {
         if parsed.is_ca() {
             let mut ca = self.ca_derivations.write();
             ca.insert(drv.clone(), parsed.clone());
@@ -80,7 +81,7 @@ impl FodChecker {
         tt.insert(drv.clone());
     }
 
-    async fn traverse(&self, store: &nix_utils::LocalStore) {
+    async fn traverse(&self, store: &LocalStore) {
         use futures::StreamExt as _;
 
         let drvs = {
@@ -119,7 +120,7 @@ impl FodChecker {
                 () = self.notify_traverse.notified() => {},
                 () = tokio::time::sleep(tokio::time::Duration::from_secs(60)) => {},
             };
-            let store = nix_utils::LocalStore::init();
+            let store = LocalStore::init();
             self.traverse(&store).await;
             if let Some(tx) = &self.traverse_done_notifier {
                 let _ = tx.send(()).await;

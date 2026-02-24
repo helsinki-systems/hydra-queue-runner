@@ -3,7 +3,7 @@ use async_compression::{
     tokio::bufread::{BrotliEncoder, BzEncoder, XzEncoder, ZstdEncoder},
 };
 
-pub type CompressorFn<C> =
+pub(crate) type CompressorFn<C> =
     Box<dyn FnOnce(C) -> Box<dyn tokio::io::AsyncRead + Unpin + Send> + Send>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

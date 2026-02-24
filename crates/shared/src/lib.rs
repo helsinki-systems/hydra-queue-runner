@@ -1,7 +1,16 @@
-#![deny(clippy::all)]
-#![deny(clippy::pedantic)]
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
+#![forbid(unsafe_code)]
+#![deny(
+    clippy::all,
+    clippy::pedantic,
+    clippy::expect_used,
+    clippy::unwrap_used,
+    future_incompatible,
+    missing_debug_implementations,
+    nonstandard_style,
+    unreachable_pub,
+    missing_copy_implementations,
+    unused_qualifications
+)]
 #![allow(clippy::missing_errors_doc)]
 
 use std::{os::unix::fs::MetadataExt as _, sync::LazyLock};
@@ -73,11 +82,11 @@ trait FsOperations {
     fn get_metadata(
         &self,
         path: impl AsRef<std::path::Path> + std::fmt::Debug,
-    ) -> impl std::future::Future<Output = Result<FileMetadata, std::io::Error>>;
+    ) -> impl Future<Output = Result<FileMetadata, std::io::Error>>;
     fn get_file_hash(
         &self,
         path: impl Into<std::path::PathBuf> + std::fmt::Debug,
-    ) -> impl std::future::Future<Output = tokio::io::Result<String>>;
+    ) -> impl Future<Output = tokio::io::Result<String>>;
 }
 
 #[derive(Debug, Clone)]
@@ -381,7 +390,7 @@ mod tests {
     #[tokio::test]
     async fn test_build_products() {
         let store = nix_utils::LocalStore::init();
-        let output = nix_utils::StorePath::new("ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
+        let output = StorePath::new("ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
         let line = format!(
             "file iso {}/iso/custom.iso",
             store.print_store_path(&output)
@@ -412,7 +421,7 @@ mod tests {
 
     #[test]
     fn test_parse_invalid_metric() {
-        let output = nix_utils::StorePath::new("ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
+        let output = StorePath::new("ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
         let line = "nix-env.qaCount";
         let store = nix_utils::LocalStore::init();
         let m = parse_metric(&store, line, &output);
@@ -421,7 +430,7 @@ mod tests {
 
     #[test]
     fn test_parse_metric_without_unit() {
-        let output = nix_utils::StorePath::new("ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
+        let output = StorePath::new("ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
         let line = "nix-env.qaCount 4";
         let store = nix_utils::LocalStore::init();
         let m = parse_metric(&store, line, &output).unwrap();
@@ -432,7 +441,7 @@ mod tests {
 
     #[test]
     fn test_parse_metric_with_unit() {
-        let output = nix_utils::StorePath::new("ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
+        let output = StorePath::new("ir3rqjyj5cz3js5lr7d0zw0gn6crzs6w-custom.iso");
         let line = "xzy.time 123.321 s";
         let store = nix_utils::LocalStore::init();
         let m = parse_metric(&store, line, &output).unwrap();

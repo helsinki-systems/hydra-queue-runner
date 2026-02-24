@@ -55,7 +55,7 @@ impl StepAtomicState {
 }
 
 #[derive(Debug)]
-pub struct StepState {
+pub(super) struct StepState {
     deps: HashSet<Arc<Step>>,      // The build steps on which this step depends.
     rdeps: Vec<Weak<Step>>,        // The build steps that depend on this step.
     builds: Vec<Weak<Build>>,      // Builds that have this step as the top-level derivation.
@@ -69,7 +69,7 @@ impl Default for StepState {
 }
 
 impl StepState {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             deps: HashSet::new(),
             rdeps: Vec::new(),
@@ -327,7 +327,7 @@ impl Step {
 
     pub fn add_referring_data(
         &self,
-        referring_build: Option<&Arc<crate::state::Build>>,
+        referring_build: Option<&Arc<Build>>,
         referring_step: Option<&Arc<Self>>,
     ) {
         if referring_build.is_none() && referring_step.is_none() {
@@ -346,7 +346,7 @@ impl Step {
         }
     }
 
-    pub fn get_direct_builds(&self) -> Vec<Arc<crate::state::Build>> {
+    pub fn get_direct_builds(&self) -> Vec<Arc<Build>> {
         let mut direct = Vec::new();
         let state = self.state.read();
         for b in &state.builds {
@@ -372,7 +372,7 @@ impl Step {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Steps {
     inner: Arc<parking_lot::RwLock<HashMap<nix_utils::StorePath, Weak<Step>>>>,
 }
@@ -421,7 +421,7 @@ impl Steps {
         let steps = self.inner.read();
         steps
             .values()
-            .filter_map(std::sync::Weak::upgrade)
+            .filter_map(Weak::upgrade)
             .map(Into::into)
             .collect()
     }
@@ -431,7 +431,7 @@ impl Steps {
         let steps = self.inner.read();
         steps
             .values()
-            .filter_map(std::sync::Weak::upgrade)
+            .filter_map(Weak::upgrade)
             .filter(|v| v.get_runnable())
             .map(Into::into)
             .collect()

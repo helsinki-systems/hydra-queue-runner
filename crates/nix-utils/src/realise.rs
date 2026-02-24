@@ -4,7 +4,7 @@ use tokio_stream::wrappers::LinesStream;
 use crate::BaseStore as _;
 use crate::StorePath;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct BuildOptions {
     max_log_size: u64,
     max_silent_time: i32,
