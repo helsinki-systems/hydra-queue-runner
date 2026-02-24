@@ -1021,9 +1021,9 @@ impl State {
         .await?;
 
         // TODO: redo gc roots, we only need to root until we are done with that build
-        for (_, path) in &output.outputs {
-            self.add_root(path);
-        }
+        // for (_, path) in &output.outputs {
+        //     self.add_root(path);
+        // }
 
         let has_stores = {
             let r = self.remote_stores.read();
@@ -1838,9 +1838,10 @@ impl State {
     async fn handle_cached_build(&self, build: Arc<Build>) -> anyhow::Result<()> {
         let res = self.get_build_output_cached(&build.drv_path).await?;
 
-        for (_, path) in &res.outputs {
-            self.add_root(path);
-        }
+        // TODO: redo gc roots, we only need to root until we are done with that build
+        // for (_, path) in &res.outputs {
+        //     self.add_root(path);
+        // }
 
         {
             let mut db = self.db.get().await?;
@@ -1917,6 +1918,7 @@ impl State {
         Ok(build_output)
     }
 
+    #[allow(unused)]
     fn add_root(&self, drv_path: &nix_utils::StorePath) {
         let roots_dir = self.config.get_roots_dir();
         nix_utils::add_root(&self.store, &roots_dir, drv_path);
