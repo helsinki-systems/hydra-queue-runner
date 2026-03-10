@@ -126,13 +126,10 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let _notify = sd_notify::notify(
-        false,
-        &[
-            sd_notify::NotifyState::Status("Running"),
-            sd_notify::NotifyState::Ready,
-        ],
-    );
+    let _notify = sd_notify::notify(&[
+        sd_notify::NotifyState::Status("Running"),
+        sd_notify::NotifyState::Ready,
+    ]);
 
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
@@ -141,7 +138,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::select! {
         _ = sigint.recv() => {
             tracing::info!("Received sigint - shutting down gracefully");
-            let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
+            let _ = sd_notify::notify(&[sd_notify::NotifyState::Stopping]);
             abort_handle.abort();
             for h in task_abort_handles {
                 h.abort();
@@ -153,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
         }
         _ = sigterm.recv() => {
             tracing::info!("Received sigterm - shutting down gracefully");
-            let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
+            let _ = sd_notify::notify(&[sd_notify::NotifyState::Stopping]);
             abort_handle.abort();
             for h in task_abort_handles {
                 h.abort();

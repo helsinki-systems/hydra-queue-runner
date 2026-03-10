@@ -571,17 +571,14 @@ impl State {
                 .collect::<Vec<_>>()
         };
 
-        let _notify = sd_notify::notify(
-            false,
-            &[
-                sd_notify::NotifyState::Status(&if active.is_empty() {
-                    "Building 0 drvs".into()
-                } else {
-                    format!("Building {} drvs: {}", active.len(), active.join(", "))
-                }),
-                sd_notify::NotifyState::Ready,
-            ],
-        );
+        let _notify = sd_notify::notify(&[
+            sd_notify::NotifyState::Status(&if active.is_empty() {
+                "Building 0 drvs".into()
+            } else {
+                format!("Building {} drvs: {}", active.len(), active.join(", "))
+            }),
+            sd_notify::NotifyState::Ready,
+        ]);
     }
 
     #[tracing::instrument(skip(self), err)]

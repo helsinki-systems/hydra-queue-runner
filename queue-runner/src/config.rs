@@ -565,13 +565,10 @@ pub async fn reload(current_config: &App, filepath: &str, state: &Arc<crate::sta
         Ok(c) => c,
         Err(e) => {
             tracing::warn!("Failed to load new config: {e}");
-            let _notify = sd_notify::notify(
-                false,
-                &[
-                    sd_notify::NotifyState::Status("Reload failed"),
-                    sd_notify::NotifyState::Errno(1),
-                ],
-            );
+            let _notify = sd_notify::notify(&[
+                sd_notify::NotifyState::Status("Reload failed"),
+                sd_notify::NotifyState::Errno(1),
+            ]);
 
             return;
         }
@@ -579,22 +576,16 @@ pub async fn reload(current_config: &App, filepath: &str, state: &Arc<crate::sta
 
     if let Err(e) = state.reload_config_callback(&new_config).await {
         tracing::error!("Config reload failed with {e}");
-        let _notify = sd_notify::notify(
-            false,
-            &[
-                sd_notify::NotifyState::Status("Configuration reloaded failed - Running"),
-                sd_notify::NotifyState::Errno(1),
-            ],
-        );
+        let _notify = sd_notify::notify(&[
+            sd_notify::NotifyState::Status("Configuration reloaded failed - Running"),
+            sd_notify::NotifyState::Errno(1),
+        ]);
         return;
     }
 
     current_config.swap_inner(new_config);
-    let _notify = sd_notify::notify(
-        false,
-        &[
-            sd_notify::NotifyState::Status("Configuration reloaded - Running"),
-            sd_notify::NotifyState::Ready,
-        ],
-    );
+    let _notify = sd_notify::notify(&[
+        sd_notify::NotifyState::Status("Configuration reloaded - Running"),
+        sd_notify::NotifyState::Ready,
+    ]);
 }

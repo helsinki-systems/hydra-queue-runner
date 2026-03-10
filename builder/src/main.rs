@@ -27,7 +27,7 @@ async fn stop_application(
     state: &std::sync::Arc<state::State>,
     abort_handle: &tokio::task::AbortHandle,
 ) {
-    let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
+    let _ = sd_notify::notify(&[sd_notify::NotifyState::Stopping]);
     tracing::info!("Enabling halt");
     state.enable_halt();
     tracing::info!("Aborting all active builds");
@@ -51,13 +51,10 @@ async fn main() -> anyhow::Result<()> {
         async move { grpc::start_bidirectional_stream(state.clone()).await }
     });
 
-    let _notify = sd_notify::notify(
-        false,
-        &[
-            sd_notify::NotifyState::Status("Running"),
-            sd_notify::NotifyState::Ready,
-        ],
-    );
+    let _notify = sd_notify::notify(&[
+        sd_notify::NotifyState::Status("Running"),
+        sd_notify::NotifyState::Ready,
+    ]);
 
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
