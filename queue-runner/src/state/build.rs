@@ -445,7 +445,7 @@ pub struct BuildOutput {
 
     pub products: Vec<BuildProduct>,
     pub outputs: HashMap<String, nix_utils::StorePath>,
-    pub metrics: HashMap<String, BuildMetric>,
+    pub metrics: Vec<BuildMetric>,
 }
 
 impl TryFrom<db::models::BuildOutput> for BuildOutput {
@@ -467,7 +467,7 @@ impl TryFrom<db::models::BuildOutput> for BuildOutput {
             size: v.size.unwrap_or_default() as u64,
             products: vec![],
             outputs: HashMap::with_capacity(6),
-            metrics: HashMap::with_capacity(10),
+            metrics: Vec::with_capacity(10),
         })
     }
 }
@@ -512,15 +512,10 @@ impl From<crate::server::grpc::runner_v1::BuildResultInfo> for BuildOutput {
             outputs,
             metrics: metrics
                 .into_iter()
-                .map(|v| {
-                    (
-                        v.path,
-                        BuildMetric {
-                            name: v.name,
-                            unit: v.unit,
-                            value: v.value,
-                        },
-                    )
+                .map(|v| BuildMetric {
+                    name: v.name,
+                    unit: v.unit,
+                    value: v.value,
                 })
                 .collect(),
         }
@@ -565,15 +560,10 @@ impl BuildOutput {
             metrics: nix_support
                 .metrics
                 .into_iter()
-                .map(|v| {
-                    (
-                        v.path,
-                        BuildMetric {
-                            name: v.name,
-                            unit: v.unit,
-                            value: v.value,
-                        },
-                    )
+                .map(|v| BuildMetric {
+                    name: v.name,
+                    unit: v.unit,
+                    value: v.value,
                 })
                 .collect(),
         })
@@ -617,15 +607,10 @@ pub(super) fn get_mark_build_sccuess_data<'a>(
         metrics: res
             .metrics
             .iter()
-            .map(|(name, m)| {
-                (
-                    name.as_str(),
-                    db::models::BuildMetric {
-                        name: &m.name,
-                        unit: m.unit.as_deref(),
-                        value: m.value,
-                    },
-                )
+            .map(|m| db::models::BuildMetric {
+                name: &m.name,
+                unit: m.unit.as_deref(),
+                value: m.value,
             })
             .collect(),
     }

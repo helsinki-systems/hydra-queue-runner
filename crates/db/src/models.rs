@@ -236,5 +236,5 @@ pub struct MarkBuildSuccessData<'a> {
     pub release_name: Option<&'a str>,
     pub outputs: HashMap<String, String>,
     pub products: Vec<BuildProduct<'a>>,
-    pub metrics: HashMap<&'a str, BuildMetric<'a>>,
+    pub metrics: Vec<BuildMetric<'a>>,
 }

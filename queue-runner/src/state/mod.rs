@@ -1910,7 +1910,7 @@ impl State {
                     .get_build_metrics_for_build_id(build_id)
                     .await?
                     .into_iter()
-                    .map(|v| (v.name.clone(), v.into()))
+                    .map(Into::into)
                     .collect();
 
                 return Ok(res);

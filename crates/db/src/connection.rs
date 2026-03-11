@@ -893,9 +893,9 @@ impl Transaction<'_> {
         for m in &build.metrics {
             self.insert_build_metric(InsertBuildMetric {
                 build_id: build.id,
-                name: m.1.name,
-                unit: m.1.unit,
-                value: m.1.value,
+                name: m.name,
+                unit: m.unit,
+                value: m.value,
                 project: build.project_name,
                 jobset: build.jobset_name,
                 job: build.name,
