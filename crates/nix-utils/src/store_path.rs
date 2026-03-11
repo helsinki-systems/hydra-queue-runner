@@ -1,6 +1,13 @@
 const HASH_LEN: usize = 32;
 
-static STORE_DIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| crate::get_store_dir());
+static STORE_DIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let dir = crate::get_store_dir();
+    if dir.ends_with('/') {
+        dir
+    } else {
+        format!("{dir}/")
+    }
+});
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct StorePath {
@@ -14,13 +21,13 @@ impl StorePath {
             || {
                 debug_assert!(p.len() > HASH_LEN + 1);
                 Self {
-                    base_name: p.to_string(),
+                    base_name: p.strip_prefix('/').unwrap_or(p).to_string(),
                 }
             },
             |postfix| {
                 debug_assert!(postfix.len() > HASH_LEN + 1);
                 Self {
-                    base_name: postfix.to_string(),
+                    base_name: postfix.strip_prefix('/').unwrap_or(postfix).to_string(),
                 }
             },
         )

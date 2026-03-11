@@ -97,7 +97,10 @@ impl State {
         )
         .await?;
 
-        let _ = fs_err::tokio::create_dir_all(&log_dir).await;
+        match fs_err::tokio::create_dir_all(&log_dir).await {
+            Ok(()) => tracing::info!("successfully created hydra log_dir={log_dir:?}"),
+            Err(e) => tracing::error!("Failed to create hydra log_dir={log_dir:?} e={e}"),
+        }
 
         let mut remote_stores = vec![];
         for uri in config.get_remote_store_addrs() {
