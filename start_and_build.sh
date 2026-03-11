@@ -11,10 +11,10 @@ get_random_port() {
 cleanup() {
     echo "Cleaning up processes..."
     if [[ -n "${QUEUE_RUNNER_PID:-}" ]]; then
-        kill -9 "${QUEUE_RUNNER_PID}" 2>/dev/null || true
+        kill "${QUEUE_RUNNER_PID}" 2>/dev/null || true
     fi
     if [[ -n "${BUILDER_PID:-}" ]]; then
-        kill -9 "${BUILDER_PID}" 2>/dev/null || true
+        kill "${BUILDER_PID}" 2>/dev/null || true
     fi
     wait 2>/dev/null || true
     echo "Cleanup complete"
@@ -37,19 +37,19 @@ echo "Using GRPC port: ${GRPC_PORT}"
 echo "Using HTTP port: ${HTTP_PORT}"
 
 echo "Starting queue-runner..."
-queue-runner \
+RUST_LOG=queue_runner=debug,info NO_COLOR=1 queue-runner \
     --rest-bind "[::]:${HTTP_PORT}" \
     --grpc-bind "[::]:${GRPC_PORT}" \
+    --config-path <(echo "dbUrl= \"${HYDRA_DATABASE_URL}\"") \
     --disable-queue-monitor-loop &
 QUEUE_RUNNER_PID=$!
 
-sleep 5
+sleep 2
 echo "Starting builder..."
-builder --gateway-endpoint "http://[::]:${GRPC_PORT}" &
+RUST_LOG=builder=debug,info NO_COLOR=1 builder --gateway-endpoint "http://[::]:${GRPC_PORT}" &
 BUILDER_PID=$!
 
 echo "Waiting for services to start..."
-sleep 5
 
 echo "Services started successfully!"
 echo "queue-runner PID: ${QUEUE_RUNNER_PID}"
@@ -65,6 +65,7 @@ submit_and_monitor_build() {
         --json "{\"buildId\": ${build_id}}" \
         "http://[::1]:${HTTP_PORT}/build_one"
     echo "Monitoring build ${build_id}..."
+    sleep 2 # wait a couple of seconds till job is dispatched
 
     while true; do
         local status_response
@@ -77,10 +78,10 @@ submit_and_monitor_build() {
             break
         elif [[ "${status_response}" == *"true"* ]] || [[ "${status_response}" == *"\"active\": true"* ]]; then
             echo "Build ${build_id} is still active, waiting..."
-            sleep 10
+            sleep 2
         else
             echo "Unexpected status response: ${status_response}"
-            sleep 5
+            sleep 2
         fi
     done
 
