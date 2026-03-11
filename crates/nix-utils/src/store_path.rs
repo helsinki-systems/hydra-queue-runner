@@ -1,5 +1,7 @@
 const HASH_LEN: usize = 32;
 
+static STORE_DIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| crate::get_store_dir());
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct StorePath {
     base_name: String,
@@ -8,7 +10,7 @@ pub struct StorePath {
 impl StorePath {
     #[must_use]
     pub fn new(p: &str) -> Self {
-        p.strip_prefix("/nix/store/").map_or_else(
+        p.strip_prefix(STORE_DIR.as_str()).map_or_else(
             || {
                 debug_assert!(p.len() > HASH_LEN + 1);
                 Self {

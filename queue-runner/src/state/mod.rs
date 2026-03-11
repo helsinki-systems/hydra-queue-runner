@@ -82,6 +82,8 @@ impl State {
     pub async fn new(tracing_guard: &hydra_tracing::TracingGuard) -> anyhow::Result<Arc<Self>> {
         let store = nix_utils::LocalStore::init();
         nix_utils::set_verbosity(1);
+        tracing::info!("LocalStore dir={}", nix_utils::get_store_dir());
+
         let cli = Cli::new();
         if cli.status {
             tracing_guard.change_log_level(hydra_tracing::EnvFilter::new("error"));
@@ -1498,7 +1500,11 @@ impl State {
         }
 
         if !self.store.is_valid_path(&build.drv_path).await {
-            tracing::error!("aborting GC'ed build {}", build.id);
+            tracing::error!(
+                "aborting GC'ed build id={} path={}",
+                build.id,
+                self.store.print_store_path(&build.drv_path)
+            );
             if !build.get_finished_in_db() {
                 match self.db.get().await {
                     Ok(mut conn) => {
