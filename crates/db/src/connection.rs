@@ -941,6 +941,13 @@ impl Transaction<'_> {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, build_id), err)]
+    pub async fn notify_build_started(&mut self, build_id: i32) -> sqlx::Result<()> {
+        self.notify_any("build_started", &build_id.to_string())
+            .await?;
+        Ok(())
+    }
+
     #[tracing::instrument(skip(self, build_id, dependent_ids,), err)]
     pub async fn notify_build_finished(
         &mut self,

@@ -309,8 +309,8 @@ impl State {
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("failed to construct log path string."))?
             .clone_into(&mut job.result.log_file);
+        let mut db = self.db.get().await?;
         let step_nr = {
-            let mut db = self.db.get().await?;
             let mut tx = db.begin_transaction().await?;
 
             let step_nr = tx
@@ -337,6 +337,11 @@ impl State {
         };
         job.step_nr = step_nr;
 
+        {
+            let mut tx = db.begin_transaction().await?;
+            tx.notify_build_started(build_id).await?;
+            tx.commit().await?;
+        }
         tracing::info!(
             "Submitting build drv={drv} on machine={} hostname={} build_id={build_id} step_nr={step_nr}",
             machine.id,
