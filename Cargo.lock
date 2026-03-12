@@ -1896,7 +1896,7 @@ dependencies = [
 [[package]]
 name = "nix-diff"
 version = "0.1.0"
-source = "git+https://github.com/mic92/nix-diff-rs.git?rev=7b79a68963fd7fcb48a57071b52bc90bd8d60609#7b79a68963fd7fcb48a57071b52bc90bd8d60609"
+source = "git+https://github.com/mic92/nix-diff-rs.git?rev=6a93ea5d8b3c9e2346ed28dd0a25066672052365#6a93ea5d8b3c9e2346ed28dd0a25066672052365"
 dependencies = [
  "anyhow",
  "memchr",

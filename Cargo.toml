@@ -36,7 +36,7 @@ jiff = { version = "0.2", features = ["serde"] }
 listenfd = "1"
 moka = { version = "0.12", features = ["future"] }
 nix = { version = "0.31", default-features = false }
-nix-diff = { git = "https://github.com/mic92/nix-diff-rs.git", rev = "7b79a68963fd7fcb48a57071b52bc90bd8d60609" }
+nix-diff = { git = "https://github.com/mic92/nix-diff-rs.git", rev = "6a93ea5d8b3c9e2346ed28dd0a25066672052365" }
 object_store = "0.13.0"
 opentelemetry = "0.31.0"
 opentelemetry-http = "0.31.0"

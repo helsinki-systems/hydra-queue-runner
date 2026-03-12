@@ -58,9 +58,7 @@
         );
         cargoLock = {
           lockFile = ./Cargo.lock;
-          outputHashes = {
-            "nix-diff-0.1.0" = "sha256-heUqcAnGmMogyVXskXc4FMORb8ZaK6vUX+mMOpbfSUw=";
-          };
+          outputHashes."nix-diff-0.1.0" = "sha256-VkvNPsxonMsu1hHJ202wBsshZareL3GCuGqNyOd1pME=";
         };
         meta = {
           description = "Hydra Queue-Runner implemented in rust";
