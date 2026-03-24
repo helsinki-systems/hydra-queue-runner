@@ -1,5 +1,7 @@
 # Hydra Queue-Runner
 
+> This was merged into hydra https://github.com/NixOS/hydra/pull/1579
+
 C++ port to Rust and no longer using remote `nix-store --write --serve`
 protocol but communication over GRPC. Implementation is still **work in
 progress** and is currently being tested. Also not yet feature complete.
